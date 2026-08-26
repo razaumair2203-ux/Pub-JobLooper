@@ -53,6 +53,15 @@ def main():
                        'privacy-probe.txt' in export_public._identifier_problems(
                            mirror, {'private candidate identifier'})))
         os.remove(probe)
+        owner = export_public.PUBLIC_REPOSITORY_URL.split('/')[-2]
+        checks.append(('only the exact public repository URL may contain its owner handle',
+                       not export_public._identifier_problems(mirror, {owner})))
+        with open(probe, 'w', encoding='utf-8') as stream:
+            stream.write('Repository owner mentioned outside the canonical URL: ' + owner)
+        checks.append(('public owner-handle exception does not permit arbitrary mentions',
+                       'privacy-probe.txt' in export_public._identifier_problems(
+                           mirror, {owner})))
+        os.remove(probe)
         try:
             export_public.export(target)
             overwrite_refused = False

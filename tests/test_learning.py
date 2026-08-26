@@ -7,7 +7,7 @@ import tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-from core import learning, store, vec
+from core import learning, preflight, preview, store, vec
 
 
 def main():
@@ -23,6 +23,9 @@ def main():
         app = {
             'app_id': slug, 'company': jd['company'], 'role': jd['title'],
             'applied': '2026-01-02', 'status': 'rejected', 'hypotheses': [],
+            'submission_mode': 'exact_approved_artefact',
+            'release_manifest_sha256': 'a' * 64, 'cv_sha256': 'b' * 64,
+            'identity': 'systems_engineer', 'coverage': 0.82,
             'exclude_from_analytics': False,
         }
         store.write_jsonl(store.p('index', 'applications.jsonl'), [app])
@@ -77,6 +80,53 @@ def main():
                        retained[0]['app_id'] == slug
                        and bool(retained[0]['revisions'][-1]['company_context'])
                        and bool(retained[0]['revisions'][-1]['unknowns'])))
+        future_jd = dict(jd)
+        future_jd['_slug'] = 'future-similar-application'
+        questions = preflight.questions(
+            future_jd, {'requirements': []},
+            {'primary': 'systems_engineer', 'ranked': [('systems_engineer', 1.0)]})
+        checks.append(('retained rejection learning becomes a pre-generation question',
+                       any(row['id'].startswith('PRIOR-REJECTION-')
+                           for row in questions)))
+        negative_preview = '\n'.join(preview.outcome_learning_lines({
+            'learning_signals': lessons, 'positive_outcome_signals': []}))
+        checks.append(('rejection-only preview retains its evidence and unknowns',
+                       'PRIOR LEARNING SIGNALS' in negative_preview
+                       and 'HARD_GATE' in negative_preview
+                       and 'still unknown' in negative_preview
+                       and 'PRIOR POSITIVE OUTCOMES' not in negative_preview))
+
+        current = next(row for row in store.applications() if row['app_id'] == slug)
+        current['status'] = 'interview'
+        current['responded'] = '2026-01-10'
+        current['days'] = 8
+        store.write_jsonl(store.p('index', 'applications.jsonl'), [current])
+        positive = learning.relevant_positive_outcomes(future_jd)
+        checks.append(('exact positive outcome surfaces without a causal claim',
+                       bool(positive) and positive[0]['status'] == 'interview'
+                       and 'unknown' in positive[0]['observation']))
+        positive_preview = '\n'.join(preview.outcome_learning_lines({
+            'learning_signals': [], 'positive_outcome_signals': positive}))
+        checks.append(('positive-only preview remains an observation, not a cause',
+                       'PRIOR POSITIVE OUTCOMES' in positive_preview
+                       and 'causal reasoning is unknown' in positive_preview
+                       and 'PRIOR LEARNING SIGNALS' not in positive_preview))
+        positive_questions = preflight.questions(
+            future_jd, {'requirements': []},
+            {'primary': 'systems_engineer', 'ranked': [('systems_engineer', 1.0)]})
+        checks.append(('positive outcome becomes a bounded pre-generation question',
+                       any(row['id'].startswith('PRIOR-POSITIVE-')
+                           and 'does not prove why' in row['question']
+                           for row in positive_questions)))
+        try:
+            learning.record_hypothesis(
+                slug, 'ATS_KEYWORD', 0.5, 'Invalid success-cause hypothesis.',
+                'reviewer', ['Interview'], ['Cause unknown'])
+            positive_hypothesis_refused = False
+        except ValueError:
+            positive_hypothesis_refused = True
+        checks.append(('rejection hypotheses are refused for positive outcomes',
+                       positive_hypothesis_refused))
         checks.append(('outcome learning never mutates career truth',
                        store.truth_context()['truth_sha256'] == truth_before))
 

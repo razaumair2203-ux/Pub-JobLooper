@@ -9,6 +9,7 @@ import tempfile
 
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PUBLIC_REPOSITORY_URL = 'https://github.com/razaumair2203-ux/joblooper-skill'
 ALLOW_FILES = {
     '.gitattributes', '.gitignore', 'CONTRIBUTING.md', 'LICENSE', 'README.md',
     'SECURITY.md', 'SKILL.md', 'USER-GUIDE.md', 'agents', 'core', 'examples', 'jl.py',
@@ -121,6 +122,11 @@ def _identifier_problems(root, tokens=None):
                     text = stream.read().casefold()
             except (OSError, UnicodeDecodeError):
                 continue
+            # The public repository's own canonical URL necessarily contains
+            # its owner handle. Remove only that exact published address before
+            # scanning; the same handle anywhere else remains a privacy hit.
+            for allowed in (PUBLIC_REPOSITORY_URL + '.git', PUBLIC_REPOSITORY_URL):
+                text = text.replace(allowed.casefold(), '')
             if any(token in text for token in tokens):
                 problems.append(os.path.relpath(path, root).replace('\\', '/'))
     return sorted(set(problems))

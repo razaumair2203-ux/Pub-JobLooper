@@ -1,4 +1,4 @@
-"""Versioned rejection hypotheses and cautious cross-application learning.
+"""Versioned outcome evidence and cautious cross-application learning.
 
 An outcome is evidence; an explanation is a hypothesis.  The system keeps the
 two separate so a rejection cannot silently become career truth or alter a CV.
@@ -11,6 +11,9 @@ from . import release, store, vec
 HYPOTHESIS_STATUSES = {'OPEN', 'RETAINED_PLAUSIBLE', 'CONFIRMED', 'DISMISSED'}
 ROUND_STAGES = (
     'OBSERVATION', 'COMPETING_EXPLANATIONS', 'CHALLENGE', 'DISPOSITION')
+NEGATIVE_OUTCOMES = {'rejected', 'ghosted'}
+POSITIVE_OUTCOMES = {'interview', 'progressed', 'offer'}
+MINIMUM_RELEVANT_SIMILARITY = 0.35
 
 
 def _application(slug):
@@ -26,6 +29,12 @@ def _save(slug, apps, record):
     package = store.approved_dir(slug)
     if package:
         store.write_json(release.record_path(package, 'OUTCOME.json', create=True), record)
+
+
+def _exact_submission(record):
+    return (record.get('submission_mode') == 'exact_approved_artefact'
+            and bool(record.get('release_manifest_sha256'))
+            and bool(record.get('cv_sha256') or record.get('cv_sha')))
 
 
 def _normalise_hypotheses(record):
@@ -72,6 +81,10 @@ def record_hypothesis(slug, cause, confidence, note, author,
     apps, record = _application(slug)
     if not record:
         raise ValueError('application has not been submitted/logged')
+    if not _exact_submission(record):
+        raise ValueError('outcome learning requires one exact submitted CV and package manifest')
+    if str(record.get('status') or '').lower() not in NEGATIVE_OUTCOMES:
+        raise ValueError('rejection hypotheses are allowed only for rejected or ghosted applications')
     hypotheses = _normalise_hypotheses(record)
     existing = next((h for h in hypotheses if h['id'] == hypothesis_id), None)
     if hypothesis_id and not existing:
@@ -175,7 +188,9 @@ def relevant_lessons(jd, exclude_slug=None, top=3):
         if slug == exclude_slug:
             continue
         app = by_app.get(slug)
-        if not app:
+        if (not app or not _exact_submission(app)
+                or str(app.get('status') or '').lower() not in NEGATIVE_OUTCOMES
+                or similarity < MINIMUM_RELEVANT_SIMILARITY):
             continue
         for hypothesis in _normalise_hypotheses(app):
             if hypothesis.get('status') not in {'CONFIRMED', 'RETAINED_PLAUSIBLE'}:
@@ -191,11 +206,44 @@ def relevant_lessons(jd, exclude_slug=None, top=3):
     return lessons[:top]
 
 
+def relevant_positive_outcomes(jd, exclude_slug=None, top=3):
+    """Return exact similar applications that advanced, without inferring why."""
+    bm = vec.job_index()
+    if not bm:
+        return []
+    query = ' '.join([jd.get('company', ''), jd.get('title', '')]
+                     + [r.get('text', '') for r in jd.get('requirements', [])])
+    by_app = {a.get('app_id'): a for a in store.applications()
+              if not a.get('exclude_from_analytics')}
+    rows = []
+    for slug, similarity in bm.normed(query, top=12):
+        if slug == exclude_slug or similarity < MINIMUM_RELEVANT_SIMILARITY:
+            continue
+        app = by_app.get(slug)
+        status = str((app or {}).get('status') or '').lower()
+        if not app or not _exact_submission(app) or status not in POSITIVE_OUTCOMES:
+            continue
+        rows.append({
+            'app_id': slug, 'company': app.get('company'), 'role': app.get('role'),
+            'similarity': similarity, 'status': status,
+            'responded': app.get('responded'), 'days': app.get('days'),
+            'identity': app.get('identity'), 'coverage': app.get('coverage'),
+            'submitted_manifest_sha256': app.get('release_manifest_sha256'),
+            'observation': (f"The exact submitted application reached {status}; "
+                            "the employer's causal reasoning is unknown."),
+        })
+    rank = {'offer': 3, 'interview': 2, 'progressed': 1}
+    rows.sort(key=lambda row: (-row['similarity'], -rank[row['status']],
+                               str(row.get('responded') or '')))
+    return rows[:top]
+
+
 def confirmed_lessons():
     """Return every retained review signal with its source and evidence."""
     rows = []
     for app in store.applications():
-        if app.get('exclude_from_analytics'):
+        if (app.get('exclude_from_analytics') or not _exact_submission(app)
+                or str(app.get('status') or '').lower() not in NEGATIVE_OUTCOMES):
             continue
         for hypothesis in _normalise_hypotheses(app):
             if hypothesis.get('status') in {'CONFIRMED', 'RETAINED_PLAUSIBLE'}:

@@ -409,6 +409,8 @@ def cmd_plan(args):
         'reviewer': preflight_record['reviewer'],
     }
     m['learning_signals'] = learning.relevant_lessons(jd, exclude_slug=slug)
+    m['positive_outcome_signals'] = learning.relevant_positive_outcomes(
+        jd, exclude_slug=slug)
     m['_inputs'] = store.generation_fingerprint(jd)
     cv = build.assemble(jd, m, target_pages=pages)
     context_path = os.path.join(d, 'EMPLOYER-CONTEXT.json')
@@ -847,6 +849,9 @@ def cmd_outcome(args):
     rec = next((a for a in apps if a['app_id'] == slug), None)
     if not rec:
         raise SystemExit(f"'{slug}' was never applied to. Run `jl apply {slug}` first.")
+    if args.cat and args.status not in learning.NEGATIVE_OUTCOMES:
+        raise SystemExit(
+            'OUTCOME REFUSED — rejection hypotheses apply only to rejected or ghosted outcomes')
 
     rec['status'] = args.status
     rec['responded'] = args.date or store.today()
@@ -911,8 +916,14 @@ def cmd_outcome(args):
                 say(f"    {sc:.2f}  {s[:52]:52} {o.get('status','not applied'):12}"
                     f" {o.get('identity','')}")
     say('')
-    say(f"  Discuss and save reasoning: jl reason {slug} "
-        f"--cause <{'|'.join(FAIL_CATS[:4])}|...> --note \"...\"")
+    if args.status in learning.NEGATIVE_OUTCOMES:
+        say(f"  Discuss and save reasoning: jl reason {slug} "
+            f"--cause <{'|'.join(FAIL_CATS[:4])}|...> --note \"...\"")
+    elif args.status in learning.POSITIVE_OUTCOMES:
+        say('  This exact advancing outcome will surface on sufficiently similar future jobs.')
+        say('  It records what advanced, not why the employer advanced it.')
+    else:
+        say('  Outcome recorded; no causal lesson was inferred.')
 
 
 def cmd_reason(args):
@@ -1001,14 +1012,18 @@ def cmd_response(args):
     say(f"  stated reason  {response.get('employer_stated_reason') or 'none explicitly stated'}")
     say(f"  dossier   {dossier_path}")
     say('')
-    say('No rejection cause was invented. Discuss hypotheses, evidence, counter-evidence and unknowns,')
-    say(f"then save each revision with `jl reason {slug} ...`.")
+    if response['status'] == 'rejected':
+        say('No rejection cause was invented. Discuss hypotheses, evidence, counter-evidence and unknowns,')
+        say(f"then save each revision with `jl reason {slug} ...`.")
+    else:
+        say('The advancing outcome is recorded against the exact package and will surface for similar jobs.')
+        say('It is evidence of progression, not evidence of why the employer progressed it.')
 
 
 def cmd_lessons(args):
     """Show confirmed, reusable lessons and the cases that support them."""
     rows = learning.confirmed_lessons()
-    say('CONFIRMED LESSONS — hypotheses, never career truth')
+    say('RETAINED REVIEW SIGNALS — hypotheses, never career truth')
     if not rows:
         say('  none')
         return 0

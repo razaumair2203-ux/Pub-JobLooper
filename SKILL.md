@@ -25,7 +25,9 @@ must be discoverable; copying only `SKILL.md` is not a functional installation.
    unavailable JD from memory. Use the unique application key returned by the
    command.
 3. Run `python jl.py preflight <key>` before planning. Ask only its material
-   questions; if the answer adds a candidate fact, update and reapprove truth.
+   questions, including retained risks or exact positive outcomes from
+   sufficiently similar applications; if the answer adds a candidate fact,
+   update and reapprove truth. Prior outcomes are context, never causal proof.
    Then run `python jl.py plan <key>` once per unchanged truth/JD/feedback state.
    Treat registered atomic truth records as
    candidate ground truth; archives are provenance inputs, not a runtime search
@@ -47,9 +49,11 @@ must be discoverable; copying only `SKILL.md` is not a functional installation.
    letter. Never guess a sent file.
 8. On a response, use `response` and `case` to correlate the exact JD, company,
    submitted CV and submitted cover letter. If correlation is ambiguous, say
-   so and stop. Record hypotheses with `reason`; confidence describes evidential
-   support, never a claimed rejection probability. Follow the three-pass
-   protocol in [rejection learning](references/rejection-learning.md).
+   so and stop. For rejection or ghosting, record hypotheses with `reason`;
+   confidence describes evidential support, never a claimed rejection
+   probability. For interview, progression or offer, retain only the observed
+   outcome and exact package—never invent a success cause. Follow the protocol
+   in [outcome learning](references/rejection-learning.md).
 
 See [README.md](README.md) for commands, schemas, gates and folder layout.
 When helping a person operate or onboard the system, use the concise

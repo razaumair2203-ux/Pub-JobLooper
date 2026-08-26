@@ -81,6 +81,9 @@ python jl.py case <exact-job-key>
 Rejection explanations remain hypotheses. Joblooper requires competing causes,
 counterevidence, unknowns and multiple substantive reasoning passes before a
 lesson can be retained. Only an employer-stated reason may be marked confirmed.
+Interview, progression and offer outcomes are retained as exact observations
+and may become pre-generation questions for a similar future job; the system
+never treats progression as proof of why the employer selected the application.
 
 ## Safety expectations
 

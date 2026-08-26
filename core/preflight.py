@@ -43,6 +43,30 @@ def questions(jd, mapping, identity):
                                    jd_text, re.I):
         rows.append({'id': 'PROFILE-AVAILABILITY', 'kind': 'CANDIDATE_CONTEXT',
                      'question': open_question})
+    # Outcome history is contextual evidence, never candidate truth. Surface it
+    # before prose generation so the user can challenge a recurring risk or
+    # decide whether verified evidence from an advancing package deserves reuse.
+    from . import learning
+    current_slug = jd.get('_slug')
+    for n, lesson in enumerate(
+            learning.relevant_lessons(jd, exclude_slug=current_slug, top=2), 1):
+        rows.append({
+            'id': f'PRIOR-REJECTION-{n}', 'kind': 'PRIOR_OUTCOME_CONTEXT',
+            'question': (
+                f"A {lesson['similarity']:.2f}-similar application to "
+                f"{lesson.get('company')} retained the {lesson.get('cause')} hypothesis: "
+                f"{lesson.get('summary')} Review whether new evidence changes this risk; "
+                "do not treat the hypothesis as an employer-stated fact."),
+        })
+    for n, outcome in enumerate(
+            learning.relevant_positive_outcomes(jd, exclude_slug=current_slug, top=2), 1):
+        rows.append({
+            'id': f'PRIOR-POSITIVE-{n}', 'kind': 'PRIOR_OUTCOME_CONTEXT',
+            'question': (
+                f"A {outcome['similarity']:.2f}-similar exact application to "
+                f"{outcome.get('company')} reached {outcome.get('status')}. Review whether "
+                "its verified positioning remains relevant here; the outcome does not prove why it advanced."),
+        })
     return rows
 
 

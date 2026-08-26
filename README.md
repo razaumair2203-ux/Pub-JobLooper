@@ -7,6 +7,21 @@ loads one reviewed truth registry, maps it to the captured job description,
 assembles only approved wording, shows the complete CV and letter in chat, and
 creates sendable files only after explicit sign-off.
 
+## Why use AI here?
+
+When employers use AI-assisted applicant tracking and screening, candidates can
+use AI too—not to trick an ATS, invent experience or spray keywords, but to make
+their own process equally systematic. Joblooper turns scattered CVs, evidence,
+job descriptions, decisions and feedback into one rational application
+lifecycle from first review through interview, offer, rejection or withdrawal.
+
+There is no magic score and no claim to know a hidden hiring decision. The
+system preserves what was known, what was submitted and what outcome followed.
+It separates employer-stated facts from hypotheses, challenges rejection ideas
+over multiple passes, and surfaces materially similar prior outcomes before the
+next CV is generated. The result is continuity and accountable learning rather
+than starting again from chat memory.
+
 ## Start here
 
 - **Install:** [installation and portability](references/installation.md)
@@ -199,7 +214,9 @@ Correlation requires an exact reference or unique company-and-role match, a
 captured JD, verified package and exact submission receipt. Ambiguity stops the
 workflow. Employer-stated reasons remain facts; explanations are separate,
 append-only hypotheses with evidence, counter-evidence and unknowns. Only
-explicitly confirmed lessons influence future review.
+retained, challenged lessons influence future review. Interview, progression
+and offer outcomes also surface for sufficiently similar future jobs, but only
+as observations of what advanced—not as claims about why it advanced.
 
 ## Skill installation and verification
 

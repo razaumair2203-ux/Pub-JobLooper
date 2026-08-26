@@ -1,4 +1,4 @@
-# Rejection-risk review and learning
+# Outcome-risk review and learning
 
 ## Before application
 
@@ -38,3 +38,15 @@ and unknowns. Without an explicit employer-stated reason, use
 Retained lessons surface on similar future applications as review questions.
 They never mutate career truth, fabricate a CV fact or claim a probability of
 rejection.
+
+## After a positive outcome
+
+Interview, progression and offer responses use the same exact correlation to a
+captured JD, immutable submitted package and submission receipt. A sufficiently
+similar future application surfaces that observed outcome during preflight so
+the user can review whether the earlier verified positioning is still useful.
+
+A positive outcome proves only that the exact application advanced. It does not
+prove which wording, credential, person or process caused the decision. Do not
+create rejection hypotheses for positive or withdrawn outcomes, convert success
+into candidate truth, or copy old wording when it is not relevant to the new JD.

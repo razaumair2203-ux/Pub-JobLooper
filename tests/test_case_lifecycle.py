@@ -100,6 +100,11 @@ def main():
             ambiguous_refused = True
         checks.append(('multiple company-and-role matches are refused as ambiguous',
                        ambiguous_refused))
+        checks.append(('interview and offer responses are classified as positive outcomes',
+                       employer_response.classify_status(
+                           'We invite you to an interview.') == 'interview'
+                       and employer_response.classify_status(
+                           'We are pleased to extend an offer of employment.') == 'offer'))
         store.write_jsonl(store.p('index', 'applications.jsonl'),
                           [app for app in store.applications()
                            if app['app_id'] != duplicate_slug])

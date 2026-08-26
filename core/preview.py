@@ -40,6 +40,47 @@ def _omission_lines(cv):
     return lines or ['- none']
 
 
+def outcome_learning_lines(mapping):
+    """Render prior outcomes independently so either class can stand alone."""
+    lines = []
+    lessons = mapping.get('learning_signals') or []
+    if lessons:
+        lines += ['## PRIOR LEARNING SIGNALS — contextual, not ground truth', '',
+                  'Retained, challenged hypotheses from similar applications; use them '
+                  'to ask better questions, not to rewrite facts.', '']
+        for lesson in lessons:
+            lines.append(
+                f"- {lesson['similarity']:.2f} similar · {lesson['company']} · "
+                f"**{lesson['cause']}** ({lesson['confidence']:.0%}) — "
+                f"{lesson['summary'][:120]}")
+            revision = lesson.get('last_revision') or {}
+            context = ((revision.get('company_context') or [])
+                       + (revision.get('profile_factors') or [])
+                       + (revision.get('other_factors') or []))
+            if context:
+                lines.append('      context: ' + '; '.join(context)[:180])
+            if revision.get('unknowns'):
+                lines.append('      still unknown: '
+                             + '; '.join(revision['unknowns'])[:160])
+        lines.append('')
+
+    positive = mapping.get('positive_outcome_signals') or []
+    if positive:
+        lines += ['## PRIOR POSITIVE OUTCOMES — observations, not causes', '',
+                  'Exact submitted applications that advanced and are materially '
+                  'similar; reuse only still-relevant verified positioning.', '']
+        for outcome in positive:
+            timing = (f" after {outcome['days']} days"
+                      if outcome.get('days') is not None else '')
+            lines.append(
+                f"- {outcome['similarity']:.2f} similar · {outcome['company']} · "
+                f"**{outcome['status']}**{timing} · identity "
+                f"`{outcome.get('identity')}`")
+            lines.append('      observation: ' + outcome['observation'])
+        lines.append('')
+    return lines
+
+
 def render(jd, m, cv, slug, phase='plan'):
     by_id, recs = store.anchors()
     section_contracts = {s.get('name'): s for s in store.sections().get('sections', [])}
@@ -185,24 +226,7 @@ def render(jd, m, cv, slug, phase='plan'):
             o.append(f"- …and {len(rs)-12} more; all remain available in MATCH.json")
         o.append('')
 
-    lessons = m.get('learning_signals') or []
-    if lessons:
-        o.append('## PRIOR LEARNING SIGNALS — contextual, not ground truth')
-        o.append('')
-        o.append('Confirmed review hypotheses from similar applications; use them to ask better questions, not to rewrite facts.')
-        o.append('')
-        for lesson in lessons:
-            o.append(f"- {lesson['similarity']:.2f} similar · {lesson['company']} · "
-                     f"**{lesson['cause']}** ({lesson['confidence']:.0%}) — {lesson['summary'][:120]}")
-            revision = lesson.get('last_revision') or {}
-            context = ((revision.get('company_context') or [])
-                       + (revision.get('profile_factors') or [])
-                       + (revision.get('other_factors') or []))
-            if context:
-                o.append('      context: ' + '; '.join(context)[:180])
-            if revision.get('unknowns'):
-                o.append('      still unknown: ' + '; '.join(revision['unknowns'])[:160])
-        o.append('')
+    o += outcome_learning_lines(m)
 
     # ---- gate results -------------------------------------------------
     results, blocked = gates.run_all(cv, m)
