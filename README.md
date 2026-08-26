@@ -208,7 +208,7 @@ The repository root is a complete standalone Codex skill—not merely a
 into the current user-scoped discovery path:
 
 ```bash
-git clone <repository-url> "$HOME/.agents/skills/joblooper"
+git clone https://github.com/razaumair2203-ux/joblooper-skill.git "$HOME/.agents/skills/joblooper"
 cd "$HOME/.agents/skills/joblooper"
 python jl.py doctor
 python jl.py check

@@ -9,7 +9,7 @@ Authenticate Git only when the repository is private, then clone directly into
 the current Codex user-scoped skill location:
 
 ```text
-git clone <repository-url> ~/.agents/skills/joblooper
+git clone https://github.com/razaumair2203-ux/joblooper-skill.git ~/.agents/skills/joblooper
 cd ~/.agents/skills/joblooper
 python jl.py init   # public clone only
 python jl.py doctor
@@ -18,7 +18,7 @@ python jl.py doctor
 On Windows PowerShell:
 
 ```powershell
-git clone <repository-url> "$env:USERPROFILE\.agents\skills\joblooper"
+git clone https://github.com/razaumair2203-ux/joblooper-skill.git "$env:USERPROFILE\.agents\skills\joblooper"
 Set-Location "$env:USERPROFILE\.agents\skills\joblooper"
 python jl.py init   # public clone only
 python jl.py doctor
