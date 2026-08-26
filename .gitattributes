@@ -1,0 +1,12 @@
+* text=auto eol=lf
+
+# Application records are byte-hashed before release. Git must transport their
+# exact bytes; line-ending normalization would make a clean clone look tampered.
+/.joblooper/** -text
+
+*.docx binary
+*.pdf binary
+*.jpg binary
+*.jpeg binary
+*.png binary
+*.zip binary

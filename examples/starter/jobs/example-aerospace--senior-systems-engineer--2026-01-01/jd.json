@@ -1,0 +1,16 @@
+{
+  "title":"Senior Systems Engineer",
+  "company":"Example Aerospace",
+  "url":"https://example.com/jobs/senior-systems-engineer",
+  "ingested":"2026-01-01T00:00:00+00:00",
+  "raw_chars":453,
+  "_slug":"example-aerospace--senior-systems-engineer--2026-01-01",
+  "requirements":[
+    {"n":1,"text":"Lead requirements, interfaces, integration, verification and acceptance.","kind":"responsibility","hard_gate":false,"gate_type":"evidence"},
+    {"n":2,"text":"Maintain configuration control across system changes.","kind":"responsibility","hard_gate":false,"gate_type":"evidence"},
+    {"n":3,"text":"Bachelor degree in Electrical or Electronic Engineering.","kind":"mandatory","hard_gate":true,"gate_type":"evidence"},
+    {"n":4,"text":"Extensive systems-integration experience.","kind":"mandatory","hard_gate":false,"gate_type":"evidence"},
+    {"n":5,"text":"Experience leading compliance and certification evidence through qualification and acceptance reviews.","kind":"mandatory","hard_gate":true,"gate_type":"evidence"},
+    {"n":6,"text":"Project-management certification.","kind":"preferred","hard_gate":false,"gate_type":"evidence"}
+  ]
+}

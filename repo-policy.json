@@ -1,0 +1,8 @@
+{
+  "_schema": "joblooper.repository-policy.v1",
+  "classification": "PUBLIC_SKILL",
+  "purpose": "Reusable evidence-governed Joblooper engine and fictional examples",
+  "personal_data_in_git": false,
+  "runtime_data_location": "USER_HOME_OR_EXPLICIT_DATA_DIR",
+  "source": "SANITIZED_MIRROR_WITH_NEW_HISTORY"
+}

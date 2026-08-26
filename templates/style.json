@@ -1,0 +1,13 @@
+{
+  "font": "Arial",
+  "size_body": 20,
+  "size_name": 32,
+  "size_headline": 18,
+  "size_section": 22,
+  "page_w": 12240,
+  "page_h": 15840,
+  "margin": 720,
+  "space_after_body": 40,
+  "space_before_section": 160,
+  "body_alignment": "both"
+}

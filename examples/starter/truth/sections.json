@@ -1,0 +1,33 @@
+{
+  "_schema": "joblooper.sections.v1",
+  "default_pages": 2,
+  "selection_guardrails": {
+    "minimum_fill_ratio": 0.7,
+    "significant_impact_threshold": 8.0
+  },
+  "impact_weights": {
+    "serves_requirement": 2.2, "has_metric": 4.0, "headline_priority": 2.0,
+    "lane_match": 1.0, "ownership_level": 0.35, "confidence": 1.0,
+    "recency_bonus": 0.6, "no_requirement_penalty": -1.8,
+    "tier_professional": 7.0, "tier_qualification": 4.0,
+    "tier_coursework": 1.0, "tier_training": 0.0
+  },
+  "sections": [
+    {"id":"summary","name":"PROFESSIONAL SUMMARY","type":"para","source":"positioning","tailoring":"identity_positioning","max":1,"variant":"short","min_words":8,"max_words":55,"min_sentences":1,"max_sentences":2,"protected":true,"purpose":"A stable, evidence-backed value proposition for the selected identity."},
+    {"id":"skills","name":"TECHNICAL SKILLS","type":"list","source":"skill","tailoring":"jd_ranked","max":3,"min_items":1,"trim_rank":0,"purpose":"Named methods and tools."},
+    {"id":"experience","name":"PROFESSIONAL EXPERIENCE","type":"experience","source":"role_bullets","tailoring":"jd_reserved_then_lane_core","max_per_role":[4,3],"min_per_role":[2,1],"core_by_lane":{"systems_engineer":{"ROLE-005":["PMO-009","MRO-002"],"ROLE-001":["SYS-001"]}},"trim_rank":2,"purpose":"Work performed, authority and results."},
+    {"id":"highlights","name":"CAREER HIGHLIGHTS & RECOGNITION","type":"list","source":"highlight","tailoring":"governed_identity_story","max":1,"min_items":1,"variant":"short","max_words":26,"period_prefix":true,"trim_rank":1,"protected_if_lane":["systems_engineer"],"purpose":"A concise chronological account of career-defining achievements and their recognition."},
+    {"id":"research","name":"RESEARCH & PUBLICATIONS","type":"list","source":"publication","tailoring":"lane_or_jd","retention":"all_eligible","max":1,"min_items":1,"trim_rank":3,"include_if":{"lane":["systems_engineer"],"jd_mentions":["research","publication"]},"purpose":"Published technical work."},
+    {"id":"education","name":"EDUCATION","type":"plain","source":"education","tailoring":"all_verified","retention":"all_eligible","max":2,"protected":true,"purpose":"Verified degrees."},
+    {"id":"certifications","name":"CERTIFICATIONS","type":"plain","source":"credential","tailoring":"professional_plus_lane_or_jd","protected_tiers":["professional"],"max":3,"min_items":1,"trim_rank":4,"group_tiers":["coursework"],"group_prefix":"Professional development","purpose":"Relevant professional credentials and compact verified development."}
+  ],
+  "lanes": {
+    "systems_engineer":{"order":["summary","highlights","skills","experience","research","education","certifications"],"caps":{"skills":2,"highlights":1,"research":1,"certifications":2},"drop":[]},
+    "mro_sustainment":{"caps":{"skills":1,"highlights":1,"certifications":2},"drop":[]}
+  },
+  "page_budgets": {
+    "1":{"variant":"short","role_scale":0.65,"section_scale":0.7,"experience_bullets_per_page":8},
+    "2":{"variant":"std","role_scale":0.85,"section_scale":1.0,"experience_bullets_per_page":8},
+    "3":{"variant":"std","role_scale":1.0,"section_scale":1.0,"experience_bullets_per_page":8}
+  }
+}

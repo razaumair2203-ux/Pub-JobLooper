@@ -1,0 +1,37 @@
+{
+  "_schema": "joblooper.profile.v1",
+  "ready_for_generation": true,
+  "_onboarding": {"state":"REVIEWED","reviewer":"fictional-fixture","reviewed_at":"2026-08-26T00:00:00+00:00"},
+  "_truth_approval": {"_schema":"joblooper.truth-approval.v1","subject_sha256":"e1dcaccccd881f1a96cc027d54ec558a4850371c15cfad97931e4f965cd0cd84","reviewer":"fictional-fixture","reviewed_at":"2026-08-26T00:00:00+00:00","next_audit_due":"2099-12-31","truth_feedback_sha256":"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e9365c5f20fa0b92b36ab"},
+  "name": "Alex Morgan",
+  "contact": {"email": "alex@example.com", "phone_primary": "+1-555-0100"},
+  "location": {
+    "based_in": "Example City",
+    "city": "Example City",
+    "work_authorisation": {
+      "gcc_mobility": false,
+      "mobility": false,
+      "phrasing_default": "Example City",
+      "phrasing_approved": "Example City",
+      "display_rules": [],
+      "requirement_rules": []
+    }
+  },
+  "languages": {
+    "english": {"classification": "DIRECT", "note": "English is verified in this fictional profile."}
+  },
+  "eligibility": {
+    "security_clearance": {"classification": "PARTIAL", "note": "No named clearance is recorded."}
+  },
+  "links": {"linkedin": "linkedin.com/in/example"},
+  "career": {"start": "2014-01", "years_as_of_2026_08": 12.6, "years_phrase": "12+ years"},
+  "identities": {
+    "systems_engineer": "Requirements, integration, verification and acceptance.",
+    "mro_sustainment": "Maintenance engineering, reliability and fleet support."
+  },
+  "headlines": {
+    "systems_engineer": "Systems Engineer | Requirements | Integration | Verification & Acceptance",
+    "mro_sustainment": "Fleet Sustainment Engineer | Reliability | Maintenance Engineering"
+  },
+  "identity_rule": "Exactly one primary identity per tailored CV."
+}

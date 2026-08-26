@@ -1,0 +1,31 @@
+__pycache__/
+*.py[cod]
+*.tmp
+.pytest_cache/
+.venv/
+venv/
+.env*
+!.env.example
+.config/
+*token*
+*.pat
+
+# Public skills never version candidate truth or generated applications.
+/.joblooper/
+/truth/
+/work/
+/jobs/
+/index/
+/base/
+/archive/
+/audits/
+/imports/
+/Misc Documents/
+**/index/truth_context.json
+*.docx
+*.pdf
+*.jpg
+*.jpeg
+*.png
+*.zip
+*.bundle

@@ -1,0 +1,38 @@
+{
+  "_schema": "joblooper.boundaries.v1",
+  "person_identity": {"excluded_domains": ["medical", "ICU", "clinical", "BLS"]},
+  "forbidden_patterns": [
+    {"pattern": "(?i)\\bEASA\\b", "reason": "No EASA evidence in the starter profile."},
+    {"pattern": "(?i)Part[- ]?145", "reason": "No Part-145 approval."},
+    {"pattern": "(?i)Part[- ]?66", "reason": "No Part-66 licence."},
+    {"pattern": "(?i)(green|yellow|black)\\s*belt", "reason": "Coursework is not a belt."},
+    {"pattern": "(?i)\\bCSEP\\b", "reason": "No CSEP credential."},
+    {"pattern": "(?i)\\bCFM56?\\b|\\bLEAP[- ]?1", "reason": "No engine-type evidence."}
+  ],
+  "sensitive_content_patterns": [
+    "(?i)\\bpassport\\b", "(?i)\\bcnic\\b", "(?i)\\bnational id\\b",
+    "\\b\\d{5}-\\d{7}-\\d\\b", "\\b[A-Z]{2}\\d{7}\\b"
+  ],
+  "disclosure": {
+    "output_mode": "generic_defence",
+    "external_aliases": [
+      {"pattern": "(?i)\\bfictional Falcon-R Block B demonstrator\\b", "replacement": "fictional lead demonstrator"},
+      {"pattern": "(?i)\\bfictional Orion-X research demonstrator\\b", "replacement": "fictional research demonstrator"},
+      {"pattern": "(?i)\\bOrion-X Demonstrator\\b", "replacement": "Research Demonstrator"}
+    ],
+    "restricted_patterns": [
+      {"pattern": "(?i)\\b(Falcon-R|Orion-X)\\b", "reason": "Starter demonstrates generic external platform naming."},
+      {"pattern": "(?i)\\b(classified|top secret|export[- ]controlled)\\b", "reason": "Restricted content."}
+    ]
+  },
+  "status_words": {"certified": ["CRED-001"], "published": ["PUB-001"], "accepted": []},
+  "ownership_ladder": ["exposed_to", "supported", "coordinated", "managed", "led", "owned", "accountable_for"],
+  "ownership_verbs": {
+    "supported": ["supported", "contributed"],
+    "coordinated": ["coordinated"],
+    "managed": ["managed", "supervised"],
+    "led": ["led", "directed"],
+    "owned": ["owned", "architected", "delivered"],
+    "accountable_for": ["accountable for"]
+  }
+}

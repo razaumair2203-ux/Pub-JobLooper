@@ -1,0 +1,17 @@
+{
+  "_schema": "joblooper.aliases.v1",
+  "groups": [
+    ["systems engineering", "system engineering", "systems engineer"],
+    ["requirements", "requirements management", "traceability"],
+    ["verification", "v&v", "validation", "acceptance testing"],
+    ["maintenance", "mro", "fleet support", "sustainment"],
+    ["airworthiness", "aircraft certification", "qualification", "clearance"],
+    ["configuration management", "baseline", "change control"],
+    ["project management", "programme management", "project leadership", "certified project leader"]
+  ],
+  "stopwords": ["the", "a", "an", "and", "or", "to", "of", "in", "for", "with", "on"],
+  "boost_terms": {
+    "systems_engineer": {"systems engineer": 8, "requirements": 3, "integration": 3, "v&v": 3},
+    "mro_sustainment": {"mro": 8, "maintenance": 5, "sustainment": 4, "reliability": 3}
+  }
+}

@@ -1,0 +1,7 @@
+interface:
+  display_name: "Joblooper"
+  short_description: "Evidence-backed CV and application lifecycle"
+  default_prompt: "Use $joblooper to tailor an evidence-backed CV and cover letter for this job."
+
+policy:
+  allow_implicit_invocation: true
