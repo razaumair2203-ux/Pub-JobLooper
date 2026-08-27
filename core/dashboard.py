@@ -33,8 +33,9 @@ CAUSE_LABELS = {
     'NO_SIGNAL': 'No reliable signal',
 }
 ATTENTION_ROUTES = frozenset({
-    'artifacts', 'codex_outcome', 'codex_prepare', 'codex_truth', 'feedback', 'outcome',
+    'artifacts', 'codex_outcome', 'codex_prepare', 'feedback', 'outcome',
     'review_bundle', 'submission', 'submission_metadata',
+    'truth_integrity',
 })
 ARTIFACT_LABELS = {
     'pdf': ('CV · submitted format', 'Application'),
@@ -540,7 +541,7 @@ def build_snapshot(include_private=False):
             'kind': 'truth_integrity',
             'title': 'Resolve ground-truth integrity',
             'detail': truth_data['integrity_errors'][0],
-            'cta': 'Inspect with Codex', 'route': 'codex_truth',
+            'cta': 'Review options', 'route': 'truth_integrity',
             'action': 'Resolve ground-truth integrity',
         })
 
@@ -928,7 +929,9 @@ def create_server(port=8765, quiet=False, bridge=None):
 def serve(port=8765, open_browser=True):
     try:
         replaced = dashboard_runtime.stop_registered(port)
-        server = create_server(port)
+        # The browser polls task state frequently; per-request console logging is
+        # operational noise and adds avoidable latency on some Windows terminals.
+        server = create_server(port, quiet=True)
     except (OSError, RuntimeError) as error:
         print(f'Dashboard not started: port {port} is already in use.\n'
               f'{error}\nNothing outside a verified Joblooper instance was stopped.',

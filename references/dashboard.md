@@ -81,7 +81,7 @@ is visible in the application ledger but is not a task.
 | Missing submission metadata | Update record | Corrected date/channel, attached late portal evidence, or explicit `unavailable` state |
 | Missing outcome date | Update outcome | Existing status, timing and reason prefilled; corrected observation retained |
 | Integrity failure | Inspect artefacts | Exact failed control and artefact are visible; downstream correction remains blocked |
-| Ground-truth integrity failure | Inspect with Codex | Exact source/digest error is visible; evidence is re-verified or deliberately re-governed by the user |
+| Ground-truth integrity failure | Review options | Exact source/digest error and safe choices open instantly; a bounded low-effort, read-only Codex discussion is optional |
 | Progressed/rejected reasoning | Work with Codex | Fact/hypothesis/unknown separation and, only when justified, a retained lesson |
 
 Queue generation and action routing are tested together. A new queue kind is
@@ -102,6 +102,10 @@ all been specified and covered by a regression test.
 
 - Keeps one conversation context per visible job during the dashboard session.
 - Sends a scoped intent and exact job key through the official Codex App Server.
+- Uses explicit proportional profiles: bounded integrity and submission checks
+  are low-effort/read-only, ordinary questions are medium, and application
+  positioning alone receives high effort. Finished turns show elapsed time,
+  scope and work-item count rather than hiding latency.
 - Uses `approvalPolicy=on-request`, `approvalsReviewer=user` and the workspace
   sandbox. Command and file-change requests appear in the dashboard and support
   only allow-once, decline or cancel.

@@ -78,6 +78,9 @@ must be discoverable; copying only `SKILL.md` is not a functional installation.
    never kill an unrelated process merely because it occupies the port.
    Read the [dashboard contract](references/dashboard.md) when changing or
    explaining its controls, journeys or claims.
+   Route deterministic facts directly; size Codex effort to the decision. A
+   small integrity explanation must stay bounded and read-only, while CV/JD
+   positioning may use deeper reasoning because it changes application impact.
    Treat Attention as a completing task inbox: every item must explain why it
    exists and open the exact control that resolves it. Metadata corrections are
    append-only and must never alter the hash-bound files that were submitted.

@@ -181,6 +181,20 @@
     </form>
   </aside>
 
+  <dialog class="workspace-dialog" id="truth-integrity-dialog">
+    <form method="dialog">
+      <div class="dialog-heading"><div><p class="eyebrow">Deterministic control</p><h2>Ground-truth integrity is blocked</h2></div><button class="icon-button dialog-close" type="button" aria-label="Close"><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+      <p class="dialog-copy">Joblooper already knows which control failed. It will neither trust changed evidence nor rewrite the registered digest automatically.</p>
+      <div class="immutable-bundle"><strong>Failed control</strong><br><span id="truth-integrity-detail"></span></div>
+      <div class="resolution-options">
+        <div><strong>If the change was unintended</strong><span>Restore the authoritative source bytes whose digest matches the registry, then rerun the truth check.</span></div>
+        <div><strong>If the change was intentional</strong><span>Validate the current source, register it as a deliberate evidence revision, and renew ground-truth approval.</span></div>
+        <div><strong>If you are unsure</strong><span>Leave generation blocked. No evidence or application artefact is changed by closing this dialog.</span></div>
+      </div>
+      <div class="dialog-actions"><button class="secondary-button dialog-close" type="button">Close</button><button class="primary-button" id="truth-integrity-codex" type="button"><span class="agent-orb"></span> Discuss further with Codex</button></div>
+    </form>
+  </dialog>
+
   <dialog class="workspace-dialog intake-dialog" id="intake-dialog">
     <form method="dialog" id="intake-form">
       <div class="dialog-heading"><div><p class="eyebrow">New application</p><h2>Paste the job link</h2></div><button class="icon-button dialog-close" type="button" aria-label="Close"><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>

@@ -2,6 +2,12 @@
 set -uo pipefail
 cd "$(dirname "$0")"
 
+SCOPE="${1:-full}"
+case "$SCOPE" in
+  full|dashboard|mirror) ;;
+  *) printf 'usage: %s [full|dashboard|mirror]\n' "$0" >&2; exit 2 ;;
+esac
+
 TEST_DATA="$(mktemp -d "${TMPDIR:-/tmp}/joblooper-tests.XXXXXX")"
 trap 'rm -rf -- "$TEST_DATA"' EXIT
 cp -R "$PWD/examples/starter/." "$TEST_DATA/"
@@ -15,26 +21,32 @@ check() {
 }
 
 check "truth integrity" python -B jl.py check
-check "adversarial gates" python -B tests/test_gates.py
-check "output invariants" python -B tests/test_pipeline.py
-check "semantic matching" python -B tests/test_match.py
-check "approval and releases" python -B tests/test_release.py
-check "ground-truth context" python -B tests/test_context.py
-check "ground-truth review" python -B tests/test_truth_review.py
-check "pre-generation questions" python -B tests/test_preflight.py
-check "protected inventory" python -B tests/test_inventory_retention.py
-check "outcome learning" python -B tests/test_learning.py
-check "case lifecycle" python -B tests/test_case_lifecycle.py
-check "local dashboard" python -B tests/test_dashboard.py
-check "PDF extraction" python -B tests/test_pdftext.py
-check "portability and onboarding" python -B tests/test_portability.py
-check "single-writer safety" python -B tests/test_locking.py
+if [ "$SCOPE" = "full" ]; then
+  check "adversarial gates" python -B tests/test_gates.py
+  check "output invariants" python -B tests/test_pipeline.py
+  check "semantic matching" python -B tests/test_match.py
+  check "approval and releases" python -B tests/test_release.py
+  check "ground-truth context" python -B tests/test_context.py
+  check "ground-truth review" python -B tests/test_truth_review.py
+  check "pre-generation questions" python -B tests/test_preflight.py
+  check "protected inventory" python -B tests/test_inventory_retention.py
+  check "outcome learning" python -B tests/test_learning.py
+  check "case lifecycle" python -B tests/test_case_lifecycle.py
+  check "PDF extraction" python -B tests/test_pdftext.py
+  check "portability and onboarding" python -B tests/test_portability.py
+  check "single-writer safety" python -B tests/test_locking.py
+fi
+if [ "$SCOPE" != "mirror" ]; then
+  check "local dashboard" python -B tests/test_dashboard.py
+fi
 check "standalone skill installation" python -B tests/test_installability.py
-check "personal/public repository boundary" python -B tests/test_repo_policy.py
-check "repository policy" python -B tools/check_repo.py
+if [ "$SCOPE" != "dashboard" ]; then
+  check "personal/public repository boundary" python -B tests/test_repo_policy.py
+  check "repository policy" python -B tools/check_repo.py
+fi
 
 if [ "$failed" -eq 0 ]; then
-  printf '\nALL CHECKS PASS\n'
+  printf '\nALL %s CHECKS PASS\n' "$(printf '%s' "$SCOPE" | tr '[:lower:]' '[:upper:]')"
 else
   printf '\nCHECKS FAILED\n'
 fi

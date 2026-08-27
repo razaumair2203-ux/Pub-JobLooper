@@ -1,3 +1,8 @@
+param(
+    [ValidateSet('full', 'dashboard', 'mirror')]
+    [string]$Scope = 'full'
+)
+
 $ErrorActionPreference = 'Continue'
 $repoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $repoRoot
@@ -7,7 +12,7 @@ Copy-Item -LiteralPath (Join-Path $repoRoot 'examples\starter') -Destination $te
 $env:JOBLOOPER_DATA_DIR = $testData
 $failed = $false
 
-$checks = @(
+$allChecks = @(
     @('truth integrity', @('jl.py', 'check')),
     @('adversarial gates', @('tests/test_gates.py')),
     @('output invariants', @('tests/test_pipeline.py')),
@@ -27,6 +32,14 @@ $checks = @(
     @('personal/public repository boundary', @('tests/test_repo_policy.py')),
     @('repository policy', @('tools/check_repo.py'))
 )
+$checks = switch ($Scope) {
+    'dashboard' { $allChecks | Where-Object { $_[0] -in @(
+        'truth integrity', 'local dashboard', 'standalone skill installation') } }
+    'mirror' { $allChecks | Where-Object { $_[0] -in @(
+        'truth integrity', 'standalone skill installation',
+        'personal/public repository boundary', 'repository policy') } }
+    default { $allChecks }
+}
 
 try {
     foreach ($check in $checks) {
@@ -47,4 +60,4 @@ if ($failed) {
     Write-Output "`nCHECKS FAILED"
     exit 1
 }
-Write-Output "`nALL CHECKS PASS"
+Write-Output "`nALL $($Scope.ToUpperInvariant()) CHECKS PASS"

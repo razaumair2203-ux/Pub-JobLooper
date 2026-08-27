@@ -50,6 +50,15 @@ def main():
             os.path.join(ROOT, '.joblooper', 'index', 'dashboard_instance.json'))
     checks.append(('ephemeral dashboard shutdown credentials cannot enter Git',
                    control_ignored))
+    with open(os.path.join(ROOT, 'run_checks.ps1'), encoding='utf-8-sig') as stream:
+        windows_checks = stream.read()
+    with open(os.path.join(ROOT, 'run_checks.sh'), encoding='utf-8') as stream:
+        unix_checks = stream.read()
+    checks.append(('verification runner has proportional dashboard and mirror scopes',
+                   "'dashboard'" in windows_checks
+                   and "'mirror'" in windows_checks
+                   and 'full|dashboard|mirror' in unix_checks
+                   and 'ALL %s CHECKS PASS' in unix_checks))
     with tempfile.TemporaryDirectory(prefix='joblooper-mirror-test-') as temp:
         target = os.path.join(temp, 'public-joblooper')
         mirror, audit = export_public.export(target)

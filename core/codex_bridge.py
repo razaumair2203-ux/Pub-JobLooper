@@ -10,6 +10,7 @@ import os
 import shutil
 import subprocess
 import threading
+import time
 import uuid
 
 from . import store
@@ -29,7 +30,51 @@ For an intake_url intent, try the exact official URL. Capture only when the full
 """
 ALLOWED_INTENTS = {
     'ask', 'intake_url', 'intake_review', 'prepare_application', 'feedback_discussion',
-    'finalize_artifacts', 'submission_help', 'outcome_review',
+    'finalize_artifacts', 'submission_help', 'outcome_review', 'integrity_review',
+}
+TURN_PROFILES = {
+    'ask': {
+        'effort': 'medium', 'scope': 'proportional', 'read_only': False,
+        'instruction': ('Keep the work proportional to the exact question. Use existing '
+                        'governed state before running broad searches or checks.'),
+    },
+    'intake_url': {
+        'effort': 'medium', 'scope': 'bounded official-page capture', 'read_only': False,
+        'instruction': 'Stop after exact capture or a clear manual-paste request.',
+    },
+    'intake_review': {
+        'effort': 'medium', 'scope': 'preflight only', 'read_only': False,
+        'instruction': 'Run only the governed preflight and stop at the next user decision.',
+    },
+    'prepare_application': {
+        'effort': 'high', 'scope': 'impactful application preparation', 'read_only': False,
+        'instruction': 'Spend depth on evidence selection and JD positioning; preserve every gate.',
+    },
+    'feedback_discussion': {
+        'effort': 'medium', 'scope': 'feedback assessment', 'read_only': False,
+        'instruction': 'Assess the feedback before changing governed application state.',
+    },
+    'finalize_artifacts': {
+        'effort': 'medium', 'scope': 'approved artefact build', 'read_only': False,
+        'instruction': 'Use deterministic approval and build commands; do not re-plan content.',
+    },
+    'submission_help': {
+        'effort': 'low', 'scope': 'submission identification', 'read_only': True,
+        'instruction': 'Identify exact verified files and missing evidence; do not modify or submit.',
+    },
+    'outcome_review': {
+        'effort': 'medium', 'scope': 'evidence challenge', 'read_only': False,
+        'instruction': 'Keep observed facts, competing hypotheses and unknowns separate.',
+    },
+    'integrity_review': {
+        'effort': 'low', 'scope': 'bounded read-only diagnosis', 'read_only': True,
+        'instruction': (
+            'Start from the exact deterministic integrity error supplied. Do not compare image '
+            'pixels or containers, run repository-wide checks, change evidence, or inspect '
+            'unrelated files unless the user explicitly asks for deeper analysis. In at most '
+            '120 words state the failed control, what is known, what remains unknown, and the '
+            'safe user choices; then stop.'),
+    },
 }
 APPROVAL_METHODS = {
     'item/commandExecution/requestApproval': 'command',
@@ -62,7 +107,7 @@ def _public_task(task):
         return None
     return {
         key: value for key, value in task.items()
-        if key not in {'_request_id'}
+        if not key.startswith('_')
     }
 
 
@@ -109,6 +154,12 @@ class CodexBridge:
         with self.lock:
             active = sum(task['status'] in {'starting', 'running', 'waiting'}
                          for task in self.tasks.values())
+            finished = [task for task in self.tasks.values()
+                        if task.get('duration_ms') is not None]
+            durations = sorted(task['duration_ms'] for task in finished)
+            median = durations[len(durations) // 2] if durations else None
+            latest = max(finished, key=lambda task: task.get('updated_at') or '',
+                         default=None)
         return {
             'available': bool(self.executable),
             'connected': running,
@@ -116,7 +167,24 @@ class CodexBridge:
             'error': self.error,
             'integration': 'codex_app_server',
             'approval_mode': 'user',
+            'performance': {
+                'finished_turns': len(finished),
+                'completed_turns': sum(
+                    task.get('status') == 'completed' for task in finished),
+                'failed_turns': sum(
+                    task.get('status') == 'failed' for task in finished),
+                'last_duration_ms': latest.get('duration_ms') if latest else None,
+                'session_median_ms': median,
+            },
         }
+
+    @staticmethod
+    def _finish_task(task):
+        started = task.get('_started_monotonic')
+        if started is not None:
+            task['duration_ms'] = max(
+                0, round((time.monotonic() - started) * 1000))
+        task['finished_at'] = store.now()
 
     def _start(self):
         with self.lock:
@@ -253,6 +321,7 @@ class CodexBridge:
                 task['assistant'] += params.get('delta') or ''
             elif method == 'item/completed':
                 item = params.get('item') or {}
+                task['work_items'] += 1
                 if item.get('type') == 'agentMessage' and item.get('text'):
                     task['assistant'] = item['text']
                 elif item.get('type') == 'commandExecution':
@@ -268,6 +337,7 @@ class CodexBridge:
                 if turn.get('error'):
                     task['error'] = str(turn['error'])
                 task['pending'] = None
+                self._finish_task(task)
                 self.active_by_thread.pop(params.get('threadId'), None)
             task['updated_at'] = store.now()
 
@@ -331,7 +401,12 @@ class CodexBridge:
                 'id': task_id, 'thread_id': thread_id, 'job_id': job_id,
                 'intent': intent, 'status': 'starting', 'user': message,
                 'assistant': '', 'events': [], 'pending': None, 'error': None,
+                'effort': TURN_PROFILES[intent]['effort'],
+                'scope': TURN_PROFILES[intent]['scope'],
+                'read_only': TURN_PROFILES[intent]['read_only'],
+                'work_items': 0,
                 'created_at': store.now(), 'updated_at': store.now(),
+                '_started_monotonic': time.monotonic(),
             }
             self.tasks[task_id] = task
             self.active_by_thread[thread_id] = task_id
@@ -340,6 +415,8 @@ class CodexBridge:
                  else 'Portfolio-level or new-application task.')
         prompt = (
             f'Dashboard intent: {intent}. {scope}\n'
+            f'Execution profile: {task["scope"]}; reasoning effort: {task["effort"]}.\n'
+            f'Profile instruction: {TURN_PROFILES[intent]["instruction"]}\n'
             f'Joblooper executable: {store.code_p("jl.py")}\n'
             f'Configured private data root: {store.DATA_ROOT}\n'
             'Use --data-dir with that exact data root for every Joblooper command. '
@@ -347,10 +424,19 @@ class CodexBridge:
             'and direct artefact locations when they exist.\n\n'
             'USER MESSAGE\n' + message)
         try:
+            sandbox_policy = (
+                {'type': 'readOnly'} if task['read_only'] else {
+                    'type': 'workspaceWrite',
+                    'writableRoots': [store.ROOT],
+                    'networkAccess': False,
+                })
             result = self._request('turn/start', {
                 'threadId': thread_id,
                 'cwd': store.ROOT,
                 'input': [{'type': 'text', 'text': prompt}],
+                'effort': task['effort'],
+                'summary': 'concise',
+                'sandboxPolicy': sandbox_policy,
             })
             turn = result.get('turn') or {}
             with self.lock:
@@ -362,6 +448,7 @@ class CodexBridge:
             with self.lock:
                 task['status'] = 'failed'
                 task['error'] = str(error)
+                self._finish_task(task)
                 self.active_by_thread.pop(thread_id, None)
             raise
         return _public_task(task)

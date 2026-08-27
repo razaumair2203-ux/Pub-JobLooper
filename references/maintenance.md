@@ -39,8 +39,11 @@ terminate an unrelated or unverifiable service.
 
 1. Implement the accepted change in `Pvt-JobLooper` without editing personal
    evidence unless the change explicitly concerns that evidence.
-2. Run `run_checks.ps1` on Windows or `run_checks.sh` on macOS/Linux. A dashboard
-   change must pass `tests/test_dashboard.py` and installability checks.
+2. Verify proportionally while iterating: use `run_checks.ps1 dashboard` (or
+   `run_checks.sh dashboard`) for dashboard/bridge work, and the directly affected
+   test for other narrow changes. Run the default `full` scope exactly once before
+   the private commit. A full run remains mandatory when the engine, gates,
+   schemas or cross-module behavior changes.
    For any new Attention state, test the row's typed route, its actual mutation
    or governed hand-off, refusal behaviour, and the refreshed projection.
 3. Commit and synchronize the private repository only while its remote is still
@@ -49,11 +52,24 @@ terminate an unrelated or unverifiable service.
    `python tools/prepare_public_release.py <clone> --apply` from the private
    source. The command refuses any target whose classification or origin is not
    the canonical public repository.
-5. Inspect the public diff, run the complete checks in that clone, and confirm
-   its generated release fingerprint and privacy audit.
+5. Inspect the public diff, confirm its generated release fingerprint and privacy
+   audit, then use the `mirror` check scope. The sanitized mirror is generated
+   byte-for-byte from the already fully tested private source, so repeating every
+   semantic engine test adds delay without new evidence. Run the complete public
+   suite when the exporter, installer, repository policy or check runner changed.
 6. Commit and push the public clone as a separate new-history repository. Never
    merge, force-push or copy Git history from `Pvt-JobLooper`.
 
 The public working tree is replaceable; its Git history and runtime data are not.
 Publishing remains an explicit external action. The synchronizer prepares and
 audits a working tree but never commits or pushes it automatically.
+
+## Lean interaction budget
+
+Route deterministic facts directly to the dashboard. Use Codex only for
+contextual oversight and give each turn an explicit scope, reasoning effort and
+sandbox. Small integrity explanations are low-effort, read-only and bounded;
+application positioning may use higher effort because it affects output quality.
+Expose elapsed time, scope and work-item count for finished turns so latency is
+observable. Do not optimize by weakening truth, approval or exact-submission
+controls.

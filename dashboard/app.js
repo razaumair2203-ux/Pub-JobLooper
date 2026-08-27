@@ -9,9 +9,11 @@ const state = {
   lastFocus: null,
   session: null,
   agentJob: null,
+  agentIntent: 'ask',
   agentConversations: {},
   activeTask: null,
   taskPoller: null,
+  truthIntegrityDetail: '',
   actionJob: null,
   intakeBaseline: null,
 };
@@ -316,8 +318,10 @@ function renderAttention() {
 }
 
 function handleAttention(item, source) {
-  if (item.route === 'codex_truth') {
-    openAgent(null, `Inspect this exact ground-truth integrity failure and guide me to a safe resolution without silently trusting or changing evidence: ${item.detail}`);
+  if (item.route === 'truth_integrity') {
+    state.truthIntegrityDetail = item.detail;
+    $('#truth-integrity-detail').textContent = item.detail;
+    $('#truth-integrity-dialog').showModal();
     return;
   }
   const job = jobById(item.job_id);
@@ -549,7 +553,7 @@ function setFormBusy(form, busy) {
   $$('button, input, textarea, select', form).forEach(node => { node.disabled = busy; });
 }
 
-function openAgent(job = null, prefill = '') {
+function openAgent(job = null, prefill = '', intent = 'ask') {
   if (state.activeTask && ['starting', 'running', 'waiting'].includes(state.activeTask.status)) {
     const activeJob = state.activeTask.job_id ? jobById(state.activeTask.job_id) : null;
     if ((job?.id || null) !== (state.activeTask.job_id || null)) {
@@ -559,11 +563,15 @@ function openAgent(job = null, prefill = '') {
   }
   if (state.selectedJob) closeDrawer();
   state.agentJob = job;
+  state.agentIntent = intent;
   $('#agent-title').textContent = job ? job.role : 'Work with Codex';
   $('#agent-context').textContent = job
     ? `${job.company} · Ref ${job.reference} · ${phaseLabel(job.phase)}`
     : 'Portfolio-level conversation';
   $('#agent-message').value = prefill;
+  $('#agent-hint').textContent = intent === 'integrity_review'
+    ? 'Bounded read-only diagnosis. No evidence will be changed.'
+    : 'No approval or file generation is implied by a message.';
   renderAgentQuickActions();
   renderConversation();
   const panel = $('#agent-workspace');
@@ -588,12 +596,27 @@ function renderAgentState() {
     label.textContent = 'CODEX UNAVAILABLE';
     label.style.color = 'var(--amber)';
   } else if (state.activeTask && ['starting', 'running', 'waiting'].includes(state.activeTask.status)) {
-    label.textContent = state.activeTask.status === 'waiting' ? 'YOUR APPROVAL NEEDED' : 'CODEX WORKING';
+    const elapsed = turnDuration(state.activeTask);
+    label.textContent = state.activeTask.status === 'waiting'
+      ? 'YOUR APPROVAL NEEDED'
+      : `CODEX WORKING${elapsed ? ` · ${elapsed}` : ''}`;
     label.style.color = state.activeTask.status === 'waiting' ? 'var(--amber)' : 'var(--cyan)';
   } else {
-    label.textContent = 'CODEX READY';
+    const last = state.activeTask?.duration_ms ?? agent?.performance?.last_duration_ms;
+    label.textContent = `CODEX READY${last !== null && last !== undefined ? ` · last ${durationLabel(last)}` : ''}`;
     label.style.color = 'var(--green)';
   }
+}
+
+function durationLabel(milliseconds) {
+  const seconds = Math.max(0, Number(milliseconds || 0) / 1000);
+  return seconds < 10 ? `${seconds.toFixed(1)}s` : `${Math.round(seconds)}s`;
+}
+
+function turnDuration(task) {
+  if (task?.duration_ms !== null && task?.duration_ms !== undefined) return durationLabel(task.duration_ms);
+  const started = Date.parse(task?.created_at || '');
+  return Number.isFinite(started) ? durationLabel(Date.now() - started) : '';
 }
 
 function renderAgentQuickActions() {
@@ -611,7 +634,7 @@ function renderConversation() {
   const root = $('#conversation');
   const messages = agentMessages();
   const welcome = '<div class="agent-welcome"><strong>Guarded workspace</strong><span>Candidate facts remain governed. This job resumes its private Codex thread when available; approval and external submission stay explicit.</span></div>';
-  root.innerHTML = welcome + messages.map(message => `<div class="message ${message.role}${message.streaming ? ' streaming' : ''}">${h(message.text || (message.streaming ? 'Thinking' : ''))}</div>`).join('');
+  root.innerHTML = welcome + messages.map(message => `<div class="message ${message.role}${message.streaming ? ' streaming' : ''}"><span>${h(message.text || (message.streaming ? 'Thinking' : ''))}</span>${message.duration_ms !== undefined ? `<small class="turn-metrics">${h(durationLabel(message.duration_ms))} · ${h(message.scope || 'proportional')} · ${h(message.work_items || 0)} work items</small>` : ''}</div>`).join('');
   const scroll = $('.agent-scroll');
   scroll.scrollTop = scroll.scrollHeight;
 }
@@ -630,6 +653,7 @@ async function startAgentTurn(message, intent = 'ask') {
     return;
   }
   const messages = agentMessages();
+  state.agentIntent = 'ask';
   messages.push({role: 'user', text: message});
   messages.push({role: 'agent', text: '', streaming: true});
   renderConversation();
@@ -664,6 +688,12 @@ async function pollAgentTask() {
       answer.text = state.activeTask.assistant || (state.activeTask.status === 'waiting' ? 'Waiting for your decision.' : 'Thinking');
       answer.streaming = ['starting', 'running', 'waiting'].includes(state.activeTask.status);
       if (state.activeTask.status === 'failed') answer.text += `\n\n${state.activeTask.error || 'The Codex turn failed.'}`;
+      if (!['starting', 'running', 'waiting'].includes(state.activeTask.status)
+          && state.activeTask.duration_ms !== undefined) {
+        answer.duration_ms = state.activeTask.duration_ms;
+        answer.scope = state.activeTask.scope;
+        answer.work_items = state.activeTask.work_items;
+      }
     }
     renderConversation();
     renderPendingRequest();
@@ -1109,7 +1139,14 @@ function wireEvents() {
   $('#agent-backdrop').addEventListener('click', closeAgent);
   $('#agent-form').addEventListener('submit', event => {
     event.preventDefault();
-    startAgentTurn($('#agent-message').value, 'ask');
+    startAgentTurn($('#agent-message').value, state.agentIntent || 'ask');
+  });
+  $('#truth-integrity-codex').addEventListener('click', () => {
+    $('#truth-integrity-dialog').close();
+    openAgent(
+      null,
+      `Explain this exact deterministic ground-truth integrity failure and the safe user choices: ${state.truthIntegrityDetail}`,
+      'integrity_review');
   });
   $('#agent-quick-actions').addEventListener('click', event => {
     const action = event.target.closest('[data-agent-action]')?.dataset.agentAction;

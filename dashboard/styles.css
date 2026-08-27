@@ -712,10 +712,11 @@ h1 em { color: var(--text-soft); font-style: normal; font-weight: 420; }
 .agent-welcome, .message { padding: 13px 15px; border: 1px solid var(--line); border-radius: 12px; }
 .agent-welcome { display: grid; gap: 4px; color: var(--muted); background: var(--surface); font-size: .67rem; }
 .agent-welcome strong { color: var(--text-soft); }
-.message { max-width: 90%; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .72rem; line-height: 1.58; }
+.message { display: grid; gap: 8px; max-width: 90%; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .72rem; line-height: 1.58; }
 .message.user { justify-self: end; color: var(--text); border-color: color-mix(in srgb, var(--cyan) 30%, transparent); background: var(--cyan-soft); }
 .message.agent { justify-self: start; color: var(--text-soft); background: var(--surface); }
 .message.agent.streaming::after { content: ""; display: inline-block; width: 7px; height: 12px; margin-left: 4px; background: var(--cyan); animation: pulse 1s infinite; }
+.turn-metrics { padding-top: 7px; border-top: 1px solid var(--line); color: var(--muted); font-size: .56rem; letter-spacing: .03em; }
 .task-events { display: grid; gap: 4px; color: var(--muted); font-size: .6rem; }
 .pending-request { margin-top: 14px; padding: 14px; border: 1px solid color-mix(in srgb, var(--amber) 40%, transparent); border-radius: 12px; background: var(--amber-soft); }
 .pending-request h3 { margin: 0 0 5px; color: var(--amber); font-size: .74rem; }
@@ -756,6 +757,10 @@ h1 em { color: var(--text-soft); font-style: normal; font-weight: 420; }
 .workspace-dialog input:focus, .workspace-dialog textarea:focus, .workspace-dialog select:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px var(--cyan-soft); }
 .form-grid.two { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
 .workspace-dialog .check-row { grid-template-columns: auto 1fr; align-items: start; gap: 9px; padding: 11px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); }
+.resolution-options { display: grid; gap: 9px; margin-top: 14px; }
+.resolution-options > div { display: grid; gap: 3px; padding: 12px 13px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); }
+.resolution-options strong { color: var(--text-soft); font-size: .7rem; }
+.resolution-options span { color: var(--muted); font-size: .64rem; line-height: 1.45; }
 .check-row input { margin-top: 2px; accent-color: var(--cyan); }
 .dialog-status { min-height: 20px; margin-top: 12px; color: var(--amber); white-space: pre-wrap; font-size: .65rem; }
 .dialog-status.good { color: var(--green); }

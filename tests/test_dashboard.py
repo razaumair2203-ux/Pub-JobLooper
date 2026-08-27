@@ -116,8 +116,14 @@ def main():
         checks.append(('truth integrity failure is explicit and directly actionable',
                        blocked_truth['truth']['ready'] is False
                        and blocked_truth['truth']['errors'] == 1
-                       and truth_attention['route'] == 'codex_truth'
+                       and truth_attention['route'] == 'truth_integrity'
+                       and truth_attention['cta'] == 'Review options'
                        and 'SHA-256 mismatch' in truth_attention['detail']))
+        checks.append(('integrity attention is deterministic before optional Codex use',
+                       "item.route === 'truth_integrity'" in app_script
+                       and "$('#truth-integrity-dialog').showModal()" in app_script
+                       and "'integrity_review'" in app_script
+                       and 'Bounded read-only diagnosis' in app_script))
 
         comment = feedback.record(
             snapshot['jobs'][0]['id'], 'WORKFLOW',
@@ -145,6 +151,46 @@ def main():
         checks.append(('private per-job Codex context resumes after dashboard restart',
                        first_id == resumed_id == 'thread-fixture'
                        and thread_calls == ['thread/start', 'thread/resume']))
+
+        turn_calls = []
+        profile_bridge = codex_bridge.CodexBridge()
+        profile_bridge._start = lambda: None
+        profile_bridge._thread = lambda key: 'thread-profile'
+        profile_bridge._request = lambda method, params: (
+            turn_calls.append((method, params))
+            or {'turn': {'id': 'turn-profile', 'status': 'inProgress'}})
+        profile_task = profile_bridge.start_turn(
+            'Explain source SRC-FIXTURE: SHA-256 mismatch',
+            'integrity_review')
+        turn_params = turn_calls[-1][1]
+        checks.append(('small integrity diagnosis has an explicit lean execution profile',
+                       profile_task['effort'] == 'low'
+                       and profile_task['scope'] == 'bounded read-only diagnosis'
+                       and profile_task['read_only'] is True
+                       and turn_params['effort'] == 'low'
+                       and turn_params['summary'] == 'concise'
+                       and turn_params['sandboxPolicy']['type'] == 'readOnly'
+                       and 'Do not compare image pixels or containers'
+                       in turn_params['input'][0]['text']))
+        profile_bridge._notification({
+            'method': 'item/completed',
+            'params': {'threadId': 'thread-profile',
+                       'item': {'type': 'agentMessage', 'text': 'Bounded answer'}},
+        })
+        profile_bridge._notification({
+            'method': 'turn/completed',
+            'params': {'threadId': 'thread-profile',
+                       'turn': {'id': 'turn-profile', 'status': 'completed'}},
+        })
+        completed_profile = profile_bridge.task(profile_task['id'])
+        performance = profile_bridge.status()['performance']
+        checks.append(('Codex latency and work are exposed as operational evidence',
+                       completed_profile['status'] == 'completed'
+                       and completed_profile['duration_ms'] >= 0
+                       and completed_profile['work_items'] == 1
+                       and completed_profile['finished_at']
+                       and performance['completed_turns'] == 1
+                       and performance['last_duration_ms'] is not None))
 
         store.write_jsonl(store.data_p('index', 'applications.jsonl'), [{
             'app_id': snapshot['jobs'][0]['id'],
@@ -179,6 +225,7 @@ def main():
             status, headers, page = fetch(base + '/')
             checks.append(('local UI ships without third-party runtime dependencies',
                            status == 200 and b'Application workspace' in page
+                           and b'truth-integrity-dialog' in page
                            and headers.get('Content-Security-Policy') is not None))
 
             status, headers, body = fetch(base + '/api/dashboard')
