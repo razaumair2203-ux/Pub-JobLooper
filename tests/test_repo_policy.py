@@ -40,6 +40,16 @@ def main():
     else:
         byte_rule_ok = not os.path.exists(os.path.join(ROOT, '.joblooper'))
     checks.append(('repository transport rule matches its privacy policy', byte_rule_ok))
+    if source_private:
+        runtime_control = subprocess.run(
+            ['git', 'check-ignore', '.joblooper/index/dashboard_instance.json'],
+            cwd=ROOT, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        control_ignored = runtime_control.returncode == 0
+    else:
+        control_ignored = not os.path.exists(
+            os.path.join(ROOT, '.joblooper', 'index', 'dashboard_instance.json'))
+    checks.append(('ephemeral dashboard shutdown credentials cannot enter Git',
+                   control_ignored))
     with tempfile.TemporaryDirectory(prefix='joblooper-mirror-test-') as temp:
         target = os.path.join(temp, 'public-joblooper')
         mirror, audit = export_public.export(target)
