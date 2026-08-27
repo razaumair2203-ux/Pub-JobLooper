@@ -35,6 +35,12 @@ port it authenticates and gracefully stops the previously registered Joblooper
 instance, starts the current code, and opens the same address. It must refuse to
 terminate an unrelated or unverifiable service.
 
+Every tracked code, skill, test or dashboard change has a mandatory silent live
+handoff. After proportional validation and before the final user response, run
+`python jl.py dashboard --port 8765 --no-open`. The authenticated launcher must
+replace the older instance on that address. Do not ask for a manual restart or
+mention a successful routine handoff; report only a failed replacement.
+
 ## Upgrade and public-release sequence
 
 1. Implement the accepted change in `Pvt-JobLooper` without editing personal

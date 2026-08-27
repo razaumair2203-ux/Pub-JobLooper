@@ -76,6 +76,11 @@ must be discoverable; copying only `SKILL.md` is not a functional installation.
    The canonical launch stops only the authenticated prior Joblooper instance,
    starts the current installed code on the same address and opens a fresh page;
    never kill an unrelated process merely because it occupies the port.
+   After changing any tracked Joblooper source, skill, test or dashboard file,
+   validate the affected behavior and, before the final response, silently run
+   `python jl.py dashboard --port 8765 --no-open`. Do not ask the user to restart
+   and do not announce a successful routine handoff. Report only if the verified
+   replacement fails; never leave an older authenticated instance serving.
    Read the [dashboard contract](references/dashboard.md) when changing or
    explaining its controls, journeys or claims.
    Route deterministic facts directly; size Codex effort to the decision. A
