@@ -111,6 +111,29 @@ def record_feedback(job_id, scope, note, author='dashboard-user'):
     return result
 
 
+def resolve_feedback(job_id, feedback_id, status, implementation, validation):
+    """Resolve one existing review comment through the governed CLI path."""
+    feedback_id = str(feedback_id or '').strip()
+    status = str(status or '').strip().lower()
+    implementation = str(implementation or '').strip()
+    validation = str(validation or '').strip()
+    if not re.fullmatch(r'F\d{4,}', feedback_id):
+        raise ValueError('Select a valid open feedback item')
+    if status not in {'adopted', 'rejected'}:
+        raise ValueError('Select whether the feedback was adopted or rejected')
+    if len(implementation) < 8 or len(validation) < 8:
+        raise ValueError('Decision rationale and validation must each be explicit')
+    if len(implementation) > 8000 or len(validation) > 8000:
+        raise ValueError('Feedback resolution exceeds the 8,000-character limit')
+    result = _run_cli([
+        'feedback', job_id, '--id', feedback_id, '--status', status,
+        '--implementation', implementation, '--validation', validation,
+    ], timeout=60)
+    if not result['ok']:
+        raise ValueError(result['output'] or 'Feedback could not be resolved')
+    return result
+
+
 def presentation(job_id):
     """Return exact review content without manufacturing a new plan."""
     slug = store.resolve_job(job_id)
@@ -207,6 +230,43 @@ def record_submission(job_id, sent_file, cover_letter_file=None, channel='portal
             os.unlink(screening_path)
     if not result['ok']:
         raise ValueError(result['output'] or 'Submission could not be recorded')
+    return result
+
+
+def update_submission(job_id, applied_date=None, channel=None, screening=None,
+                      screening_unavailable=False):
+    """Correct user-reported submission metadata without changing sent files."""
+    applied_date = str(applied_date or '').strip() or None
+    channel = str(channel or '').strip() or None
+    if applied_date:
+        try:
+            parsed = datetime.date.fromisoformat(applied_date)
+        except ValueError as error:
+            raise ValueError('Submission date must use YYYY-MM-DD') from error
+        if parsed > datetime.date.today():
+            raise ValueError('Submission date cannot be in the future')
+    if channel and len(channel) > 100:
+        raise ValueError('Submission channel exceeds 100 characters')
+    if screening and screening_unavailable:
+        raise ValueError('Attach portal answers or mark them unavailable, not both')
+    screening_path = None
+    try:
+        screening_path = _screening_file(screening)
+        arguments = ['update-submission', job_id]
+        if applied_date:
+            arguments += ['--date', applied_date]
+        if channel:
+            arguments += ['--channel', channel]
+        if screening_path:
+            arguments += ['--screening-file', screening_path]
+        if screening_unavailable:
+            arguments.append('--screening-unavailable')
+        result = _run_cli(arguments, timeout=90)
+    finally:
+        if screening_path and os.path.isfile(screening_path):
+            os.unlink(screening_path)
+    if not result['ok']:
+        raise ValueError(result['output'] or 'Submission metadata could not be updated')
     return result
 
 

@@ -10,6 +10,7 @@
   jl build  <job> [--no-pdf]
   jl artifacts <job>
   jl submit <job> --sent-file <approved-folder/CV.pdf> [--channel portal]
+  jl update-submission <job> [--date YYYY-MM-DD] [--screening-file FILE]
   jl response <file|-> [--job KEY]     # correlate an employer email
   jl outcome <job> --status rejected [--reason "..."] [--cat HARD_GATE]
   jl reason <job> [--cause CATEGORY --note "..."]
@@ -810,6 +811,9 @@ def cmd_apply(args):
         'sent_file': submission.get('sent_file'),
         'sent_cover_letter': submission.get('sent_cover_letter'),
         'screening_evidence': submission.get('screening_evidence'),
+        'screening_evidence_status': submission.get(
+            'screening_evidence_status') or (
+                'captured' if submission.get('screening_evidence') else 'not_captured'),
         'identity': cv.get('identity'),
         'release_id': 'approved',
         'package_id': manifest.get('package_id'),
@@ -847,6 +851,52 @@ def cmd_apply(args):
     if submission.get('sent_cover_letter'):
         say(f"  exact letter {submission['sent_cover_letter']} · "
             f"{submission['sent_cover_letter_sha256'][:12]}")
+
+
+def cmd_update_submission(args):
+    """Correct submission metadata while preserving the immutable sent files."""
+    slug = store.resolve_job(args.job)
+    applied_date = args.date
+    if applied_date:
+        import datetime
+        try:
+            parsed = datetime.date.fromisoformat(applied_date)
+        except ValueError:
+            raise SystemExit('UPDATE REFUSED — submission date must use YYYY-MM-DD')
+        if parsed > datetime.date.today():
+            raise SystemExit('UPDATE REFUSED — submission date cannot be in the future')
+    apps = store.applications()
+    rec = next((row for row in apps if row.get('app_id') == slug), None)
+    if not rec:
+        raise SystemExit('UPDATE REFUSED — application index record is missing')
+    if applied_date and rec.get('responded'):
+        if parsed > datetime.date.fromisoformat(rec['responded']):
+            raise SystemExit(
+                'UPDATE REFUSED — submission date cannot follow the response date')
+    try:
+        package, _, receipt, changed = release.update_submission_metadata(
+            slug, applied_date=applied_date, channel=args.channel,
+            screening_file=args.screening_file,
+            screening_unavailable=args.screening_unavailable)
+    except ValueError as error:
+        raise SystemExit(f'UPDATE REFUSED — {error}')
+    rec['applied'] = receipt.get('applied')
+    rec['applied_date_status'] = (
+        'recorded' if receipt.get('applied') else 'not_provided')
+    rec['channel'] = receipt.get('channel')
+    rec['screening_evidence'] = receipt.get('screening_evidence')
+    rec['screening_evidence_status'] = receipt.get('screening_evidence_status') or (
+        'captured' if receipt.get('screening_evidence') else 'not_captured')
+    store.write_jsonl(store.p('index', 'applications.jsonl'),
+                      [row for row in apps if row.get('app_id') != slug] + [rec])
+    store.write_json(os.path.join(store.job_dir(slug), 'outcome.json'), rec)
+    if package and release.has_record_file(package, 'OUTCOME.json'):
+        store.write_json(release.record_path(package, 'OUTCOME.json', create=True), rec)
+    say(f"submission metadata updated  {slug}")
+    say(f"  changed  {', '.join(changed)}")
+    say(f"  date     {rec.get('applied') or 'not provided'}")
+    say(f"  portal   {rec.get('screening_evidence_status')}")
+    return 0
 
 
 # ---------------------------------------------------------------- outcome
@@ -1698,6 +1748,15 @@ def main():
             help=('retrospectively bind user-confirmed sent files that still match the '
                   'approved manifest when only other unsent employer-facing files changed'))
         s.set_defaults(fn=cmd_apply)
+
+    s = sub.add_parser('update-submission'); s.add_argument('job')
+    s.add_argument('--date', help='correct submission date in YYYY-MM-DD')
+    s.add_argument('--channel', help='correct submission channel')
+    s.add_argument('--screening-file',
+                   help='late exact portal questionnaire/answer evidence')
+    s.add_argument('--screening-unavailable', action='store_true',
+                   help='record that historical portal answers are unavailable')
+    s.set_defaults(fn=cmd_update_submission)
 
     s = sub.add_parser('outcome'); s.add_argument('job')
     s.add_argument('--status', required=True,

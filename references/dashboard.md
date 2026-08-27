@@ -52,6 +52,7 @@ records used by the CLI.
 | Approve | Tick exact-bundle confirmation and name the reviewer | Approval digest bound to the current presentation | Chat approval, partial review or stale content is refused |
 | Build | Use Approve & build after sign-off | Dated human-readable folder, verified manifest, direct CV/letter links | Build gate errors remain visible; no silent force path is exposed |
 | Submit | Upload externally, select exact sent CV/letter, optionally attach portal answers | Submission receipt with hashes; screening evidence copied and hash-bound | Browser cannot invent paths; Joblooper never claims external submission |
+| Correct record | Open **Update dates & portal evidence** from Attention or the job workspace | Submission date/channel and late portal evidence are appended to the existing receipt and ledger; exact sent-file hashes remain unchanged | Future dates, dates after the response, unverifiable submissions and silent evidence reconstruction are refused; permanently unavailable historical answers are labelled explicitly |
 | Outcome | Paste exact response or record observation/date/timing | Response hash and exact application correlation, or explicit direct outcome | Ambiguous job correlation stops; absent reason remains `none provided` |
 | Learn | Discuss competing explanations with Codex and save substantive revisions | Reasoning log with evidence, counterevidence, unknowns and status | Confidence means evidence support, never probability; no explanation becomes fact automatically |
 
@@ -64,6 +65,27 @@ records used by the CLI.
 - Surfaces the next missing control, not an endless instruction to discover an
   unknowable rejection cause.
 - Makes sample size and employer concentration visible before trend claims.
+
+### Attention queue
+
+Attention is the applicant's task inbox, not a warning feed. Every row states
+why input is needed and ends in one valid control. Merely waiting for an employer
+is visible in the application ledger but is not a task.
+
+| Queue state | Direct interaction | Successful output |
+|---|---|---|
+| Captured JD | Continue with Codex | Material pre-generation questions or a verified no-question preflight |
+| Review ready | Open complete review | Current CV and cover letter, then feedback or sign-off |
+| Open feedback | Resolve feedback | Append-only adopted/rejected decision with rationale and validation |
+| Approved bundle | Open submission desk | Hash-bound exact-submission receipt |
+| Missing submission metadata | Update record | Corrected date/channel, attached late portal evidence, or explicit `unavailable` state |
+| Missing outcome date | Update outcome | Existing status, timing and reason prefilled; corrected observation retained |
+| Integrity failure | Inspect artefacts | Exact failed control and artefact are visible; downstream correction remains blocked |
+| Progressed/rejected reasoning | Work with Codex | Fact/hypothesis/unknown separation and, only when justified, a retained lesson |
+
+Queue generation and action routing are tested together. A new queue kind is
+incomplete until its direct interaction, failure state and refreshed output have
+all been specified and covered by a regression test.
 
 ### Job workspace
 
@@ -145,6 +167,12 @@ This is a deliberate authority boundary, not an unfinished dashboard feature.
 - A scoped Codex turn reaches the App Server; an unavailable service shows a
   real error instead of a simulated answer.
 - Feedback invalidates stale presentation/approval through the existing engine.
+- Every Attention row has a typed route, explanatory detail and a completing
+  interaction; waiting-only applications do not become false tasks.
+- Submission dates, channel and late portal evidence can be corrected without
+  changing the exact sent CV/letter; each correction is event-traced.
+- Open feedback can be resolved from its queue row, with explicit rationale and
+  validation, instead of opening an unrelated comment form.
 - Approval cannot precede complete presentation or bypass open feedback.
 - Submission accepts only verified package artefacts and preserves optional
   screening evidence with a digest.

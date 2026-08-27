@@ -194,6 +194,30 @@ def main():
                        and submitted_manifest['manifest_sha256'] == manifest['manifest_sha256']))
         _, errors = release.verify_submission(slug)
         checks.append(('submission receipt and package verify together', not errors))
+        store.write_jsonl(store.data_p('index', 'applications.jsonl'), [{
+            'app_id': slug, 'company': jd['company'], 'role': jd['title'],
+            'status': 'applied',
+            'submission_mode': receipt.get('mode', 'exact_approved_artefact'),
+            'sent_file': receipt['sent_file'],
+            'sent_sha256': receipt['sent_sha256'],
+        }])
+        update_out = io.StringIO()
+        with contextlib.redirect_stdout(update_out):
+            update_result = jl.cmd_update_submission(SimpleNamespace(
+                job=slug, date='2026-08-20', channel='referral',
+                screening_file=None, screening_unavailable=True))
+        updated_receipt, metadata_errors = release.verify_submission(slug)
+        updated_app = store.applications()[0]
+        checks.append(('historical portal evidence can be explicitly closed as unavailable',
+                       update_result == 0 and not metadata_errors
+                       and updated_app['applied'] == '2026-08-20'
+                       and updated_app['channel'] == 'referral'
+                       and updated_app['screening_evidence_status'] == 'unavailable'
+                       and updated_receipt['screening_evidence_status'] == 'unavailable'
+                       and any(
+                           row.get('event') == 'SUBMISSION_METADATA_UPDATED'
+                           and row.get('screening_evidence_status') == 'unavailable'
+                           for row in store.application_events())))
         checks.append(('submission receipt remains inside the application record',
                        os.path.isfile(release.record_path(package, release.SUBMISSION_NAME))
                        and not os.path.isfile(os.path.join(package, release.SUBMISSION_NAME))))
@@ -266,11 +290,18 @@ def main():
         _, _, external_receipt = release.record_confirmed_external_submission(
             slug, sent_pdf, cover_letter_file=os.path.join(package, 'COVER-LETTER.pdf'),
             channel='portal', screening_file=screening_source)
+        original_sent_sha = external_receipt['sent_sha256']
+        _, _, external_receipt, metadata_changes = release.update_submission_metadata(
+            slug, applied_date='2026-08-20', channel='referral')
         verified_receipt, external_errors = release.verify_submission(slug)
         screening_record = external_receipt.get('screening_evidence') or {}
         checks.append(('external confirmation binds only manifest-matching sent files',
                        external_receipt['mode'] == 'user_confirmed_external_submission'
                        and external_receipt['sent_file'] == 'CV.pdf'
+                       and external_receipt['sent_sha256'] == original_sent_sha
+                       and metadata_changes == ['applied_date', 'channel']
+                       and external_receipt['applied'] == '2026-08-20'
+                       and external_receipt['channel'] == 'referral'
                        and bool(external_receipt['unsent_package_integrity_exceptions'])
                        and verified_receipt == external_receipt
                        and not external_errors))
@@ -282,6 +313,13 @@ def main():
                            os.path.join(package, screening_record['file']))
                        == screening_record.get('sha256')
                        and 'SCREENING-ANSWERS.txt' not in os.listdir(package)))
+        try:
+            release.update_submission_metadata(slug, screening_unavailable=True)
+            evidence_relabel_refused = False
+        except ValueError:
+            evidence_relabel_refused = True
+        checks.append(('exact portal evidence cannot be relabelled unavailable',
+                       evidence_relabel_refused))
         with open(os.path.join(package, screening_record['file']), 'a', encoding='utf-8') as stream:
             stream.write('\ntamper')
         checks.append(('changed portal-answer evidence fails submission verification',

@@ -41,6 +41,8 @@ terminate an unrelated or unverifiable service.
    evidence unless the change explicitly concerns that evidence.
 2. Run `run_checks.ps1` on Windows or `run_checks.sh` on macOS/Linux. A dashboard
    change must pass `tests/test_dashboard.py` and installability checks.
+   For any new Attention state, test the row's typed route, its actual mutation
+   or governed hand-off, refusal behaviour, and the refreshed projection.
 3. Commit and synchronize the private repository only while its remote is still
    private and named `Pvt-JobLooper`.
 4. Clone `Pub-JobLooper` into a clean temporary path. Run

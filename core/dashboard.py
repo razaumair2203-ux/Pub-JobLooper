@@ -32,6 +32,10 @@ CAUSE_LABELS = {
     'TIMING_INTERNAL': 'Process / timing',
     'NO_SIGNAL': 'No reliable signal',
 }
+ATTENTION_ROUTES = frozenset({
+    'artifacts', 'codex_outcome', 'codex_prepare', 'feedback', 'outcome',
+    'review_bundle', 'submission', 'submission_metadata',
+})
 ARTIFACT_LABELS = {
     'pdf': ('CV · submitted format', 'Application'),
     'docx': ('CV · editable', 'Application'),
@@ -259,6 +263,11 @@ def _job_snapshot(slug, applications, events):
     package_errors = release.verify_release(slug)[1] if package else []
     submission_receipt, submission_errors = (
         release.verify_submission(slug) if app and package else (None, []))
+    if submission and not app:
+        submission_errors = [
+            *submission_errors,
+            'application ledger record is missing for the exact submission receipt',
+        ]
     exact_submission = learning._exact_submission(app or {})
     exact_submitted_history = bool(
         app and exact_submission and submission_receipt and not submission_errors)
@@ -334,6 +343,9 @@ def _job_snapshot(slug, applications, events):
     identity_value = match.get('identity') or (app or {}).get('identity')
     if isinstance(identity_value, dict):
         identity_value = identity_value.get('primary')
+    screening_status = ((app or {}).get('screening_evidence_status')
+                        or ('captured' if (app or {}).get('screening_evidence')
+                            else 'not_captured'))
     next_action = _next_action(phase, app, work_state)
     if not app:
         if preflight_errors:
@@ -378,6 +390,7 @@ def _job_snapshot(slug, applications, events):
         'open_hypothesis_count': open_count,
         'exact_submission': exact_submission,
         'screening_captured': bool((app or {}).get('screening_evidence')),
+        'screening_status': screening_status,
         'sent_file': (app or {}).get('sent_file') or submission.get('sent_file'),
         'sent_cover_letter': ((app or {}).get('sent_cover_letter')
                               or submission.get('sent_cover_letter')),
@@ -405,11 +418,15 @@ def _job_snapshot(slug, applications, events):
             'can_review': plan_available,
             'can_approve': bool(presentation_record and not presentation_errors
                                 and not open_feedback),
-            'can_submit': bool(package and not app),
+            'can_submit': bool(package and not app and not submission),
             'can_record_outcome': bool(
                 app and exact_submission and submission_receipt
                 and not submission_errors),
         },
+        'open_feedback': [{
+            'id': row.get('id'), 'scope': row.get('scope'),
+            'note': row.get('note'), 'opened_at': row.get('opened_at'),
+        } for row in open_feedback],
         'artifacts': [{key: value for key, value in row.items() if key != '_path'}
                       for row in artifacts],
         '_artifacts': {row['id']: row for row in artifacts},
@@ -438,6 +455,8 @@ def build_snapshot(include_private=False):
                 if row.get('status') in learning.NEGATIVE_OUTCOMES]
     exact = sum(learning._exact_submission(row) for row in app_rows)
     screening = sum(bool(row.get('screening_evidence')) for row in app_rows)
+    screening_unavailable = sum(
+        row.get('screening_evidence_status') == 'unavailable' for row in app_rows)
     response_dates = sum(bool(row.get('responded')) for row in outcomes)
     timing_bands = sum(
         (row.get('response_latency') or {}).get('band') not in {None, 'unknown'}
@@ -496,33 +515,81 @@ def build_snapshot(include_private=False):
         })
 
     attention = []
-    for job in jobs:
-        severity = 'info'
-        if job['integrity_state'] == 'attention':
-            severity = 'critical'
-        elif job['phase'] == 'rejected' and job['open_hypothesis_count']:
-            severity = 'info'
-        elif job['phase'] in {'review', 'approved', 'captured'}:
-            severity = 'action'
+
+    def add_attention(job, kind, title, detail, cta, route, severity='action'):
+        if route not in ATTENTION_ROUTES:
+            raise RuntimeError(f'unsupported dashboard attention route: {route}')
         attention.append({
-            'job_id': job['id'], 'company': job['company'], 'role': job['role'],
-            'phase': job['phase'], 'severity': severity,
-            'action': job['next_action'],
+            'id': f"{job['id']}:{kind}", 'job_id': job['id'],
+            'company': job['company'], 'role': job['role'],
+            'phase': job['phase'], 'severity': severity, 'kind': kind,
+            'title': title, 'detail': detail, 'cta': cta, 'route': route,
+            'action': title,
         })
-        if job['phase'] in {'applied', 'progressed', 'rejected'} \
-                and not job['screening_captured']:
-            attention.append({
-                'job_id': job['id'], 'company': job['company'], 'role': job['role'],
-                'phase': job['phase'], 'severity': 'warning',
-                'action': ('For future applications, save portal screening answers at '
-                           'submission; answers for this application are unavailable'),
-            })
-        if job['phase'] == 'rejected' and not job['responded_date']:
-            attention.append({
-                'job_id': job['id'], 'company': job['company'], 'role': job['role'],
-                'phase': job['phase'], 'severity': 'warning',
-                'action': 'Exact response date is missing; do not infer it from the report date',
-            })
+
+    for job in jobs:
+        workflow = job.get('workflow') or {}
+        if job['integrity_state'] == 'attention':
+            add_attention(
+                job, 'integrity', 'Resolve package integrity errors',
+                'Inspect the exact artefact and digest exceptions before doing anything else.',
+                'Inspect', 'artifacts', 'critical')
+            continue
+        if workflow.get('open_feedback'):
+            add_attention(
+                job, 'feedback', 'Resolve open application feedback',
+                'Current presentation and approval remain stale until the comment is resolved.',
+                'Review feedback', 'feedback')
+        elif job['phase'] == 'captured':
+            add_attention(
+                job, 'prepare', 'Complete the pre-generation review',
+                'Answer only material questions before the CV or cover letter is planned.',
+                'Continue', 'codex_prepare')
+        elif job['phase'] == 'review':
+            if workflow.get('can_approve'):
+                add_attention(
+                    job, 'approve', 'Sign off the complete current bundle',
+                    'Approval binds the exact CV and cover letter shown in Review.',
+                    'Review & approve', 'review_bundle')
+            else:
+                add_attention(
+                    job, 'review', 'Review the complete CV and cover letter',
+                    'Read every section and add feedback before any document is built.',
+                    'Open review', 'review_bundle')
+        elif job['phase'] == 'approved':
+            add_attention(
+                job, 'submit', 'Submit or record the approved bundle',
+                'Use the exact verified CV and cover letter and preserve portal answers.',
+                'Submission desk', 'submission')
+        elif job['phase'] == 'progressed':
+            add_attention(
+                job, 'next_stage', 'Prepare for the observed next stage',
+                'Keep the positive outcome factual and discuss only the next employer step.',
+                'Work with Codex', 'codex_outcome', 'info')
+        elif job['phase'] == 'rejected' and not job['retained_count']:
+            add_attention(
+                job, 'reasoning', 'Challenge plausible rejection explanations',
+                'Keep employer facts, alternatives and unknowns separate; no cause is known.',
+                'Discuss evidence', 'codex_outcome', 'info')
+
+        if job.get('exact_submission') and job['integrity_state'] != 'attention':
+            missing = []
+            if not job.get('applied_date'):
+                missing.append('submission date')
+            if job.get('screening_status') == 'not_captured':
+                missing.append('portal-answer status')
+            if missing:
+                add_attention(
+                    job, 'submission_metadata',
+                    'Complete the application record',
+                    'Missing ' + ' and '.join(missing)
+                    + '; add exact data or mark historical portal answers unavailable.',
+                    'Update record', 'submission_metadata', 'warning')
+        if job['phase'] in {'progressed', 'rejected'} and not job.get('responded_date'):
+            add_attention(
+                job, 'outcome_date', 'Add the observed response date',
+                'Update the existing outcome; do not infer a date from when it was entered.',
+                'Update outcome', 'outcome', 'warning')
     severity_rank = {'critical': 0, 'action': 1, 'warning': 2, 'info': 3}
     attention.sort(key=lambda row: (severity_rank.get(row['severity'], 9), row['company']))
 
@@ -542,7 +609,9 @@ def build_snapshot(include_private=False):
             'in_progress': sum(phases[name] for name in ('captured', 'review', 'approved', 'applied')),
             'submitted': len(app_rows), 'progressed': len(positive),
             'rejected': len(negative), 'exact_submissions': exact,
-            'screening_captured': screening, 'outcomes': len(outcomes),
+            'screening_captured': screening,
+            'screening_unavailable': screening_unavailable,
+            'outcomes': len(outcomes),
             'response_dates': response_dates, 'timing_bands': timing_bands,
             'under_24h': immediate, 'retained_lessons': len(lessons),
             'application_denominator': len(app_rows),
@@ -654,8 +723,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 'agent': self.server.codex_bridge.status(),
                 'capabilities': {
                     'intake': True, 'url_intake': True, 'feedback': True, 'review': True,
+                    'feedback_resolution': True, 'submission_update': True,
                     'approve_build': True, 'record_submission': True,
-                    'record_outcome': True,
+                    'record_outcome': True, 'outcome_update': True,
                     'agent_chat': self.server.codex_bridge.status()['available'],
                     'external_portal_submission': False,
                 },
@@ -747,6 +817,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     body.get('job_id'), body.get('scope'), body.get('note'),
                     body.get('author'))
                 return self._json({'ok': True, 'result': result})
+            if parsed.path == '/api/actions/resolve-feedback':
+                result = dashboard_actions.resolve_feedback(
+                    body.get('job_id'), body.get('feedback_id'), body.get('status'),
+                    body.get('implementation'), body.get('validation'))
+                return self._json({'ok': True, 'result': result})
             if parsed.path == '/api/actions/present':
                 result = dashboard_actions.mark_presented(body.get('job_id'))
                 return self._json({'ok': True, 'result': result})
@@ -774,6 +849,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 result = dashboard_actions.record_submission(
                     job_id, cv_path, letter_path, body.get('channel') or 'portal',
                     body.get('applied_date'), body.get('screening'))
+                return self._json({'ok': True, 'result': result})
+            if parsed.path == '/api/actions/update-submission':
+                result = dashboard_actions.update_submission(
+                    body.get('job_id'), body.get('applied_date'),
+                    body.get('channel'), body.get('screening'),
+                    bool(body.get('screening_unavailable')))
                 return self._json({'ok': True, 'result': result})
             if parsed.path == '/api/actions/outcome':
                 result = dashboard_actions.record_outcome(

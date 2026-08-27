@@ -197,7 +197,7 @@ function renderKpis() {
     ['Progressed', k.progressed, 'Interview, progression or offer', 'trend', 'success'],
     ['Rejected', k.rejected, 'Observed outcomes', 'flag', 'danger'],
     ['Exact correlation', ratio(k.exact_submissions, k.application_denominator), `${k.exact_submissions}/${k.application_denominator} submitted bundles`, 'target', 'success'],
-    ['Portal answers', ratio(k.screening_captured, k.application_denominator), `${k.screening_captured}/${k.application_denominator} captured`, 'database', k.screening_captured < k.application_denominator ? 'warning' : 'success'],
+    ['Portal answers', ratio(k.screening_captured, k.application_denominator), `${k.screening_captured} exact · ${k.screening_unavailable} unavailable`, 'database', k.screening_captured + k.screening_unavailable < k.application_denominator ? 'warning' : 'success'],
   ];
   $('#kpi-grid').innerHTML = cards.map(([label, value, meta, icon, tone]) => `
     <article class="kpi-card" data-tone="${tone}">
@@ -229,13 +229,14 @@ function controlRow(name, note, value, tone) {
 function renderControls() {
   const {truth, kpis: k} = state.data;
   const exact = ratio(k.exact_submissions, k.application_denominator);
-  const screening = ratio(k.screening_captured, k.application_denominator);
+  const screeningAccounted = k.screening_captured + k.screening_unavailable;
+  const screening = `${k.screening_captured} exact · ${k.screening_unavailable} unavailable`;
   const dates = ratio(k.response_dates, k.outcome_denominator);
   const timing = ratio(k.timing_bands, k.outcome_denominator);
   $('#control-list').innerHTML = [
     controlRow('Ground-truth readiness', 'Generation authority and user sign-off', truth.ready ? 'READY' : 'REVIEW', truth.ready ? 'good' : 'warn'),
     controlRow('Exact submission binding', 'JD + sent files + manifest', exact, k.exact_submissions === k.application_denominator ? 'good' : 'warn'),
-    controlRow('Portal-answer evidence', 'Knockout and eligibility questions', screening, k.screening_captured === k.application_denominator ? 'good' : 'warn'),
+    controlRow('Portal-answer evidence', 'Knockout and eligibility questions', screening, screeningAccounted === k.application_denominator ? 'good' : 'warn'),
     controlRow('Response dates', 'Exact date, never inferred', dates, k.response_dates === k.outcome_denominator ? 'good' : 'warn'),
     controlRow('Timing evidence', 'User-reported or exact timing band', timing, k.timing_bands === k.outcome_denominator ? 'good' : 'warn'),
   ].join('');
@@ -304,11 +305,45 @@ function jobRow(job) {
 function renderAttention() {
   const items = state.data.attention;
   $('#attention-count').textContent = items.length;
-  $('#attention-list').innerHTML = items.length ? items.map(item => `
-    <button class="attention-item" type="button" data-job="${h(item.job_id)}" data-severity="${h(item.severity)}">
-      <span class="attention-mark" aria-hidden="true"></span><span><strong>${h(item.action)}</strong><small>${h(item.company)} · ${h(item.role)}</small></span>${icons.arrow}
-    </button>`).join('') : '<div class="empty-state"><strong>No open controls.</strong></div>';
-  $$('.attention-item').forEach(button => button.addEventListener('click', () => openDrawer(jobById(button.dataset.job), button)));
+  $('#attention-list').innerHTML = items.length ? items.map((item, index) => `
+    <button class="attention-item" type="button" data-attention="${index}" data-severity="${h(item.severity)}" aria-label="${h(item.cta)}: ${h(item.title)} for ${h(item.company)}">
+      <span class="attention-mark" aria-hidden="true"></span><span class="attention-copy"><strong>${h(item.title)}</strong><small>${h(item.company)} · ${h(item.role)}</small><p>${h(item.detail)}</p></span><span class="attention-cta">${h(item.cta)} ${icons.arrow}</span>
+    </button>`).join('') : '<div class="empty-state"><strong>Nothing needs your input.</strong><span>Submitted work remains visible in the ledger without becoming a false task.</span></div>';
+  $$('.attention-item').forEach(button => button.addEventListener('click', () => {
+    const item = state.data.attention[Number(button.dataset.attention)];
+    if (item) handleAttention(item, button);
+  }));
+}
+
+function handleAttention(item, source) {
+  const job = jobById(item.job_id);
+  if (!job) return;
+  if (item.route === 'submission_metadata') {
+    populateSubmissionUpdate(job); openDialog('#update-submission-dialog', job); return;
+  }
+  if (item.route === 'outcome') {
+    populateOutcome(job); openDialog('#outcome-dialog', job); return;
+  }
+  if (item.route === 'submission') {
+    populateSubmission(job); openDialog('#submission-dialog', job); return;
+  }
+  if (item.route === 'feedback') {
+    populateFeedbackResolution(job); openDialog('#resolve-feedback-dialog', job); return;
+  }
+  if (item.route === 'codex_prepare') {
+    if (state.session?.agent?.available) openAgent(job);
+    else openDrawer(job, source);
+    return;
+  }
+  if (item.route === 'codex_outcome') {
+    if (state.session?.agent?.available) openAgent(job, 'Review this observed state and help me with the next evidence-backed decision. Keep facts, hypotheses and unknowns separate.');
+    else { openDrawer(job, source); state.tab = 'reasoning'; renderDrawer(); }
+    return;
+  }
+  openDrawer(job, source);
+  if (item.route === 'review_bundle') state.tab = 'review';
+  if (item.route === 'artifacts') state.tab = 'artifacts';
+  renderDrawer();
 }
 
 function renderLearning() {
@@ -367,6 +402,7 @@ function renderDrawer() {
     `<button class="action-link" type="button" data-drawer-action="feedback">Add feedback</button>`,
     job.workflow?.can_approve ? `<button class="action-link" type="button" data-drawer-action="approve">Approve & build</button>` : '',
     job.workflow?.can_submit ? `<button class="action-link" type="button" data-drawer-action="submit">Submission desk</button>` : '',
+    job.exact_submission ? `<button class="action-link" type="button" data-drawer-action="update-submission">Update dates & portal evidence</button>` : '',
     job.workflow?.can_record_outcome ? `<button class="action-link" type="button" data-drawer-action="outcome">Record / update outcome</button>` : '',
     sentCv?.href ? `<a class="action-link" href="${h(sentCv.href)}" target="_blank">Exact sent CV ${icons.file}</a>` : '',
     sentLetter?.href ? `<a class="action-link" href="${h(sentLetter.href)}" target="_blank">Exact sent letter ${icons.file}</a>` : '',
@@ -413,7 +449,7 @@ function drawerOverview(job) {
       ${fact('Responded', dateLabel(job.responded_date), job.responded_date ? '' : 'warn')}
       ${fact('Response timing', `${latencyLabel(job.response_latency?.band)} · ${titleCase(job.response_latency?.basis)}`)}
       ${fact('Submission correlation', job.exact_submission ? 'Exact bundle recorded' : 'Not established', job.exact_submission ? 'good' : 'warn')}
-      ${fact('Portal answers', job.screening_captured ? 'Captured' : 'Not captured', job.screening_captured ? 'good' : 'warn')}
+      ${fact('Portal answers', job.screening_status === 'captured' ? 'Captured' : job.screening_status === 'unavailable' ? 'Unavailable · recorded' : 'Not captured', job.screening_status === 'captured' ? 'good' : 'warn')}
     </div>
     <div class="disclaimer">Employer-stated reason: <strong>${h(job.employer_stated_reason || 'None provided')}</strong>. Hypotheses are shown separately and never relabelled as facts.</div>
   </section>
@@ -722,6 +758,55 @@ function populateSubmission(job) {
   if (!cv.length) $('#submission-status').textContent = 'No verified approved CV is available.';
 }
 
+function ensureSelectValue(select, value) {
+  if (!value) return;
+  if (![...select.options].some(option => option.value === value)) {
+    select.add(new Option(titleCase(value), value));
+  }
+  select.value = value;
+}
+
+function populateSubmissionUpdate(job) {
+  const form = $('#update-submission-form');
+  form.reset();
+  form.elements.applied_date.value = job.applied_date || '';
+  ensureSelectValue(form.elements.channel, job.channel || 'portal');
+  const captured = job.screening_status === 'captured';
+  const unavailable = job.screening_status === 'unavailable';
+  form.elements.screening_file.disabled = captured || unavailable;
+  form.elements.screening_unavailable.disabled = captured;
+  form.elements.screening_unavailable.checked = unavailable;
+  $('#update-submission-bundle').innerHTML = `<strong>Immutable sent bundle</strong><br>CV: ${h(job.sent_file || 'not recorded')}<br>Cover letter: ${h(job.sent_cover_letter || 'not submitted')}<br>Portal answers: ${h(captured ? 'exact evidence captured' : unavailable ? 'unavailable — explicitly recorded' : 'not captured')}`;
+}
+
+function populateFeedbackResolution(job) {
+  const form = $('#resolve-feedback-form');
+  form.reset();
+  const items = job.open_feedback || [];
+  form.elements.feedback_id.innerHTML = items.map(item =>
+    `<option value="${h(item.id)}">${h(item.id)} · ${h(titleCase(item.scope))}</option>`
+  ).join('');
+  const renderItem = () => {
+    const item = items.find(row => row.id === form.elements.feedback_id.value);
+    $('#feedback-item-detail').innerHTML = item
+      ? `<strong>${h(item.id)} · ${h(titleCase(item.scope))}</strong><br>${h(item.note)}`
+      : '<strong>No open feedback remains.</strong>';
+  };
+  form.elements.feedback_id.onchange = renderItem;
+  renderItem();
+}
+
+function populateOutcome(job) {
+  const form = $('#outcome-form');
+  form.reset();
+  const observed = ['rejected', 'interview', 'progressed', 'offer', 'ghosted', 'withdrawn']
+    .includes(job.status) ? job.status : '';
+  form.elements.status.value = observed;
+  form.elements.response_date.value = job.responded_date || '';
+  ensureSelectValue(form.elements.latency, job.response_latency?.band || 'unknown');
+  form.elements.employer_reason.value = job.employer_stated_reason || '';
+}
+
 async function submitIntake(event) {
   event.preventDefault();
   const form = event.currentTarget;
@@ -803,6 +888,34 @@ async function submitFeedback(event) {
   finally { setFormBusy(form, false); }
 }
 
+async function submitFeedbackResolution(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const status = $('#resolve-feedback-status');
+  const data = Object.fromEntries(new FormData(form));
+  setFormBusy(form, true);
+  status.textContent = 'Validating and appending the feedback decision…';
+  try {
+    const result = await apiPost('/api/actions/resolve-feedback', {
+      job_id: state.actionJob.id, feedback_id: data.feedback_id,
+      status: data.status, implementation: data.implementation,
+      validation: data.validation,
+    });
+    status.textContent = result.result.output;
+    status.classList.add('good');
+    const jobId = state.actionJob.id;
+    await loadData();
+    setTimeout(() => {
+      form.reset();
+      $('#resolve-feedback-dialog').close();
+      toast('Feedback decision recorded; review the refreshed bundle before approval.');
+      const job = jobById(jobId);
+      if (job) { openDrawer(job); state.tab = 'review'; renderDrawer(); }
+    }, 700);
+  } catch (error) { status.textContent = error.message; }
+  finally { setFormBusy(form, false); }
+}
+
 async function submitApproval(event) {
   event.preventDefault();
   const form = event.currentTarget;
@@ -848,6 +961,50 @@ async function submitSubmission(event) {
     setTimeout(() => { form.reset(); $('#submission-dialog').close(); }, 900);
   } catch (error) { status.textContent = error.message; }
   finally { setFormBusy(form, false); }
+}
+
+async function submitSubmissionUpdate(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const status = $('#update-submission-status');
+  const data = Object.fromEntries(new FormData(form));
+  const file = form.elements.screening_file.files[0];
+  if (file && data.screening_unavailable) {
+    status.textContent = 'Attach portal answers or mark them unavailable, not both.';
+    return;
+  }
+  setFormBusy(form, true);
+  status.textContent = 'Verifying the exact submission and appending this correction…';
+  try {
+    const screening = await filePayload(file);
+    const result = await apiPost('/api/actions/update-submission', {
+      job_id: state.actionJob.id,
+      applied_date: data.applied_date || null,
+      channel: data.channel || null,
+      screening,
+      screening_unavailable: Boolean(data.screening_unavailable),
+    });
+    status.textContent = result.result.output;
+    status.classList.add('good');
+    const jobId = state.actionJob.id;
+    await loadData();
+    setTimeout(() => {
+      form.reset();
+      $('#update-submission-dialog').close();
+      toast('Application record updated; the exact sent files were unchanged.');
+      const job = jobById(jobId);
+      if (job) openDrawer(job);
+    }, 700);
+  } catch (error) { status.textContent = error.message; }
+  finally {
+    setFormBusy(form, false);
+    const current = state.actionJob && jobById(state.actionJob.id);
+    const captured = current?.screening_status === 'captured';
+    const unavailable = current?.screening_status === 'unavailable'
+      || form.elements.screening_unavailable.checked;
+    form.elements.screening_file.disabled = captured || unavailable;
+    form.elements.screening_unavailable.disabled = captured;
+  }
 }
 
 async function submitOutcome(event) {
@@ -927,7 +1084,8 @@ function wireEvents() {
     if (button.dataset.drawerAction === 'feedback') openDialog('#feedback-dialog', job);
     if (button.dataset.drawerAction === 'approve') openDialog('#approval-dialog', job);
     if (button.dataset.drawerAction === 'submit') { populateSubmission(job); openDialog('#submission-dialog', job); }
-    if (button.dataset.drawerAction === 'outcome') openDialog('#outcome-dialog', job);
+    if (button.dataset.drawerAction === 'update-submission') { populateSubmissionUpdate(job); openDialog('#update-submission-dialog', job); }
+    if (button.dataset.drawerAction === 'outcome') { populateOutcome(job); openDialog('#outcome-dialog', job); }
   });
   $('#drawer-content').addEventListener('click', event => {
     if (event.target.closest('[aria-disabled="true"]')) event.preventDefault();
@@ -965,8 +1123,20 @@ function wireEvents() {
   $$('.dialog-close').forEach(button => button.addEventListener('click', () => button.closest('dialog').close()));
   $('#intake-form').addEventListener('submit', submitIntake);
   $('#feedback-form').addEventListener('submit', submitFeedback);
+  $('#resolve-feedback-form').addEventListener('submit', submitFeedbackResolution);
   $('#approval-form').addEventListener('submit', submitApproval);
   $('#submission-form').addEventListener('submit', submitSubmission);
+  $('#update-submission-form').addEventListener('submit', submitSubmissionUpdate);
+  $('#update-submission-form').elements.screening_unavailable.addEventListener('change', event => {
+    const file = $('#update-submission-form').elements.screening_file;
+    if (event.target.checked) file.value = '';
+    file.disabled = event.target.checked;
+  });
+  $('#update-submission-form').elements.screening_file.addEventListener('change', event => {
+    if (event.target.files.length) {
+      $('#update-submission-form').elements.screening_unavailable.checked = false;
+    }
+  });
   $('#outcome-form').addEventListener('submit', submitOutcome);
   document.addEventListener('keydown', event => {
     if (event.key === 'Escape' && state.selectedJob) closeDrawer();

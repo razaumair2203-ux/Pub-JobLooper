@@ -810,6 +810,7 @@ def record_submission(slug, sent_file, cover_letter_file=None, channel=None,
         'sent_cover_letter': letter_name,
         'sent_cover_letter_sha256': letter_sha,
         'screening_evidence': screening,
+        'screening_evidence_status': 'captured' if screening else 'not_captured',
         'applied': applied_date, 'channel': channel, 'recorded_at': store.now(),
     }
     store.write_json(record_path(package, SUBMISSION_NAME, create=True), receipt)
@@ -891,6 +892,7 @@ def record_confirmed_external_submission(slug, sent_file, cover_letter_file=None
         'sent_cover_letter': letter_name,
         'sent_cover_letter_sha256': letter_sha,
         'screening_evidence': screening,
+        'screening_evidence_status': 'captured' if screening else 'not_captured',
         'applied': applied_date, 'channel': channel, 'recorded_at': store.now(),
         'confirmation_basis': 'selected sent files match the approved manifest',
         'unsent_package_integrity_exceptions': list(package_errors),
@@ -904,6 +906,58 @@ def record_confirmed_external_submission(slug, sent_file, cover_letter_file=None
     store.append_application_event(event)
     write_status(slug, 'SUBMITTED', verified_manifest or manifest)
     return package, manifest, receipt
+
+
+def update_submission_metadata(slug, applied_date=None, channel=None,
+                               screening_file=None, screening_unavailable=False):
+    """Correct user-reported metadata without changing the exact sent bundle."""
+    package, manifest = load_release(slug)
+    receipt, errors = verify_submission(slug)
+    if not receipt or errors:
+        raise ValueError('submission metadata requires a verified exact bundle: '
+                         + '; '.join(errors or ['submission receipt missing']))
+    if screening_file and screening_unavailable:
+        raise ValueError(
+            'attach portal-answer evidence or mark it unavailable, not both')
+    previous_sha = store.sha256_text(store.canonical_json(receipt))
+    changed = []
+    if applied_date is not None and applied_date != receipt.get('applied'):
+        receipt['applied'] = applied_date
+        changed.append('applied_date')
+    if channel is not None and channel != receipt.get('channel'):
+        receipt['channel'] = channel
+        changed.append('channel')
+    if screening_file:
+        if receipt.get('screening_evidence'):
+            raise ValueError('screening-answer evidence is already recorded')
+        receipt['screening_evidence'] = _capture_screening_evidence(
+            package, screening_file)
+        receipt['screening_evidence_status'] = 'captured'
+        changed.append('screening_evidence')
+    elif screening_unavailable:
+        if receipt.get('screening_evidence'):
+            raise ValueError(
+                'exact screening evidence is already recorded and cannot be relabelled')
+        if receipt.get('screening_evidence_status') != 'unavailable':
+            receipt['screening_evidence_status'] = 'unavailable'
+            changed.append('screening_evidence_status')
+    if not changed:
+        raise ValueError('no submission metadata change was supplied')
+    receipt['metadata_updated_at'] = store.now()
+    store.write_json(record_path(package, SUBMISSION_NAME, create=True), receipt)
+    event = {
+        'event': 'SUBMISSION_METADATA_UPDATED', 'app_id': slug,
+        'package_id': receipt.get('package_id'), 'changed': changed,
+        'applied': receipt.get('applied'), 'channel': receipt.get('channel'),
+        'screening_evidence_status': receipt.get('screening_evidence_status'),
+        'previous_receipt_sha256': previous_sha,
+        'receipt_sha256': store.sha256_text(store.canonical_json(receipt)),
+    }
+    store.append_jsonl(os.path.join(store.job_dir(slug), 'release_events.jsonl'),
+                       {'timestamp': store.now(), **event})
+    store.append_application_event(event)
+    write_status(slug, 'SUBMITTED', manifest)
+    return package, manifest, receipt, changed
 
 
 def verify_submission(slug):

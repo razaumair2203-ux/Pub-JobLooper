@@ -15,7 +15,7 @@ FIXTURE = os.path.join(ROOT, 'examples', 'starter')
 sys.path.insert(0, ROOT)
 
 from core import (codex_bridge, dashboard, dashboard_actions, dashboard_runtime,
-                  job_fetch, store, vec)
+                  feedback, job_fetch, store, vec)
 
 
 def fetch(url):
@@ -83,6 +83,18 @@ def main():
                        snapshot['kpis']['jobs'] == 1
                        and snapshot['kpis']['in_progress'] == 1
                        and snapshot['jobs'][0]['phase'] == 'captured'))
+        checks.append(('attention queue exposes a typed action instead of a dead-end warning',
+                       snapshot['attention'][0]['kind'] == 'prepare'
+                       and snapshot['attention'][0]['route'] == 'codex_prepare'
+                       and snapshot['attention'][0]['cta'] == 'Continue'
+                       and bool(snapshot['attention'][0]['detail'])))
+        app_script = store.read_text(os.path.join(ROOT, 'dashboard', 'app.js'))
+        checks.append(('every declared attention route has a browser interaction state',
+                       all(f"item.route === '{route}'" in app_script
+                           for route in dashboard.ATTENTION_ROUTES)
+                       and all(set(item) >= {
+                           'id', 'kind', 'title', 'detail', 'cta', 'route', 'severity'}
+                           for item in snapshot['attention'])))
         checks.append(('public API projection contains no filesystem paths',
                        '"_path"' not in encoded and os.path.abspath(data) not in encoded))
         checks.append(('coverage is labelled as evidence, never an ATS score',
@@ -90,6 +102,20 @@ def main():
         checks.append(('captured JD is directly addressable through registry',
                        any(row.get('href') and row.get('group') == 'Source'
                            for row in snapshot['jobs'][0]['artifacts'])))
+
+        comment = feedback.record(
+            snapshot['jobs'][0]['id'], 'WORKFLOW',
+            'Expose a direct resolution control in the task queue.', 'test-user')
+        feedback_snapshot = dashboard.build_snapshot()
+        checks.append(('open feedback queue item carries the exact resolvable record',
+                       feedback_snapshot['attention'][0]['route'] == 'feedback'
+                       and feedback_snapshot['jobs'][0]['open_feedback'][0]['id']
+                       == comment['id']
+                       and bool(feedback_snapshot['jobs'][0]['open_feedback'][0]['note'])))
+        feedback.resolve(
+            snapshot['jobs'][0]['id'], comment['id'], 'ADOPTED',
+            'Added the governed resolution dialog.',
+            'Dashboard regression covers the route and record.')
 
         thread_calls = []
         first_bridge = codex_bridge.CodexBridge()
@@ -111,10 +137,11 @@ def main():
             'status': 'applied',
         }])
         applied = dashboard.build_snapshot()
-        checks.append(('submitted and awaiting-response work remains in progress',
+        checks.append(('submitted and awaiting-response work remains visible without a false task',
                        applied['jobs'][0]['phase'] == 'applied'
                        and applied['kpis']['submitted'] == 1
-                       and applied['kpis']['in_progress'] == 1))
+                       and applied['kpis']['in_progress'] == 1
+                       and not applied['attention']))
 
         bridge = FakeBridge()
         server = dashboard.create_server(0, quiet=True, bridge=bridge)
@@ -150,6 +177,8 @@ def main():
                            status == 200 and session['csrf_token']
                            and session['capabilities']['intake'] is True
                            and session['capabilities']['url_intake'] is True
+                           and session['capabilities']['feedback_resolution'] is True
+                           and session['capabilities']['submission_update'] is True
                            and session['capabilities']['record_outcome'] is True
                            and session['capabilities']['agent_chat'] is True
                            and session['capabilities']['external_portal_submission'] is False))
@@ -194,6 +223,59 @@ def main():
             checks.append(('outcome capture refuses an unverified submission record',
                            outcome_refused))
 
+            update_calls = []
+            original_update = dashboard_actions.update_submission
+            try:
+                dashboard_actions.update_submission = lambda *args: (
+                    update_calls.append(args) or {'ok': True, 'output': 'updated'})
+                status, headers, update = post(
+                    base + '/api/actions/update-submission', session['csrf_token'], {
+                        'job_id': api['jobs'][0]['id'],
+                        'applied_date': '2026-08-20', 'channel': 'portal',
+                        'screening_unavailable': True,
+                    })
+            finally:
+                dashboard_actions.update_submission = original_update
+            checks.append(('attention record editor reaches one allowlisted backend action',
+                           status == 200 and update['result']['output'] == 'updated'
+                           and update_calls
+                           and update_calls[0][0] == api['jobs'][0]['id']
+                           and update_calls[0][1] == '2026-08-20'
+                           and update_calls[0][4] is True))
+
+            resolution_calls = []
+            original_resolution = dashboard_actions.resolve_feedback
+            try:
+                dashboard_actions.resolve_feedback = lambda *args: (
+                    resolution_calls.append(args) or
+                    {'ok': True, 'output': 'resolved'})
+                status, headers, resolved = post(
+                    base + '/api/actions/resolve-feedback', session['csrf_token'], {
+                        'job_id': api['jobs'][0]['id'], 'feedback_id': 'F0001',
+                        'status': 'adopted',
+                        'implementation': 'Applied the requested change.',
+                        'validation': 'Checked against the exact presentation.',
+                    })
+            finally:
+                dashboard_actions.resolve_feedback = original_resolution
+            checks.append(('feedback attention route reaches explicit resolution',
+                           status == 200
+                           and resolved['result']['output'] == 'resolved'
+                           and resolution_calls[0][1:] == (
+                               'F0001', 'adopted',
+                               'Applied the requested change.',
+                               'Checked against the exact presentation.')))
+            try:
+                dashboard_actions.resolve_feedback(
+                    api['jobs'][0]['id'], '../F0001', 'adopted',
+                    'Applied the requested change.',
+                    'Checked against the exact presentation.')
+                unsafe_feedback_id_refused = False
+            except ValueError:
+                unsafe_feedback_id_refused = True
+            checks.append(('feedback resolution refuses an invented record identifier',
+                           unsafe_feedback_id_refused))
+
             status, headers, intake = post(
                 base + '/api/actions/ingest', session['csrf_token'], {
                     'company': 'Fixture Flight', 'title': 'Integration Manager',
@@ -237,7 +319,7 @@ def main():
                           if row.get('href') and row.get('group') == 'Source')
             status, headers, body = fetch(base + source['href'])
             checks.append(('allowlisted artefact endpoint serves a real source file',
-                           status == 200 and body
+                           status == 200 and bool(body)
                            and headers.get('X-Content-Type-Options') == 'nosniff'))
 
             blocked = False

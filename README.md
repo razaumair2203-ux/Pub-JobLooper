@@ -90,12 +90,17 @@ Record the exact file actually submitted:
 python jl.py submit <exact-job-key> --sent-file "<job-folder>\CV.pdf" \
   --cover-letter-file "<job-folder>\COVER-LETTER.pdf" \
   --screening-file "<saved-portal-answers.pdf>" --channel portal
+python jl.py update-submission <exact-job-key> --date YYYY-MM-DD \
+  --channel portal --screening-file "<late-saved-portal-answers.pdf>"
 ```
 
 This records hashes; it does not contact the employer. It refuses a file outside
 the application package or one that differs from the manifest. The optional
 screening file is copied into the private application record and hash-bound so
 a fast outcome can be investigated without reconstructing portal answers.
+`update-submission` corrects user-reported metadata or attaches late evidence;
+use `--screening-unavailable` when historical portal answers cannot be recovered.
+It never changes the hash-bound CV or cover letter.
 
 ## First-time candidate setup
 
@@ -228,6 +233,12 @@ bundle plus portal-answer evidence, capture the observed outcome, inspect KPIs,
 and open every known artefact without navigating folders. Every deterministic
 action calls the same CLI gates and flat-file store; there is no dashboard
 database, synthetic ATS score or inferred rejection cause.
+
+The Attention queue is a completing task inbox rather than a warning list. It
+routes directly to review, feedback resolution, exact-submission metadata,
+outcome correction, integrity evidence or scoped Codex work. Dates, channel and
+late portal evidence can be updated after submission without modifying the
+hash-bound sent files.
 
 The optional Codex panel uses the installed Codex CLI's official App Server.
 It starts only after an explicit user turn, uses the configured OpenAI service,

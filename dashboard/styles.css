@@ -549,6 +549,9 @@ h1 em { color: var(--text-soft); font-style: normal; font-weight: 420; }
 .attention-item strong { display: block; font-size: .73rem; font-weight: 590; }
 .attention-item small { display: block; margin-top: 2px; color: var(--muted); font-size: .63rem; }
 .attention-item svg { width: 15px; color: var(--muted); }
+.attention-copy p { margin: 5px 0 0; color: var(--text-soft); font-size: .64rem; line-height: 1.4; }
+.attention-cta { display: inline-flex; align-items: center; gap: 5px; margin-top: 2px; color: var(--cyan); font-size: .62rem; font-weight: 700; white-space: nowrap; }
+.attention-cta svg { width: 13px; color: currentColor; }
 
 .learning-item { padding: 15px 2px; border-bottom: 1px solid var(--line); }
 .learning-item:last-child { border-bottom: 0; }
@@ -734,6 +737,8 @@ h1 em { color: var(--text-soft); font-style: normal; font-weight: 420; }
 .dialog-heading { display: flex; justify-content: space-between; gap: 20px; align-items: start; }
 .dialog-heading h2 { margin: 0; font-size: 1.7rem; letter-spacing: -.035em; }
 .dialog-copy { margin: 9px 0 20px; color: var(--muted); font-size: .7rem; }
+.immutable-bundle { padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px; color: var(--text-soft); background: var(--surface); font-size: .65rem; line-height: 1.5; }
+.immutable-bundle strong { color: var(--text); }
 .workspace-dialog label { display: grid; gap: 6px; margin-top: 13px; color: var(--text-soft); font-size: .67rem; }
 .workspace-dialog label small { color: var(--muted); font-size: .62rem; }
 .optional { color: var(--muted); font-weight: 400; }

@@ -86,6 +86,17 @@ complete CV and letter, add comments, approve and build, record the exact sent
 files and portal answers, and paste the employer response. The same CLI gates
 control every action; the dashboard does not maintain a second database.
 
+Use **Attention queue** as the task inbox. A row opens the exact required
+interaction: pre-generation questions, complete review, feedback resolution,
+submission, record correction, outcome correction, integrity evidence or scoped
+Codex reasoning. Applications merely awaiting an employer response stay visible
+in the ledger without becoming false tasks.
+
+After submission, choose **Update dates & portal evidence** from Attention or
+the job workspace to correct the submission date/channel, attach saved portal
+answers later, or explicitly record that historical answers are unavailable.
+This appends an audit event; it never changes the CV or cover letter hashes.
+
 If the site blocks normal access or requires JavaScript, the URL is handed to
 Codex automatically. Only when Codex also cannot retrieve the complete official
 advert does the workspace ask you to paste the company, title and JD manually.
@@ -106,6 +117,7 @@ guessing:
 
 ```text
 python jl.py submit <exact-job-key> --sent-file "<path-to-CV>" --cover-letter-file "<path-to-letter>" --screening-file "<saved-portal-answers>" --channel portal
+python jl.py update-submission <exact-job-key> --date YYYY-MM-DD --channel portal --screening-unavailable
 python jl.py response rejection-email.txt
 python jl.py case <exact-job-key>
 ```

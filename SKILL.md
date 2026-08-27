@@ -78,6 +78,9 @@ must be discoverable; copying only `SKILL.md` is not a functional installation.
    never kill an unrelated process merely because it occupies the port.
    Read the [dashboard contract](references/dashboard.md) when changing or
    explaining its controls, journeys or claims.
+   Treat Attention as a completing task inbox: every item must explain why it
+   exists and open the exact control that resolves it. Metadata corrections are
+   append-only and must never alter the hash-bound files that were submitted.
 
 Treat the dashboard as a living product: turn user feedback into a specific
 journey problem and acceptance check, improve the authoritative private source,
