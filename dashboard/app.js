@@ -176,8 +176,8 @@ function render() {
 function renderHeader() {
   const {truth, generated_at: generatedAt} = state.data;
   const pill = $('#truth-pill');
-  pill.textContent = truth.ready ? 'TRUTH READY' : 'TRUTH NEEDS REVIEW';
-  pill.style.color = truth.ready ? 'var(--green)' : 'var(--amber)';
+  pill.textContent = truth.errors ? 'TRUTH BLOCKED' : truth.ready ? 'TRUTH READY' : 'TRUTH NEEDS REVIEW';
+  pill.style.color = truth.errors ? 'var(--red)' : truth.ready ? 'var(--green)' : 'var(--amber)';
   $('#last-refresh').textContent = `Refreshed ${dateTimeLabel(generatedAt)}`;
 }
 
@@ -234,7 +234,7 @@ function renderControls() {
   const dates = ratio(k.response_dates, k.outcome_denominator);
   const timing = ratio(k.timing_bands, k.outcome_denominator);
   $('#control-list').innerHTML = [
-    controlRow('Ground-truth readiness', 'Generation authority and user sign-off', truth.ready ? 'READY' : 'REVIEW', truth.ready ? 'good' : 'warn'),
+    controlRow('Ground-truth readiness', truth.problems?.[0] || 'Generation authority and user sign-off', truth.errors ? `${truth.errors} ERROR` : truth.ready ? 'READY' : 'REVIEW', truth.errors ? 'bad' : truth.ready ? 'good' : 'warn'),
     controlRow('Exact submission binding', 'JD + sent files + manifest', exact, k.exact_submissions === k.application_denominator ? 'good' : 'warn'),
     controlRow('Portal-answer evidence', 'Knockout and eligibility questions', screening, screeningAccounted === k.application_denominator ? 'good' : 'warn'),
     controlRow('Response dates', 'Exact date, never inferred', dates, k.response_dates === k.outcome_denominator ? 'good' : 'warn'),
@@ -316,6 +316,10 @@ function renderAttention() {
 }
 
 function handleAttention(item, source) {
+  if (item.route === 'codex_truth') {
+    openAgent(null, `Inspect this exact ground-truth integrity failure and guide me to a safe resolution without silently trusting or changing evidence: ${item.detail}`);
+    return;
+  }
   const job = jobById(item.job_id);
   if (!job) return;
   if (item.route === 'submission_metadata') {

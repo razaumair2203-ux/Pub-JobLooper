@@ -33,7 +33,7 @@ CAUSE_LABELS = {
     'NO_SIGNAL': 'No reliable signal',
 }
 ATTENTION_ROUTES = frozenset({
-    'artifacts', 'codex_outcome', 'codex_prepare', 'feedback', 'outcome',
+    'artifacts', 'codex_outcome', 'codex_prepare', 'codex_truth', 'feedback', 'outcome',
     'review_bundle', 'submission', 'submission_metadata',
 })
 ARTIFACT_LABELS = {
@@ -482,8 +482,10 @@ def build_snapshot(include_private=False):
         truth = store.truth_context()
         truth_state = truth_review.readiness()
         truth_errors, truth_warnings, _ = integrity.check_truth()
+        truth_problems = list(dict.fromkeys(
+            list(truth_state.get('problems') or []) + list(truth_errors)))
         truth_data = {
-            'ready': truth_state.get('ready', False),
+            'ready': bool(truth_state.get('ready', False) and not truth_errors),
             'audit_due': truth_state.get('audit_due'),
             'audit_overdue': truth_state.get('audit_overdue', False),
             'records': (truth.get('stats') or {}).get('records', 0),
@@ -491,13 +493,16 @@ def build_snapshot(include_private=False):
             'sources': (truth.get('stats') or {}).get('sources', 0),
             'decisions': (truth.get('stats') or {}).get('changelog_entries', 0),
             'errors': len(truth_errors), 'warnings': len(truth_warnings),
-            'problems': truth_state.get('problems') or [],
+            'problems': truth_problems,
+            'integrity_errors': list(truth_errors),
+            'integrity_warnings': list(truth_warnings),
         }
     except (OSError, ValueError, RuntimeError) as error:
         truth_data = {
             'ready': False, 'audit_due': None, 'audit_overdue': False,
             'records': 0, 'active_records': 0, 'sources': 0, 'decisions': 0,
             'errors': 1, 'warnings': 0, 'problems': [str(error)],
+            'integrity_errors': [str(error)], 'integrity_warnings': [],
         }
 
     lessons = []
@@ -525,6 +530,18 @@ def build_snapshot(include_private=False):
             'phase': job['phase'], 'severity': severity, 'kind': kind,
             'title': title, 'detail': detail, 'cta': cta, 'route': route,
             'action': title,
+        })
+
+    if truth_data['errors']:
+        attention.append({
+            'id': 'system:truth_integrity', 'job_id': None,
+            'company': 'Ground truth', 'role': 'Candidate evidence',
+            'phase': 'system', 'severity': 'critical',
+            'kind': 'truth_integrity',
+            'title': 'Resolve ground-truth integrity',
+            'detail': truth_data['integrity_errors'][0],
+            'cta': 'Inspect with Codex', 'route': 'codex_truth',
+            'action': 'Resolve ground-truth integrity',
         })
 
     for job in jobs:

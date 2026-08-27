@@ -15,7 +15,7 @@ FIXTURE = os.path.join(ROOT, 'examples', 'starter')
 sys.path.insert(0, ROOT)
 
 from core import (codex_bridge, dashboard, dashboard_actions, dashboard_runtime,
-                  feedback, job_fetch, store, vec)
+                  feedback, integrity, job_fetch, store, vec)
 
 
 def fetch(url):
@@ -102,6 +102,22 @@ def main():
         checks.append(('captured JD is directly addressable through registry',
                        any(row.get('href') and row.get('group') == 'Source'
                            for row in snapshot['jobs'][0]['artifacts'])))
+
+        original_truth_check = integrity.check_truth
+        try:
+            integrity.check_truth = lambda: (
+                ['source SRC-FIXTURE: SHA-256 mismatch'], [], {})
+            blocked_truth = dashboard.build_snapshot()
+        finally:
+            integrity.check_truth = original_truth_check
+        truth_attention = next(
+            item for item in blocked_truth['attention']
+            if item['kind'] == 'truth_integrity')
+        checks.append(('truth integrity failure is explicit and directly actionable',
+                       blocked_truth['truth']['ready'] is False
+                       and blocked_truth['truth']['errors'] == 1
+                       and truth_attention['route'] == 'codex_truth'
+                       and 'SHA-256 mismatch' in truth_attention['detail']))
 
         comment = feedback.record(
             snapshot['jobs'][0]['id'], 'WORKFLOW',

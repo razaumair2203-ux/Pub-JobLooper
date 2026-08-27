@@ -81,6 +81,7 @@ is visible in the application ledger but is not a task.
 | Missing submission metadata | Update record | Corrected date/channel, attached late portal evidence, or explicit `unavailable` state |
 | Missing outcome date | Update outcome | Existing status, timing and reason prefilled; corrected observation retained |
 | Integrity failure | Inspect artefacts | Exact failed control and artefact are visible; downstream correction remains blocked |
+| Ground-truth integrity failure | Inspect with Codex | Exact source/digest error is visible; evidence is re-verified or deliberately re-governed by the user |
 | Progressed/rejected reasoning | Work with Codex | Fact/hypothesis/unknown separation and, only when justified, a retained lesson |
 
 Queue generation and action routing are tested together. A new queue kind is
@@ -173,6 +174,9 @@ This is a deliberate authority boundary, not an unfinished dashboard feature.
   changing the exact sent CV/letter; each correction is event-traced.
 - Open feedback can be resolved from its queue row, with explicit rationale and
   validation, instead of opening an unrelated comment form.
+- Ground-truth integrity errors override a stale `ready` sign-off, show their
+  exact cause and become a blocking system-level Attention item; evidence is
+  never silently re-hashed or re-trusted.
 - Approval cannot precede complete presentation or bypass open feedback.
 - Submission accepts only verified package artefacts and preserves optional
   screening evidence with a digest.
