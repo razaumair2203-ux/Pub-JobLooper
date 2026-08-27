@@ -25,6 +25,7 @@ check "pre-generation questions" python -B tests/test_preflight.py
 check "protected inventory" python -B tests/test_inventory_retention.py
 check "outcome learning" python -B tests/test_learning.py
 check "case lifecycle" python -B tests/test_case_lifecycle.py
+check "local dashboard" python -B tests/test_dashboard.py
 check "PDF extraction" python -B tests/test_pdftext.py
 check "portability and onboarding" python -B tests/test_portability.py
 check "single-writer safety" python -B tests/test_locking.py

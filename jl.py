@@ -15,6 +15,7 @@
   jl reason <job> [--cause CATEGORY --note "..."]
   jl ask    "<question>"
   jl verify <job>
+  jl dashboard                         # local read-only application command view
   jl jobs | jl anchors [query] | jl sources | jl check | jl context
 
 Every command is a thin shell over core/. If something misbehaves, the state it
@@ -32,7 +33,8 @@ for _stream in (sys.stdout, sys.stderr):
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from core import (store, vec, match, build, preview, gates, render, casefile,
                   integrity, release, learning, feedback, employer_response,
-                  cover_letter, employer_review, preflight, truth_review)
+                  cover_letter, employer_review, preflight, truth_review,
+                  dashboard as dashboard_ui)
 
 FAIL_CATS = ['HARD_GATE', 'SENIORITY_MISMATCH', 'DOMAIN_TRANSLATION', 'ATS_KEYWORD',
              'EVIDENCE_DEPTH', 'NARRATIVE_COHERENCE', 'LOCATION_VISA', 'COMPENSATION',
@@ -778,9 +780,13 @@ def cmd_apply(args):
     channel = getattr(args, 'channel', None)
 
     try:
-        release_dir, manifest, submission = release.record_submission(
+        recorder = (release.record_confirmed_external_submission
+                    if getattr(args, 'confirm_external', False)
+                    else release.record_submission)
+        release_dir, manifest, submission = recorder(
             slug, sent_file, cover_letter_file=getattr(args, 'cover_letter_file', None),
-            channel=channel, applied_date=applied_date)
+            channel=channel, applied_date=applied_date,
+            screening_file=getattr(args, 'screening_file', None))
     except ValueError as error:
         raise SystemExit(f'APPLY REFUSED - {error}')
 
@@ -800,9 +806,10 @@ def cmd_apply(args):
         'applied_date_status': 'recorded' if applied_date else 'not_provided',
         'recorded_at': store.now(),
         'channel': channel,
-        'submission_mode': 'exact_approved_artefact',
+        'submission_mode': submission.get('mode', 'exact_approved_artefact'),
         'sent_file': submission.get('sent_file'),
         'sent_cover_letter': submission.get('sent_cover_letter'),
+        'screening_evidence': submission.get('screening_evidence'),
         'identity': cv.get('identity'),
         'release_id': 'approved',
         'package_id': manifest.get('package_id'),
@@ -820,6 +827,8 @@ def cmd_apply(args):
         'status': 'applied',
         'responded': None,
         'hypotheses': [],
+        'submission_integrity_exceptions':
+            submission.get('unsent_package_integrity_exceptions', []),
         'test_record': False,
         'exclude_from_analytics': False,
     }
@@ -849,13 +858,22 @@ def cmd_outcome(args):
     rec = next((a for a in apps if a['app_id'] == slug), None)
     if not rec:
         raise SystemExit(f"'{slug}' was never applied to. Run `jl apply {slug}` first.")
+    if not learning._exact_submission(rec):
+        raise SystemExit(
+            'OUTCOME REFUSED — application record is not bound to an exact submitted package')
     if args.cat and args.status not in learning.NEGATIVE_OUTCOMES:
         raise SystemExit(
             'OUTCOME REFUSED — rejection hypotheses apply only to rejected or ghosted outcomes')
 
     rec['status'] = args.status
-    rec['responded'] = args.date or store.today()
-    if rec.get('applied'):
+    rec['responded'] = args.date or None
+    rec['responded_date_status'] = 'recorded' if args.date else 'not_provided'
+    latency = getattr(args, 'latency', None)
+    rec['response_latency'] = {
+        'band': latency or 'unknown',
+        'basis': 'user_reported' if latency else 'not_provided',
+    }
+    if rec.get('applied') and rec.get('responded'):
         import datetime
         try:
             a = datetime.date.fromisoformat(rec['applied'])
@@ -883,6 +901,7 @@ def cmd_outcome(args):
     store.append_application_event({
         'event': 'OUTCOME', 'app_id': slug, 'status': args.status,
         'responded': rec.get('responded'), 'stated_reason': rec.get('stated_reason'),
+        'response_latency': rec.get('response_latency'),
         'hypotheses': rec.get('hypotheses', []),
     })
     if args.cat and not rec.get('test_record'):
@@ -1037,6 +1056,59 @@ def cmd_lessons(args):
             values = revision.get(key) or []
             if values:
                 say(f"    {label}: " + '; '.join(values))
+
+
+def cmd_metrics(args):
+    """Show deterministic lifecycle KPIs without treating outcomes as causes."""
+    apps = [row for row in store.applications()
+            if not row.get('test_record') and not row.get('exclude_from_analytics')]
+    outcomes = [row for row in apps if row.get('status') not in {None, 'applied'}]
+    negative = [row for row in outcomes
+                if row.get('status') in learning.NEGATIVE_OUTCOMES]
+    positive = [row for row in outcomes
+                if row.get('status') in learning.POSITIVE_OUTCOMES]
+    exact = sum(learning._exact_submission(row) for row in apps)
+    screening = sum(bool(row.get('screening_evidence')) for row in apps)
+    response_dates = sum(bool(row.get('responded')) for row in outcomes)
+    timing_bands = sum(
+        (row.get('response_latency') or {}).get('band') not in {None, 'unknown'}
+        for row in outcomes)
+    immediate = sum(
+        (row.get('response_latency') or {}).get('band') == 'under_24h'
+        for row in outcomes)
+    retained = len(learning.confirmed_lessons())
+
+    def ratio(value, denominator):
+        return f"{value}/{denominator} ({value / denominator:.0%})" if denominator else '0/0'
+
+    say('APPLICATION LEARNING KPIs - descriptive, not hiring probabilities')
+    say(f"  applications                 {len(apps)}")
+    say(f"  exact submission correlation {ratio(exact, len(apps))}")
+    say(f"  portal-answer capture        {ratio(screening, len(apps))}")
+    say(f"  outcomes recorded            {len(outcomes)}")
+    say(f"  exact response date          {ratio(response_dates, len(outcomes))}")
+    say(f"  response timing band         {ratio(timing_bands, len(outcomes))}")
+    say(f"  under-24-hour outcomes       {ratio(immediate, len(outcomes))}")
+    say(f"  progressed/interview/offer   {ratio(len(positive), len(outcomes))}")
+    say(f"  rejected/ghosted             {ratio(len(negative), len(outcomes))}")
+    say(f"  retained review signals      {retained}")
+    companies = {str(row.get('company') or '').strip().lower() for row in apps}
+    if len(apps) < 10 or len(companies) < 3:
+        say('')
+        say('  CAUTION: sample is too small or employer-concentrated for broad causal conclusions.')
+    if apps and screening < len(apps):
+        say('  NEXT: capture portal answers with `submit --screening-file`.')
+    if immediate:
+        say('  NEXT: audit eligibility/knockout answers and direct-context gates before CV polishing.')
+    return 0
+
+
+def cmd_dashboard(args):
+    """Launch or inspect the local, read-only lifecycle dashboard."""
+    if args.snapshot:
+        say(dashboard_ui.snapshot_json())
+        return 0
+    return dashboard_ui.serve(port=args.port, open_browser=not args.no_open)
 
 
 # ---------------------------------------------------------------- case
@@ -1500,6 +1572,22 @@ def cmd_verify(args):
     slug = store.resolve_job(args.job)
     manifest, errors = release.verify_release(slug)
     if errors:
+        submission, submission_errors = release.verify_submission(slug)
+        if (submission
+                and submission.get('mode') == 'user_confirmed_external_submission'
+                and not submission_errors):
+            say(f"verified submission  {slug}")
+            say(f"  package   {submission.get('package_id')}")
+            say(f"  manifest  {submission.get('manifest_sha256')}")
+            say(f"  sent CV   {submission.get('sent_file')} · "
+                f"{submission.get('sent_sha256', '')[:12]}")
+            if submission.get('sent_cover_letter'):
+                say(f"  letter    {submission.get('sent_cover_letter')} · "
+                    f"{submission.get('sent_cover_letter_sha256', '')[:12]}")
+            say('  package   submission is exact; unsent-file exception remains disclosed')
+            for problem in submission.get('unsent_package_integrity_exceptions', []):
+                say(f"            - {problem}")
+            return 0
         say(f"VERIFY FAILED — {slug}")
         for problem in errors:
             say(f"  - {problem}")
@@ -1601,12 +1689,23 @@ def main():
                        help='exact CV.pdf or CV.docx inside the approved job folder')
         s.add_argument('--cover-letter-file',
                        help='exact COVER-LETTER.pdf or COVER-LETTER.docx if it was submitted')
+        s.add_argument(
+            '--screening-file',
+            help=('optional saved portal questionnaire/answers as PDF, text, JSON, HTML '
+                  'or image; copied and hash-bound to the private application record'))
+        s.add_argument(
+            '--confirm-external', action='store_true',
+            help=('retrospectively bind user-confirmed sent files that still match the '
+                  'approved manifest when only other unsent employer-facing files changed'))
         s.set_defaults(fn=cmd_apply)
 
     s = sub.add_parser('outcome'); s.add_argument('job')
     s.add_argument('--status', required=True,
                    choices=['rejected', 'interview', 'offer', 'progressed', 'ghosted', 'withdrawn'])
     s.add_argument('--date'); s.add_argument('--reason'); s.add_argument('--cat', choices=FAIL_CATS)
+    s.add_argument('--latency', choices=(
+        'under_24h', '1_3d', '4_7d', '8_30d', 'over_30d', 'unknown'),
+        help='user-reported response-time band when exact timestamps are unavailable')
     s.add_argument('--conf', type=float, default=0.5); s.add_argument('--note')
     s.add_argument('--author', default='user')
     s.add_argument('--evidence-for', action='append', default=[])
@@ -1635,6 +1734,15 @@ def main():
     s.set_defaults(fn=cmd_reason)
 
     s = sub.add_parser('lessons'); s.set_defaults(fn=cmd_lessons)
+    s = sub.add_parser('metrics'); s.set_defaults(fn=cmd_metrics)
+    s = sub.add_parser('dashboard')
+    s.add_argument('--port', type=int, default=8765,
+                   help='loopback port; use 0 to select a free port')
+    s.add_argument('--no-open', action='store_true',
+                   help='do not open the default browser automatically')
+    s.add_argument('--snapshot', action='store_true',
+                   help='print the deterministic dashboard JSON and exit')
+    s.set_defaults(fn=cmd_dashboard)
 
     s = sub.add_parser('ask'); s.add_argument('question', nargs='+'); s.set_defaults(fn=cmd_ask)
     s = sub.add_parser('case'); s.add_argument('job')

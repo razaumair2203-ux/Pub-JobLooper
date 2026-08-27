@@ -62,9 +62,15 @@ def _submitted_candidate(app, email_norm, email_raw):
     references = _references(jd, jd_raw)
     reference_hits = [ref for ref in references if re.search(rf'(?<!\d){ref}(?!\d)', email_raw)]
 
-    manifest, package_errors = release.verify_release(slug, 'submitted')
-    _, receipt_errors = release.verify_submission(slug)
-    package_errors.extend(receipt_errors)
+    manifest, package_errors = release.verify_release(slug)
+    receipt, receipt_errors = release.verify_submission(slug)
+    if (receipt or {}).get('mode') == 'user_confirmed_external_submission':
+        # Exact selected sent files remain correlatable even when an unrelated,
+        # unsent employer-facing file was changed later. The receipt preserves
+        # that exception rather than laundering it into a clean approval.
+        package_errors = list(receipt_errors)
+    else:
+        package_errors.extend(receipt_errors)
     if manifest and app.get('release_manifest_sha256') \
             and app['release_manifest_sha256'] != manifest.get('manifest_sha256'):
         package_errors.append('application index and approved manifest disagree')

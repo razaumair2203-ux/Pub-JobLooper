@@ -9,7 +9,7 @@ Authenticate Git only when the repository is private, then clone directly into
 the current Codex user-scoped skill location:
 
 ```text
-git clone https://github.com/razaumair2203-ux/joblooper-skill.git ~/.agents/skills/joblooper
+git clone https://github.com/razaumair2203-ux/Pub-JobLooper.git ~/.agents/skills/joblooper
 cd ~/.agents/skills/joblooper
 python jl.py init   # public clone only
 python jl.py doctor
@@ -18,7 +18,7 @@ python jl.py doctor
 On Windows PowerShell:
 
 ```powershell
-git clone https://github.com/razaumair2203-ux/joblooper-skill.git "$env:USERPROFILE\.agents\skills\joblooper"
+git clone https://github.com/razaumair2203-ux/Pub-JobLooper.git "$env:USERPROFILE\.agents\skills\joblooper"
 Set-Location "$env:USERPROFILE\.agents\skills\joblooper"
 python jl.py init   # public clone only
 python jl.py doctor
@@ -61,3 +61,9 @@ directory. The installer never replaces an existing destination.
 After installation, start a new Codex turn and invoke `$joblooper`, or rely on
 implicit invocation for a matching CV/application request. If it is not listed,
 restart Codex and run `python jl.py doctor` from the installed path.
+
+The installed repository includes the complete dashboard. Launch it with
+`python jl.py dashboard`. A later launch safely replaces only the registered
+Joblooper process, serves the upgraded code at `http://127.0.0.1:8765/`, and
+opens that same canonical address. Pull repository upgrades before relaunching;
+do not copy dashboard files separately from the skill.

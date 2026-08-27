@@ -36,6 +36,9 @@ with tempfile.TemporaryDirectory(prefix='joblooper-install-') as temp:
         assert os.path.samefile(destination, ROOT)
         assert os.path.isfile(os.path.join(destination, 'SKILL.md'))
         assert os.path.isfile(os.path.join(destination, 'agents', 'openai.yaml'))
+        assert os.path.isfile(os.path.join(destination, 'dashboard', 'index.html'))
+        assert os.path.isfile(os.path.join(destination, 'core', 'dashboard.py'))
+        assert os.path.isfile(os.path.join(destination, 'core', 'dashboard_runtime.py'))
         doctor = subprocess.run(
             [sys.executable, os.path.join(destination, 'jl.py'), '--data-dir', FIXTURE,
              'doctor'], cwd=destination, text=True,
@@ -45,4 +48,4 @@ with tempfile.TemporaryDirectory(prefix='joblooper-install-') as temp:
     finally:
         remove_link(destination)
 
-print('standalone linked skill installation: 8/8 pass')
+print('standalone linked skill installation: 10/10 pass')

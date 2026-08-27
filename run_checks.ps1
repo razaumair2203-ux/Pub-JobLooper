@@ -19,6 +19,7 @@ $checks = @(
     @('protected inventory', @('tests/test_inventory_retention.py')),
     @('outcome learning', @('tests/test_learning.py')),
     @('case lifecycle', @('tests/test_case_lifecycle.py')),
+    @('local dashboard', @('tests/test_dashboard.py')),
     @('PDF extraction', @('tests/test_pdftext.py')),
     @('portability and onboarding', @('tests/test_portability.py')),
     @('single-writer safety', @('tests/test_locking.py')),

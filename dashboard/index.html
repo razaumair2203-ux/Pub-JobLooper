@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>Joblooper · Application Workspace</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to dashboard</a>
+  <div class="ambient ambient-a" aria-hidden="true"></div>
+  <div class="ambient ambient-b" aria-hidden="true"></div>
+
+  <header class="command-bar">
+    <a class="brand" href="#overview" aria-label="Joblooper dashboard home">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32"><path d="M6 9.5 16 4l10 5.5v13L16 28 6 22.5z"/><path d="m11 12 5-2.8 5 2.8v6.8L16 22l-5-3.2z"/></svg>
+      </span>
+      <span><strong>JOBLOOPER</strong><small>Application workspace</small></span>
+    </a>
+
+    <div class="header-status" aria-live="polite">
+      <span class="status-pill privacy-pill"><span class="pulse-dot"></span>LOCAL ONLY</span>
+      <span class="status-pill" id="truth-pill">Checking truth…</span>
+      <span class="last-refresh" id="last-refresh">Loading</span>
+    </div>
+
+    <div class="header-actions">
+      <label class="search-box" for="global-search">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
+        <input id="global-search" type="search" autocomplete="off" placeholder="Search company, role or reference">
+        <kbd>/</kbd>
+      </label>
+      <button class="workspace-button" id="agent-button" type="button">
+        <span class="agent-orb"></span>Work with Codex
+      </button>
+      <button class="primary-button" id="new-job-button" type="button">+ New application</button>
+      <button class="icon-button" id="refresh-button" type="button" title="Refresh data" aria-label="Refresh dashboard">
+        <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7L20 14"/><path d="M20 6v5h-5"/></svg>
+      </button>
+      <button class="icon-button" id="theme-button" type="button" title="Change appearance" aria-label="Change appearance">
+        <svg class="theme-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.5"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero" id="overview" aria-labelledby="overview-title">
+      <div>
+        <p class="eyebrow"><span></span>Portfolio state</p>
+        <h1 id="overview-title">Apply from one place.<br><em>Keep every decision traceable.</em></h1>
+        <p class="hero-copy">Paste the official job link, work with Codex, review every section, approve the bundle and preserve what happened.</p>
+      </div>
+      <div class="hero-action" id="primary-action">
+        <span class="micro-label">Priority now</span>
+        <strong>Loading your next action…</strong>
+      </div>
+    </section>
+
+    <section class="kpi-grid" id="kpi-grid" aria-label="Application KPIs">
+      <div class="skeleton kpi-skeleton"></div><div class="skeleton kpi-skeleton"></div>
+      <div class="skeleton kpi-skeleton"></div><div class="skeleton kpi-skeleton"></div>
+      <div class="skeleton kpi-skeleton"></div><div class="skeleton kpi-skeleton"></div>
+    </section>
+
+    <section class="overview-grid" aria-label="Lifecycle and evidence controls">
+      <article class="panel pipeline-panel">
+        <div class="panel-heading">
+          <div><p class="eyebrow">Lifecycle</p><h2>Application flow</h2></div>
+          <span class="subtle">Milestones reached</span>
+        </div>
+        <div id="pipeline-chart" class="pipeline-chart" aria-label="Application lifecycle chart"></div>
+        <p class="chart-note">Milestones are observed records, not a conversion forecast.</p>
+      </article>
+
+      <article class="panel control-panel">
+        <div class="panel-heading">
+          <div><p class="eyebrow">Evidence control</p><h2>System integrity</h2></div>
+          <span class="health-orb" id="health-orb" aria-hidden="true"></span>
+        </div>
+        <div class="control-list" id="control-list"></div>
+        <div class="truth-foot" id="truth-foot"></div>
+      </article>
+    </section>
+
+    <section class="ledger-section" id="applications" aria-labelledby="ledger-title">
+      <div class="section-heading">
+        <div><p class="eyebrow">Application ledger</p><h2 id="ledger-title">Every job, one traceable record</h2></div>
+        <div class="view-meta"><span id="result-count">0 jobs</span></div>
+      </div>
+      <div class="filter-row" id="filter-row" role="group" aria-label="Filter applications">
+        <button class="filter-chip active" type="button" data-filter="all">All <span>0</span></button>
+        <button class="filter-chip" type="button" data-filter="in_progress">In progress <span>0</span></button>
+        <button class="filter-chip" type="button" data-filter="applied">Applied <span>0</span></button>
+        <button class="filter-chip" type="button" data-filter="progressed">Progressed <span>0</span></button>
+        <button class="filter-chip" type="button" data-filter="rejected">Rejected <span>0</span></button>
+      </div>
+      <div class="job-ledger" id="job-ledger">
+        <div class="empty-state"><span class="loader"></span><strong>Building the governed read model…</strong></div>
+      </div>
+    </section>
+
+    <section class="intelligence-grid" aria-label="Attention and learning">
+      <article class="panel attention-panel">
+        <div class="panel-heading">
+          <div><p class="eyebrow">Attention queue</p><h2>What needs you</h2></div>
+          <span class="count-badge" id="attention-count">0</span>
+        </div>
+        <div class="attention-list" id="attention-list"></div>
+      </article>
+
+      <article class="panel learning-panel">
+        <div class="panel-heading">
+          <div><p class="eyebrow">Learning memory</p><h2>Signals that survived challenge</h2></div>
+          <span class="subtle">Evidence support · not probability</span>
+        </div>
+        <div class="learning-list" id="learning-list"></div>
+      </article>
+    </section>
+
+    <footer class="dashboard-footer">
+      <span>Joblooper stores governed lifecycle evidence locally.</span>
+      <span>No analytics · Codex turns use your configured OpenAI service · no hidden score</span>
+    </footer>
+  </main>
+
+  <div class="drawer-backdrop" id="drawer-backdrop" hidden></div>
+  <aside class="job-drawer" id="job-drawer" aria-labelledby="drawer-title" aria-modal="true" role="dialog" hidden>
+    <div class="drawer-topbar">
+      <span class="status-badge" id="drawer-phase">Status</span>
+      <button class="icon-button" id="drawer-close" type="button" aria-label="Close application details">
+        <svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+    <div class="drawer-scroll">
+      <header class="drawer-header">
+        <p class="eyebrow" id="drawer-company">Company</p>
+        <h2 id="drawer-title">Role</h2>
+        <p id="drawer-meta" class="drawer-meta"></p>
+        <div class="drawer-actions" id="drawer-actions"></div>
+      </header>
+      <div class="next-action-card" id="drawer-next-action"></div>
+      <nav class="drawer-tabs" id="drawer-tabs" aria-label="Application detail sections">
+        <button class="active" type="button" data-tab="overview">Overview</button>
+        <button type="button" data-tab="artifacts">Artefacts</button>
+        <button type="button" data-tab="review">Review CV & letter</button>
+        <button type="button" data-tab="evidence">Evidence</button>
+        <button type="button" data-tab="reasoning">Outcome & reasoning</button>
+        <button type="button" data-tab="timeline">Timeline</button>
+      </nav>
+      <div class="drawer-content" id="drawer-content"></div>
+    </div>
+  </aside>
+
+  <div class="agent-backdrop" id="agent-backdrop" hidden></div>
+  <aside class="agent-workspace" id="agent-workspace" aria-labelledby="agent-title" aria-modal="true" role="dialog" hidden>
+    <div class="agent-topbar">
+      <div><span class="agent-orb"></span><span id="agent-state">CODEX READY</span></div>
+      <button class="icon-button" id="agent-close" type="button" aria-label="Close Codex workspace">
+        <svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+    <div class="agent-scroll">
+      <header class="agent-header">
+        <p class="eyebrow">Contextual oversight</p>
+        <h2 id="agent-title">Work with Codex</h2>
+        <p id="agent-context">Portfolio-level conversation</p>
+      </header>
+      <div class="guardrail-strip"><strong>Codex reasons.</strong><span>Joblooper controls facts, gates, approval and files.</span></div>
+      <div class="agent-quick-actions" id="agent-quick-actions"></div>
+      <div class="conversation" id="conversation">
+        <div class="agent-welcome"><strong>What can I do here?</strong><span>Ask about a job, prepare an application, discuss feedback or reason about an outcome. Each job resumes its private Codex thread when available; durable learning still belongs in governed records.</span></div>
+      </div>
+      <div class="pending-request" id="pending-request" hidden></div>
+    </div>
+    <form class="composer" id="agent-form">
+      <label for="agent-message">Message Codex</label>
+      <textarea id="agent-message" rows="3" placeholder="Ask about this application or tell Codex what to improve…"></textarea>
+      <div><span id="agent-hint">No approval or file generation is implied by a message.</span><button class="primary-button" type="submit">Send</button></div>
+    </form>
+  </aside>
+
+  <dialog class="workspace-dialog intake-dialog" id="intake-dialog">
+    <form method="dialog" id="intake-form">
+      <div class="dialog-heading"><div><p class="eyebrow">New application</p><h2>Paste the job link</h2></div><button class="icon-button dialog-close" type="button" aria-label="Close"><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+      <p class="dialog-copy">Joblooper extracts the company, exact title and complete advert. If direct access is blocked, Codex tries the same official page. Nothing is inferred from an incomplete page or search snippet.</p>
+      <div class="intake-url-card"><label>Official job URL<input name="url" type="url" maxlength="2000" autofocus placeholder="https://company.example/jobs/12345"></label><span>Direct extraction → Codex fallback → manual paste only if both are blocked</span></div>
+      <details class="manual-intake" id="manual-intake">
+        <summary>Site blocked? Paste the advert manually</summary>
+        <p>Use this only when the official page cannot be accessed. All three fields are required for a manual capture.</p>
+        <div class="form-grid two"><label>Company<input name="company" maxlength="200" autocomplete="organization"></label><label>Exact job title<input name="title" maxlength="300"></label></div>
+        <label>Complete job description<textarea name="jd" rows="13" maxlength="120000" placeholder="Paste the complete advert here"></textarea></label>
+      </details>
+      <div class="dialog-status" id="intake-status"></div>
+      <div class="dialog-actions"><button class="secondary-button dialog-close" type="button">Cancel</button><button class="primary-button" type="submit">Get job from link</button></div>
+    </form>
+  </dialog>
+
+  <dialog class="workspace-dialog" id="feedback-dialog">
+    <form method="dialog" id="feedback-form">
+      <div class="dialog-heading"><div><p class="eyebrow">Governed feedback</p><h2>Add a review comment</h2></div><button class="icon-button dialog-close" type="button" aria-label="Close"><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+      <p class="dialog-copy">A saved comment invalidates stale presentation or approval. Codex can discuss it first; it becomes a rule or truth change only after explicit resolution.</p>
+      <label>Scope<select name="scope"><option value="content">CV or letter content</option><option value="format">Formatting</option><option value="workflow">Workflow</option><option value="truth">Candidate truth</option><option value="rule">System rule</option></select></label>
+      <label>Comment<textarea name="note" required rows="7" maxlength="8000"></textarea></label>
+      <div class="dialog-status" id="feedback-status"></div>
+      <div class="dialog-actions"><button class="secondary-button dialog-close" type="button">Cancel</button><button class="primary-button" type="submit">Save feedback</button></div>
+    </form>
+  </dialog>
+
+  <dialog class="workspace-dialog" id="approval-dialog">
+    <form method="dialog" id="approval-form">
+      <div class="dialog-heading"><div><p class="eyebrow">Explicit sign-off</p><h2>Approve and build artefacts</h2></div><button class="icon-button dialog-close" type="button" aria-label="Close"><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+      <p class="dialog-copy">This is not a chat shortcut. Approval is bound to the exact complete CV and cover letter currently shown in the Review tab.</p>
+      <label>Reviewer name<input name="reviewer" required maxlength="200"></label>
+      <label class="check-row"><input name="confirmed" type="checkbox" required><span>I reviewed the complete CV and cover letter shown in this dashboard.</span></label>
+      <label class="check-row"><input name="no_pdf" type="checkbox"><span>Build DOCX only on this machine</span></label>
+      <div class="dialog-status" id="approval-status"></div>
+      <div class="dialog-actions"><button class="secondary-button dialog-close" type="button">Cancel</button><button class="primary-button" type="submit">Approve and build</button></div>
+    </form>
+  </dialog>
+
+  <dialog class="workspace-dialog" id="submission-dialog">
+    <form method="dialog" id="submission-form">
+      <div class="dialog-heading"><div><p class="eyebrow">Submission desk</p><h2>Record the exact sent bundle</h2></div><button class="icon-button dialog-close" type="button" aria-label="Close"><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+      <p class="dialog-copy">Open the employer portal separately, upload the verified files below, save its screening answers, then return here. Joblooper does not claim to submit into a third-party portal.</p>
+      <div class="form-grid two"><label>Exact CV<select name="cv_artifact_id" required></select></label><label>Exact cover letter<select name="letter_artifact_id"><option value="">Not submitted</option></select></label></div>
+      <div class="form-grid two"><label>Channel<select name="channel"><option value="portal">Employer portal</option><option value="email">Email</option><option value="recruiter">Recruiter</option><option value="referral">Referral</option></select></label><label>Applied date<input name="applied_date" type="date"></label></div>
+      <label>Portal questions / screening answers <span class="optional">optional but strongly recommended</span><input name="screening_file" type="file" accept=".pdf,.txt,.md,.json,.html,.png,.jpg,.jpeg,.webp"><small>Upload the saved portal page, PDF, text, JSON or screenshot. Maximum 8 MB.</small></label>
+      <label class="check-row"><input name="confirmed" type="checkbox" required><span>I uploaded the exact files selected above.</span></label>
+      <div class="dialog-status" id="submission-status"></div>
+      <div class="dialog-actions"><button class="secondary-button dialog-close" type="button">Cancel</button><button class="primary-button" type="submit">Record submission</button></div>
+    </form>
+  </dialog>
+
+  <dialog class="workspace-dialog" id="outcome-dialog">
+    <form method="dialog" id="outcome-form">
+      <div class="dialog-heading"><div><p class="eyebrow">Observed outcome</p><h2>Record what happened</h2></div><button class="icon-button dialog-close" type="button" aria-label="Close"><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+      <p class="dialog-copy">Save the observation first. Employer text and stated reasons remain facts; any explanation discussed with Codex remains an unverified best guess unless the employer explicitly confirms it.</p>
+      <div class="form-grid two"><label>Outcome<select name="status" required><option value="rejected">Rejected</option><option value="interview">Interview</option><option value="progressed">Progressed</option><option value="offer">Offer</option><option value="ghosted">Ghosted</option><option value="withdrawn">Withdrawn</option></select></label><label>Response date<input name="response_date" type="date"></label></div>
+      <label>Response timing<select name="latency"><option value="unknown">Unknown</option><option value="under_24h">Under 24 hours</option><option value="1_3d">1–3 days</option><option value="4_7d">4–7 days</option><option value="8_30d">8–30 days</option><option value="over_30d">Over 30 days</option></select></label>
+      <label>Exact employer-stated reason <span class="optional">leave blank when none was given</span><textarea name="employer_reason" rows="3" maxlength="600" placeholder="Do not enter your theory here"></textarea></label>
+      <label>Exact employer email or response <span class="optional">optional</span><textarea name="response_text" rows="9" maxlength="120000" placeholder="Paste the exact response to hash-bind it to this application"></textarea><small>A response date is required when exact text is pasted.</small></label>
+      <div class="dialog-status" id="outcome-status"></div>
+      <div class="dialog-actions"><button class="secondary-button dialog-close" type="button">Cancel</button><button class="primary-button" type="submit">Record outcome</button></div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+  <script src="/app.js" defer></script>
+</body>
+</html>

@@ -18,6 +18,13 @@ are not grounds for decorative edits.
 First run `jl response`. Continue only when reference or unique company/role
 evidence correlates one captured JD, verified package and exact submission
 receipt. Ambiguity stops the workflow; never borrow another BAE/job version.
+Treat the saved portal questionnaire as application evidence, not candidate
+truth. If it was not captured, list the screening answers as unknown; never
+infer work-authorisation, mobility, salary, clearance or eligibility answers
+from the CV or from rejection timing.
+If only a timing band is known, record it with `outcome --latency`; do not turn
+the report date into a response date. Fast timing changes which hypotheses are
+worth investigating, but it does not identify an automated or human decision.
 
 Reason through inferred causes in at least three substantive passes:
 
@@ -38,6 +45,11 @@ and unknowns. Without an explicit employer-stated reason, use
 Retained lessons surface on similar future applications as review questions.
 They never mutate career truth, fabricate a CV fact or claim a probability of
 rejection.
+
+Use `jl metrics` to monitor exact-submission correlation, portal-answer capture,
+response-date/timing capture and observed progression. Do not generalise from
+fewer than ten applications or an employer-concentrated sample, and never call
+these descriptive rates ATS scores or causal probabilities.
 
 ## After a positive outcome
 

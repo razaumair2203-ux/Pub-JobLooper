@@ -33,7 +33,8 @@ than starting again from chat memory.
 ## Repository status
 
 `repo-policy.json` is authoritative. Joblooper has two deliberately separate
-editions. A `PERSONAL_PRIVATE` checkout may keep governed `.joblooper/` data in
+repositories. `Pvt-JobLooper` is the authoritative `PERSONAL_PRIVATE` source and
+may keep governed `.joblooper/` data in
 explicitly private Git. A `PUBLIC_SKILL` checkout contains no candidate runtime
 data and stores each user's data outside the installed skill. Never change a
 personal repository's visibility or publish its history.
@@ -42,8 +43,8 @@ Maintainers create the public edition only as a sanitized, allowlisted tree
 with new Git history:
 
 ```powershell
-python tools/export_public.py D:\path\to\new-joblooper-public
-cd D:\path\to\new-joblooper-public
+python tools/export_public.py D:\path\to\new-Pub-JobLooper
+cd D:\path\to\new-Pub-JobLooper
 python tools/check_repo.py --public-tree .
 git init
 ```
@@ -87,11 +88,14 @@ Record the exact file actually submitted:
 
 ```powershell
 python jl.py submit <exact-job-key> --sent-file "<job-folder>\CV.pdf" \
-  --cover-letter-file "<job-folder>\COVER-LETTER.pdf" --channel portal
+  --cover-letter-file "<job-folder>\COVER-LETTER.pdf" \
+  --screening-file "<saved-portal-answers.pdf>" --channel portal
 ```
 
 This records hashes; it does not contact the employer. It refuses a file outside
-the application package or one that differs from the manifest.
+the application package or one that differs from the manifest. The optional
+screening file is copied into the private application record and hash-bound so
+a fast outcome can be investigated without reconstructing portal answers.
 
 ## First-time candidate setup
 
@@ -190,7 +194,7 @@ one shallow, human-readable folder:
     COVER-LETTER.md  COVER-LETTER-ATS.txt  COVER-LETTER.json
     EVIDENCE.md  EMPLOYER-RISK.md  GATE-AUDIT.csv
     PRESENTATION.json  APPROVAL.json  FEEDBACK.json
-    MANIFEST.json  SUBMISSION.json  RESPONSES.jsonl
+    MANIFEST.json  SUBMISSION.json  SCREENING-ANSWERS.*  RESPONSES.jsonl
     CASE.md  REASONING.jsonl
 ```
 
@@ -199,15 +203,54 @@ live one level down. Submitted bundles are immutable. `python jl.py jobs` and
 `.joblooper/START-HERE.md` point to the exact JD, state and absolute folder.
 Commands use the unique job key, never a company-name guess.
 
+## Application command view
+
+Launch the dashboard at any point in the lifecycle:
+
+```text
+python jl.py dashboard
+```
+
+This is also the upgrade/restart command: it stops only the authenticated prior
+Joblooper instance, starts the installed code on the same loopback address and
+opens the current page. Dashboard behavior is modular and ships with both
+repositories; accepted improvements are authored once in `Pvt-JobLooper` and
+regenerated into the privacy-audited `Pub-JobLooper` mirror. See the
+[maintenance contract](references/maintenance.md).
+
+It opens the governed application workspace on `127.0.0.1`. From there, paste
+only the official job URL; Joblooper extracts the employer, exact title and
+complete advert. A blocked or JavaScript-only page is handed to Codex, and
+manual paste appears only if neither route can access the full JD. Then work
+with Codex in the selected job context, review the complete
+CV and cover letter, save feedback, approve and build, record the exact sent
+bundle plus portal-answer evidence, capture the observed outcome, inspect KPIs,
+and open every known artefact without navigating folders. Every deterministic
+action calls the same CLI gates and flat-file store; there is no dashboard
+database, synthetic ATS score or inferred rejection cause.
+
+The optional Codex panel uses the installed Codex CLI's official App Server.
+It starts only after an explicit user turn, uses the configured OpenAI service,
+and stops for user approval when Codex requests a command or file change. The
+private runtime stores only the job-to-thread mapping needed to resume that
+Codex context after a dashboard restart; durable facts and learning still live
+in governed Joblooper records. The dashboard has no analytics and cannot claim
+that it submitted into a third-party
+employer portal. Use `--no-open` on a headless machine or `--snapshot` for
+deterministic JSON. The [persona, journeys and control contract](references/dashboard.md)
+define the exact boundary.
+
 ## Employer response and learning
 
 ```powershell
 python jl.py response rejection-email.txt
+python jl.py outcome <exact-job-key> --status rejected --latency under_24h
 python jl.py case <exact-job-key>
 python jl.py reason <exact-job-key> --cause HARD_GATE --confidence 0.60 \
   --note "Leading explanation" --evidence-for "Supporting signal" \
   --evidence-against "Counter-signal" --unknown "What cannot be known"
 python jl.py lessons
+python jl.py metrics
 ```
 
 Correlation requires an exact reference or unique company-and-role match, a
@@ -225,7 +268,7 @@ The repository root is a complete standalone Codex skill—not merely a
 into the current user-scoped discovery path:
 
 ```bash
-git clone https://github.com/razaumair2203-ux/joblooper-skill.git "$HOME/.agents/skills/joblooper"
+git clone https://github.com/razaumair2203-ux/Pub-JobLooper.git "$HOME/.agents/skills/joblooper"
 cd "$HOME/.agents/skills/joblooper"
 python jl.py doctor
 python jl.py check

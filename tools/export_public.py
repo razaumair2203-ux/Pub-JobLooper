@@ -1,5 +1,6 @@
 """Create a new-history, allowlisted public Joblooper skill mirror."""
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -9,10 +10,12 @@ import tempfile
 
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PUBLIC_REPOSITORY_URL = 'https://github.com/razaumair2203-ux/joblooper-skill'
+PRIVATE_REPOSITORY_NAME = 'Pvt-JobLooper'
+PUBLIC_REPOSITORY_NAME = 'Pub-JobLooper'
+PUBLIC_REPOSITORY_URL = 'https://github.com/razaumair2203-ux/Pub-JobLooper'
 ALLOW_FILES = {
     '.gitattributes', '.gitignore', 'CONTRIBUTING.md', 'LICENSE', 'README.md',
-    'SECURITY.md', 'SKILL.md', 'USER-GUIDE.md', 'agents', 'core', 'examples', 'jl.py',
+    'SECURITY.md', 'SKILL.md', 'USER-GUIDE.md', 'agents', 'core', 'dashboard', 'examples', 'jl.py',
     'references', 'repo-policy.json', 'run_checks.ps1', 'run_checks.sh',
     'templates', 'tests', 'tools',
 }
@@ -132,6 +135,24 @@ def _identifier_problems(root, tokens=None):
     return sorted(set(problems))
 
 
+def release_fingerprint(root):
+    """Hash the complete distributable tree, excluding its generated policy."""
+    digest = hashlib.sha256()
+    for base, dirs, names in os.walk(root):
+        dirs[:] = sorted(name for name in dirs if name not in {'.git', '__pycache__'})
+        for name in sorted(names):
+            path = os.path.join(base, name)
+            relative = os.path.relpath(path, root).replace('\\', '/')
+            if relative == 'repo-policy.json':
+                continue
+            digest.update(relative.encode('utf-8') + b'\0')
+            with open(path, 'rb') as stream:
+                for block in iter(lambda: stream.read(1024 * 1024), b''):
+                    digest.update(block)
+            digest.update(b'\0')
+    return digest.hexdigest()
+
+
 def export(target):
     target = os.path.abspath(target)
     if os.path.exists(target):
@@ -148,10 +169,14 @@ def export(target):
             json.dump({
                 '_schema': 'joblooper.repository-policy.v1',
                 'classification': 'PUBLIC_SKILL',
+                'repository_name': PUBLIC_REPOSITORY_NAME,
+                'canonical_repository_url': PUBLIC_REPOSITORY_URL,
                 'purpose': 'Reusable evidence-governed Joblooper engine and fictional examples',
                 'personal_data_in_git': False,
                 'runtime_data_location': 'USER_HOME_OR_EXPLICIT_DATA_DIR',
                 'source': 'SANITIZED_MIRROR_WITH_NEW_HISTORY',
+                'source_repository_name': PRIVATE_REPOSITORY_NAME,
+                'release_fingerprint': release_fingerprint(staging),
             }, stream, ensure_ascii=False, indent=2)
             stream.write('\n')
         leaked = _identifier_problems(staging)

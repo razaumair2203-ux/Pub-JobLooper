@@ -40,6 +40,13 @@ REQUIRED_RELEASE_LABELS = {
 def record_dir(package, create=False):
     """Return the one-level application record, with legacy-root fallback."""
     nested = os.path.join(package, RECORD_DIR_NAME)
+    # A migrated/legacy package may keep its authoritative manifest at the
+    # package root. Creating a later CASE/STATUS file must never create a
+    # nested directory that shadows that manifest and breaks correlation.
+    root_manifest = os.path.join(package, MANIFEST_NAME)
+    nested_manifest = os.path.join(nested, MANIFEST_NAME)
+    if os.path.isfile(root_manifest) and not os.path.isfile(nested_manifest):
+        return package
     if os.path.isdir(nested) or create:
         if create:
             os.makedirs(nested, exist_ok=True)
@@ -191,7 +198,13 @@ def write_dashboard():
         package = store.approved_dir(slug)
         folder = os.path.basename(str(row.get('artifact_dir') or '').replace('/', os.sep))
         _, package_errors = verify_release(slug) if package else (None, [])
-        state = ('INTEGRITY ERROR' if package_errors else
+        submission_exact = False
+        if package and has_record_file(package, SUBMISSION_NAME):
+            receipt, receipt_errors = verify_submission(slug)
+            submission_exact = bool(receipt) and not receipt_errors
+        state = ('SUBMITTED - UNSENT FILE EXCEPTION DISCLOSED'
+                 if package_errors and submission_exact else
+                 'INTEGRITY ERROR' if package_errors else
                  'SUBMITTED' if package and has_record_file(package, SUBMISSION_NAME)
                  else 'APPROVED')
         rel = f"jobs/{folder}"
@@ -613,6 +626,13 @@ def discover(slug):
     package, manifest = load_release(slug)
     manifest = manifest or {}
     _, package_errors = verify_release(slug) if package else (None, [])
+    external_submission_exact = False
+    if package and has_record_file(package, SUBMISSION_NAME):
+        receipt, receipt_errors = verify_submission(slug)
+        external_submission_exact = (
+            bool(receipt)
+            and receipt.get('mode') == 'user_confirmed_external_submission'
+            and not receipt_errors)
     artifacts = {}
     labels = {
         'cv_pdf': 'pdf', 'cv_docx': 'docx',
@@ -642,8 +662,10 @@ def discover(slug):
         artifacts[public_name] = {'path': path, 'state': state}
     if not package:
         state = 'CHAT_REVIEW'
-    elif package_errors:
+    elif package_errors and not external_submission_exact:
         state = 'INTEGRITY_ERROR'
+    elif package_errors and external_submission_exact:
+        state = 'SUBMITTED_WITH_UNSENT_EXCEPTION'
     elif has_record_file(package, SUBMISSION_NAME):
         state = 'SUBMITTED'
     else:
@@ -711,7 +733,33 @@ def attach_pdfs(slug, pdfs, layout=None):
     return package, manifest
 
 
-def record_submission(slug, sent_file, cover_letter_file=None, channel=None, applied_date=None):
+def _capture_screening_evidence(package, screening_file):
+    """Copy an optional portal-answer export into the private application record."""
+    if not screening_file:
+        return None
+    source = os.path.abspath(screening_file)
+    if not os.path.isfile(source):
+        raise ValueError('the screening-answer evidence file does not exist')
+    extension = os.path.splitext(source)[1].lower()
+    allowed = {'.pdf', '.txt', '.md', '.json', '.html', '.png', '.jpg', '.jpeg', '.webp'}
+    if extension not in allowed:
+        raise ValueError(
+            'screening-answer evidence must be PDF, text, JSON, HTML or an image')
+    target = record_path(package, 'SCREENING-ANSWERS' + extension, create=True)
+    if os.path.abspath(target) != source:
+        if os.path.exists(target):
+            raise ValueError('screening-answer evidence is already present')
+        shutil.copy2(source, target)
+    return {
+        'file': os.path.relpath(target, package).replace('\\', '/'),
+        'sha256': store.sha256_file(target),
+        'bytes': os.path.getsize(target),
+        'basis': 'user-supplied exact portal-answer evidence',
+    }
+
+
+def record_submission(slug, sent_file, cover_letter_file=None, channel=None,
+                      applied_date=None, screening_file=None):
     """Record the exact sent CV and optional cover letter without moving the folder."""
     package, manifest = load_release(slug)
     verified, errors = verify_release(slug)
@@ -753,13 +801,15 @@ def record_submission(slug, sent_file, cover_letter_file=None, channel=None, app
             if info.get('file') == letter_name), None)
         if not letter_expected or letter_expected != letter_sha:
             raise ValueError('the exact sent cover letter is not manifest-verified')
+    screening = _capture_screening_evidence(package, screening_file)
     receipt = {
-        '_schema': 'joblooper.submission.v1', 'app_id': slug,
+        '_schema': 'joblooper.submission.v2', 'app_id': slug,
         'package_id': verified['package_id'],
         'manifest_sha256': verified['manifest_sha256'],
         'sent_file': sent_name, 'sent_sha256': sent_sha,
         'sent_cover_letter': letter_name,
         'sent_cover_letter_sha256': letter_sha,
+        'screening_evidence': screening,
         'applied': applied_date, 'channel': channel, 'recorded_at': store.now(),
     }
     store.write_json(record_path(package, SUBMISSION_NAME, create=True), receipt)
@@ -772,15 +822,158 @@ def record_submission(slug, sent_file, cover_letter_file=None, channel=None, app
     return package, manifest, receipt
 
 
+def _confirmed_submission_file(package, manifest, supplied, allowed):
+    """Validate one explicitly selected file against its immutable manifest entry."""
+    if not supplied:
+        raise ValueError('the exact sent artefact is required')
+    exact = os.path.abspath(supplied)
+    package_abs = os.path.abspath(package)
+    if not os.path.isfile(exact):
+        raise ValueError('the exact sent artefact does not exist')
+    if os.path.commonpath([package_abs, exact]) != package_abs:
+        raise ValueError('the exact sent artefact must be inside this approved job folder')
+    relative = os.path.relpath(exact, package_abs).replace('\\', '/')
+    label = allowed.get(relative)
+    if not label:
+        raise ValueError('the selected file is not an allowed CV or cover-letter artefact')
+    info = (manifest.get('files') or {}).get(label) or {}
+    digest = store.sha256_file(exact)
+    if info.get('file') != relative or info.get('sha256') != digest:
+        raise ValueError('the selected sent artefact does not match its approved manifest entry')
+    return relative, label, digest
+
+
+def record_confirmed_external_submission(slug, sent_file, cover_letter_file=None,
+                                         channel=None, applied_date=None,
+                                         screening_file=None):
+    """Bind a user-confirmed sent file when an unsent package file later changed.
+
+    This is intentionally narrower than repairing or reapproving the package.
+    Every selected sent file must still match the original approved manifest;
+    only integrity errors on *other employer-facing files* are tolerated and
+    preserved on the receipt.
+    """
+    package, manifest = load_release(slug)
+    if not package or not manifest:
+        raise ValueError('approved artefact package not found')
+    if has_record_file(package, SUBMISSION_NAME):
+        raise ValueError('submission is already recorded')
+
+    sent_name, sent_label, sent_sha = _confirmed_submission_file(
+        package, manifest, sent_file, {'CV.pdf': 'pdf', 'CV.docx': 'docx'})
+    letter_name = letter_label = letter_sha = None
+    if cover_letter_file:
+        letter_name, letter_label, letter_sha = _confirmed_submission_file(
+            package, manifest, cover_letter_file,
+            {'COVER-LETTER.pdf': 'letter_pdf',
+             'COVER-LETTER.docx': 'letter_docx'})
+
+    verified_manifest, package_errors = verify_release(slug)
+    selected = {sent_label, letter_label} - {None}
+    allowed_unsent = EMPLOYER_FACING_LABELS - selected
+    critical = []
+    for error in package_errors:
+        label = error.split(':', 1)[0]
+        if label not in allowed_unsent:
+            critical.append(error)
+    if critical:
+        raise ValueError(
+            'external confirmation refused; application evidence or a selected '
+            'sent file is not intact: ' + '; '.join(critical))
+
+    screening = _capture_screening_evidence(package, screening_file)
+    receipt = {
+        '_schema': 'joblooper.submission.v3', 'app_id': slug,
+        'mode': 'user_confirmed_external_submission',
+        'package_id': manifest.get('package_id'),
+        'manifest_sha256': manifest.get('manifest_sha256'),
+        'sent_file': sent_name, 'sent_sha256': sent_sha,
+        'sent_cover_letter': letter_name,
+        'sent_cover_letter_sha256': letter_sha,
+        'screening_evidence': screening,
+        'applied': applied_date, 'channel': channel, 'recorded_at': store.now(),
+        'confirmation_basis': 'selected sent files match the approved manifest',
+        'unsent_package_integrity_exceptions': list(package_errors),
+    }
+    store.write_json(record_path(package, SUBMISSION_NAME, create=True), receipt)
+    event = {'event': 'EXTERNAL_SUBMISSION_CONFIRMED',
+             'artifact_folder': os.path.basename(package), **receipt}
+    work = store.job_dir(slug)
+    store.append_jsonl(os.path.join(work, 'release_events.jsonl'),
+                       {'timestamp': store.now(), **event})
+    store.append_application_event(event)
+    write_status(slug, 'SUBMITTED', verified_manifest or manifest)
+    return package, manifest, receipt
+
+
 def verify_submission(slug):
     """Verify the approved package and its exact sent-file receipt."""
-    package, _ = load_release(slug)
-    manifest, errors = verify_release(slug)
-    if errors:
-        return None, errors
+    package, manifest = load_release(slug)
+    if not package or not manifest:
+        return None, ['approved artefact package not found']
     receipt = store.read_json(record_path(package, SUBMISSION_NAME), {}) or {}
     if not receipt:
         return None, ['submission receipt not found']
+    if receipt.get('mode') == 'user_confirmed_external_submission':
+        problems = []
+        if manifest.get('job') != slug:
+            problems.append('package manifest belongs to a different application')
+        unsigned = {key: value for key, value in manifest.items()
+                    if key != 'manifest_sha256'}
+        if manifest.get('manifest_sha256') != store.sha256_text(
+                store.canonical_json(unsigned)):
+            problems.append('package manifest digest mismatch')
+        if receipt.get('app_id') != slug:
+            problems.append('submission receipt belongs to a different application')
+        if receipt.get('manifest_sha256') != manifest.get('manifest_sha256'):
+            problems.append('submission receipt does not match the package manifest')
+        _, current_package_errors = verify_release(slug)
+        selected_labels = set()
+        for label, info in (manifest.get('files') or {}).items():
+            if info.get('file') in {
+                    receipt.get('sent_file'), receipt.get('sent_cover_letter')}:
+                selected_labels.add(label)
+        tolerated_unsent = EMPLOYER_FACING_LABELS - selected_labels
+        recorded_exceptions = set(
+            receipt.get('unsent_package_integrity_exceptions') or [])
+        for error in current_package_errors:
+            label = error.split(':', 1)[0]
+            if label not in tolerated_unsent:
+                problems.append(error)
+            elif error not in recorded_exceptions:
+                problems.append('new unsent package integrity exception: ' + error)
+        try:
+            sent_name, _, sent_sha = _confirmed_submission_file(
+                package, manifest, os.path.join(package, receipt.get('sent_file', '')),
+                {'CV.pdf': 'pdf', 'CV.docx': 'docx'})
+            if sent_name != receipt.get('sent_file') or sent_sha != receipt.get('sent_sha256'):
+                problems.append('exact submitted CV digest mismatch')
+        except ValueError as error:
+            problems.append(str(error))
+        letter_name = receipt.get('sent_cover_letter')
+        if letter_name:
+            try:
+                confirmed_name, _, letter_sha = _confirmed_submission_file(
+                    package, manifest, os.path.join(package, letter_name),
+                    {'COVER-LETTER.pdf': 'letter_pdf',
+                     'COVER-LETTER.docx': 'letter_docx'})
+                if (confirmed_name != letter_name
+                        or letter_sha != receipt.get('sent_cover_letter_sha256')):
+                    problems.append('exact submitted cover letter digest mismatch')
+            except ValueError as error:
+                problems.append(str(error))
+        screening = receipt.get('screening_evidence')
+        if screening:
+            screening_path = os.path.join(package, screening.get('file', ''))
+            if not os.path.isfile(screening_path):
+                problems.append('screening-answer evidence is missing')
+            elif store.sha256_file(screening_path) != screening.get('sha256'):
+                problems.append('screening-answer evidence digest mismatch')
+        return receipt, problems
+
+    manifest, errors = verify_release(slug)
+    if errors:
+        return None, errors
     problems = []
     if receipt.get('app_id') != slug:
         problems.append('submission receipt belongs to a different application')
@@ -798,4 +991,11 @@ def verify_submission(slug):
             problems.append('exact submitted cover letter is missing')
         elif store.sha256_file(sent_letter) != receipt.get('sent_cover_letter_sha256'):
             problems.append('exact submitted cover letter digest mismatch')
+    screening = receipt.get('screening_evidence')
+    if screening:
+        screening_path = os.path.join(package, screening.get('file', ''))
+        if not os.path.isfile(screening_path):
+            problems.append('screening-answer evidence is missing')
+        elif store.sha256_file(screening_path) != screening.get('sha256'):
+            problems.append('screening-answer evidence digest mismatch')
     return receipt, problems

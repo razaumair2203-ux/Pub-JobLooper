@@ -32,7 +32,8 @@ def _save(slug, apps, record):
 
 
 def _exact_submission(record):
-    return (record.get('submission_mode') == 'exact_approved_artefact'
+    return (record.get('submission_mode') in {
+                'exact_approved_artefact', 'user_confirmed_external_submission'}
             and bool(record.get('release_manifest_sha256'))
             and bool(record.get('cv_sha256') or record.get('cv_sha')))
 

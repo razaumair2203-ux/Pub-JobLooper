@@ -240,6 +240,83 @@ def main():
                        opened == 0 and package in open_out.getvalue()
                        and 'PACKAGE_INTEGRITY_ERROR' in open_out.getvalue()))
 
+        # A user may confirm after the fact which manifest-verified PDF was
+        # actually sent even though a different, unsent DOCX was edited later.
+        # Restore the deliberately damaged evidence snapshot first: evidence
+        # corruption must never be tolerated by this narrower recovery path.
+        shutil.copy2(os.path.join(directory, 'cv.json'), cv_snapshot)
+        os.remove(release.record_path(package, release.SUBMISSION_NAME))
+        sent_docx = os.path.join(package, 'CV.docx')
+        with open(sent_docx, 'ab') as stream:
+            stream.write(b' later unsent edit')
+        sent_pdf = os.path.join(package, 'CV.pdf')
+        with open(sent_pdf, 'ab') as stream:
+            stream.write(b' sent-file tamper probe')
+        try:
+            release.record_confirmed_external_submission(slug, sent_pdf)
+            tampered_sent_refused = False
+        except ValueError:
+            tampered_sent_refused = True
+        checks.append(('external confirmation refuses a changed selected sent file',
+                       tampered_sent_refused))
+        shutil.copy2(dummy_pdf, sent_pdf)
+        screening_source = os.path.join(directory, 'portal-answers.txt')
+        store.write_text(screening_source,
+                         'Fictional test only: work authorisation = user supplied')
+        _, _, external_receipt = release.record_confirmed_external_submission(
+            slug, sent_pdf, cover_letter_file=os.path.join(package, 'COVER-LETTER.pdf'),
+            channel='portal', screening_file=screening_source)
+        verified_receipt, external_errors = release.verify_submission(slug)
+        screening_record = external_receipt.get('screening_evidence') or {}
+        checks.append(('external confirmation binds only manifest-matching sent files',
+                       external_receipt['mode'] == 'user_confirmed_external_submission'
+                       and external_receipt['sent_file'] == 'CV.pdf'
+                       and bool(external_receipt['unsent_package_integrity_exceptions'])
+                       and verified_receipt == external_receipt
+                       and not external_errors))
+        checks.append(('submission hash-binds optional portal-answer evidence',
+                       screening_record.get('file')
+                       == 'APPLICATION-RECORD/SCREENING-ANSWERS.txt'
+                       and os.path.isfile(os.path.join(package, screening_record['file']))
+                       and store.sha256_file(
+                           os.path.join(package, screening_record['file']))
+                       == screening_record.get('sha256')
+                       and 'SCREENING-ANSWERS.txt' not in os.listdir(package)))
+        with open(os.path.join(package, screening_record['file']), 'a', encoding='utf-8') as stream:
+            stream.write('\ntamper')
+        checks.append(('changed portal-answer evidence fails submission verification',
+                       'screening-answer evidence digest mismatch'
+                       in release.verify_submission(slug)[1]))
+        shutil.copy2(screening_source, os.path.join(package, screening_record['file']))
+        with open(cv_snapshot, 'ab') as stream:
+            stream.write(b' post-confirmation evidence tamper')
+        checks.append(('external confirmation never masks later evidence corruption',
+                       any(error.startswith('cv:') for error in
+                           release.verify_submission(slug)[1])))
+        shutil.copy2(os.path.join(directory, 'cv.json'), cv_snapshot)
+        checks.append(('external confirmation preserves the unsent package exception',
+                       any(error.startswith('docx:') for error in
+                           external_receipt['unsent_package_integrity_exceptions'])
+                       and any(error.startswith('docx:') for error in
+                               release.verify_release(slug)[1])))
+        checks.append(('discovery distinguishes an exact submission from an unsent exception',
+                       release.discover(slug)['state']
+                       == 'SUBMITTED_WITH_UNSENT_EXCEPTION'))
+        verify_out = io.StringIO()
+        with contextlib.redirect_stdout(verify_out):
+            verify_result = jl.cmd_verify(SimpleNamespace(job=slug))
+        checks.append(('verify distinguishes the exact submission from its unsent exception',
+                       verify_result == 0
+                       and 'verified submission' in verify_out.getvalue()
+                       and 'unsent-file exception' in verify_out.getvalue()))
+
+        legacy = os.path.join(data, 'legacy-shadow-probe')
+        os.makedirs(os.path.join(legacy, release.RECORD_DIR_NAME))
+        store.write_json(os.path.join(legacy, release.MANIFEST_NAME), {'legacy': True})
+        store.write_text(os.path.join(legacy, release.RECORD_DIR_NAME, 'CASE.md'), 'probe')
+        checks.append(('a nested case file cannot shadow a legacy root manifest',
+                       release.record_dir(legacy, create=True) == legacy))
+
     for name, ok in checks:
         print(f"  {'ok  ' if ok else 'FAIL'} {name}")
     passed = sum(ok for _, ok in checks)

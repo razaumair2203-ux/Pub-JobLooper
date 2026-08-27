@@ -1,5 +1,6 @@
 """Validate the personal source repository or a sanitized public mirror."""
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -28,11 +29,19 @@ ESSENTIAL = {
     'README.md', 'SKILL.md', 'USER-GUIDE.md', 'SECURITY.md', 'LICENSE',
     'agents/openai.yaml', 'repo-policy.json', 'jl.py',
     'core/build.py', 'core/casefile.py', 'core/cover_letter.py',
+    'core/dashboard.py', 'core/dashboard_actions.py', 'core/dashboard_runtime.py',
     'core/employer_review.py', 'core/gates.py', 'core/language.py',
     'core/match.py', 'core/preflight.py', 'core/release.py', 'core/store.py',
     'core/truth_review.py', 'references/ground-truth-governance.md',
     'references/rejection-learning.md', 'references/section-contracts.md',
     'tools/install_local_skill.py', 'references/installation.md',
+    'tools/prepare_public_release.py', 'references/maintenance.md',
+}
+
+
+REPOSITORY_NAMES = {
+    'PERSONAL_PRIVATE': 'Pvt-JobLooper',
+    'PUBLIC_SKILL': 'Pub-JobLooper',
 }
 
 
@@ -136,6 +145,53 @@ def content_problems(root, files, scope):
     return problems
 
 
+def release_fingerprint(root):
+    digest = hashlib.sha256()
+    for base, dirs, names in os.walk(root):
+        dirs[:] = sorted(name for name in dirs if name not in {'.git', '__pycache__'})
+        for name in sorted(names):
+            path = os.path.join(base, name)
+            relative = os.path.relpath(path, root).replace('\\', '/')
+            if relative == 'repo-policy.json':
+                continue
+            digest.update(relative.encode('utf-8') + b'\0')
+            with open(path, 'rb') as stream:
+                for block in iter(lambda: stream.read(1024 * 1024), b''):
+                    digest.update(block)
+            digest.update(b'\0')
+    return digest.hexdigest()
+
+
+def _normal_url(value):
+    return str(value or '').strip().removesuffix('.git').rstrip('/').casefold()
+
+
+def repository_identity_problems(root, repo_policy, has_git, inspect_remote):
+    problems = []
+    classification = repo_policy.get('classification')
+    expected_name = REPOSITORY_NAMES.get(classification)
+    if expected_name and repo_policy.get('repository_name') != expected_name:
+        problems.append(
+            f'repository_name must be {expected_name}, got '
+            f"{repo_policy.get('repository_name')!r}")
+    canonical = repo_policy.get('canonical_repository_url')
+    if not str(canonical or '').rstrip('/').endswith('/' + str(expected_name or '')):
+        problems.append('canonical_repository_url does not match repository_name')
+    if has_git and inspect_remote and canonical:
+        result = subprocess.run(
+            ['git', 'remote', '-v'], cwd=root, text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        urls = [row.split()[1] for row in result.stdout.splitlines()
+                if len(row.split()) >= 2] if result.returncode == 0 else []
+        if _normal_url(canonical) not in {_normal_url(url) for url in urls}:
+            problems.append('no Git remote matches canonical_repository_url')
+    if classification == 'PUBLIC_SKILL':
+        recorded = repo_policy.get('release_fingerprint')
+        if not recorded or recorded != release_fingerprint(root):
+            problems.append('public release fingerprint does not match its working tree')
+    return problems
+
+
 def history_secret_problems(root):
     """Inspect reachable historical blobs, not merely historical filenames."""
     commits = subprocess.run(
@@ -173,6 +229,8 @@ def main():
     except (OSError, subprocess.CalledProcessError) as error:
         print(f'repository check unavailable: {error}')
         return 1
+    problems.extend(repository_identity_problems(
+        root, repo_policy, has_git, inspect_remote=not bool(args.public_tree)))
     problems.extend(skill_problems(root, files, require_tracked=has_git))
     problems.extend(path_problems(files, 'public tree' if public else 'tracked tree', public))
     problems.extend(content_problems(root, files, 'public tree' if public else 'tracked tree'))

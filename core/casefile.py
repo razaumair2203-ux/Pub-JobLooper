@@ -114,11 +114,14 @@ def build(slug):
         'url': jd.get('url'), 'applied': (app or {}).get('applied'),
         'responded': (app or {}).get('responded'), 'status': (app or {}).get('status', 'not applied'),
         'days': (app or {}).get('days'),
+        'response_latency': (app or {}).get('response_latency') or {},
         'channel': (app or {}).get('channel'),
         'cv_sha': (app or {}).get('cv_sha'),
         'sent_file': (app or {}).get('sent_file') or submission.get('sent_file'),
         'sent_cover_letter': ((app or {}).get('sent_cover_letter')
                               or submission.get('sent_cover_letter')),
+        'screening_evidence': ((app or {}).get('screening_evidence')
+                               or submission.get('screening_evidence')),
         'submission_mode': (app or {}).get('submission_mode'),
         'release_id': release_id, 'release_manifest': manifest,
         'release_files': release_files, 'snapshot_errors': snapshot_errors,
@@ -153,11 +156,14 @@ def markdown(c):
           f"- applied   : {c['applied'] or '(date not provided)'}   "
           f"channel: {c['channel'] or '(not provided)'}",
           f"- responded : {c['responded']}" + (f"  ({c['days']} days)" if c['days'] is not None else ''),
+          f"- latency   : {(c.get('response_latency') or {}).get('band', 'unknown')} "
+          f"({(c.get('response_latency') or {}).get('basis', 'not provided')})",
           f"- CV sent   : `{c['sent_file'] or 'package content not separately identified'}` · "
           f"SHA `{c['cv_sha']}` · package `{c.get('release_id') or 'legacy/unknown'}` · "
           f"{c['ats_text_words']} words extracted",
           f"- letter sent: `{c['sent_cover_letter'] or 'not recorded as submitted'}` · "
           f"{c['cover_letter_words']} words in approved snapshot",
+          f"- portal answers: `{(c.get('screening_evidence') or {}).get('file', 'not captured')}`",
           f"- advert    : {c['url'] or '(not recorded)'}", '']
     if c.get('employer_risk_decision'):
         o += [f"- pre-application risk decision: **{c['employer_risk_decision']}** — "

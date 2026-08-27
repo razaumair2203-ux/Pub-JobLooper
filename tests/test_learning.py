@@ -1,12 +1,16 @@
 """Outcome reasoning stays versioned, evidence-aware and outside career truth."""
+import contextlib
+import io
 import os
 import shutil
 import sys
 import tempfile
+from types import SimpleNamespace
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
+import jl
 from core import learning, preflight, preview, store, vec
 
 
@@ -22,13 +26,44 @@ def main():
         jd = store.read_json(os.path.join(store.job_dir(slug), 'jd.json'))
         app = {
             'app_id': slug, 'company': jd['company'], 'role': jd['title'],
-            'applied': '2026-01-02', 'status': 'rejected', 'hypotheses': [],
+            'applied': '2026-01-02', 'status': 'applied', 'hypotheses': [],
             'submission_mode': 'exact_approved_artefact',
             'release_manifest_sha256': 'a' * 64, 'cv_sha256': 'b' * 64,
             'identity': 'systems_engineer', 'coverage': 0.82,
             'exclude_from_analytics': False,
         }
+        checks.append(('both exact submission modes are eligible for bounded learning',
+                       learning._exact_submission(app)
+                       and learning._exact_submission({
+                           **app,
+                           'submission_mode': 'user_confirmed_external_submission'})
+                       and not learning._exact_submission({
+                           **app, 'submission_mode': 'user_asserted_without_hash'})))
         store.write_jsonl(store.p('index', 'applications.jsonl'), [app])
+        jl.cmd_outcome(SimpleNamespace(
+            job=slug, status='rejected', date=None, latency='under_24h',
+            reason=None, cat=None, conf=0.5, note=None, author='user',
+            evidence_for=[], evidence_against=[]))
+        app = next(row for row in store.applications() if row['app_id'] == slug)
+        checks.append(('qualitative response timing does not invent an exact date',
+                       app['responded'] is None
+                       and app['responded_date_status'] == 'not_provided'
+                       and app['response_latency'] == {
+                           'band': 'under_24h', 'basis': 'user_reported'}
+                       and 'days' not in app))
+        metrics_out = io.StringIO()
+        with contextlib.redirect_stdout(metrics_out):
+            metrics_result = jl.cmd_metrics(SimpleNamespace())
+        checks.append(('metrics expose capture gaps without claiming prediction',
+                       metrics_result == 0
+                       and 'exact submission correlation 1/1 (100%)'
+                       in metrics_out.getvalue()
+                       and 'portal-answer capture        0/1 (0%)'
+                       in metrics_out.getvalue()
+                       and 'under-24-hour outcomes       1/1 (100%)'
+                       in metrics_out.getvalue()
+                       and 'sample is too small' in metrics_out.getvalue()
+                       and 'not hiring probabilities' in metrics_out.getvalue()))
 
         added = learning.record_hypothesis(
             slug, 'HARD_GATE', 0.55, 'A named platform may have decided the screen.',
@@ -69,7 +104,7 @@ def main():
         events = store.application_events()
         event_names = [event['event'] for event in events]
         checks.append(('reasoning and confirmed learning are evented',
-                       event_names == ['HYPOTHESIS_ADDED', 'HYPOTHESIS_ADDED',
+                       event_names == ['OUTCOME', 'HYPOTHESIS_ADDED', 'HYPOTHESIS_ADDED',
                                        'HYPOTHESIS_REVISED', 'HYPOTHESIS_REVISED',
                                        'LEARNING_RETAINED_PLAUSIBLE']))
         lessons = learning.relevant_lessons(jd)
