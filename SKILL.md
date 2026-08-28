@@ -89,6 +89,14 @@ must be discoverable; copying only `SKILL.md` is not a functional installation.
    Treat Attention as a completing task inbox: every item must explain why it
    exists and open the exact control that resolves it. Metadata corrections are
    append-only and must never alter the hash-bound files that were submitted.
+   Keep active applications in the first dashboard workspace below the command
+   bar. After URL capture, Codex completion, refresh or restart, the user must
+   still see the exact job, durable gate, next action, evidence/gap state,
+   document state, comments and direct artefact controls. Never use a transient
+   chat panel as the only proof that application work exists. Missing analysis
+   or documents must be labelled `not assessed` or `not created`, never implied
+   by a progress message. A successful Codex URL fallback must bind the newly
+   captured job and continue through the same scoped preflight as direct intake.
 
 Treat the dashboard as a living product: turn user feedback into a specific
 journey problem and acceptance check, improve the authoritative private source,

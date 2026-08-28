@@ -165,6 +165,7 @@ function jobById(id) {
 
 function render() {
   renderHeader();
+  renderActiveWorkspace();
   renderPrimaryAction();
   renderKpis();
   renderPipeline();
@@ -173,6 +174,77 @@ function render() {
   renderJobs();
   renderAttention();
   renderLearning();
+}
+
+function activeJobs() {
+  return state.data.jobs.filter(job => ['captured', 'review', 'approved', 'applied'].includes(job.phase));
+}
+
+function workflowProgress(job) {
+  const workflow = job.workflow || {};
+  const steps = [
+    ['Captured', workflow.captured], ['Questions', workflow.preflight],
+    ['Drafted', workflow.plan], ['Reviewed', workflow.presentation],
+    ['Approved', workflow.approval], ['Built', workflow.package],
+    ['Submitted', workflow.submission],
+  ];
+  return {steps, completed: steps.filter(([, done]) => done).length};
+}
+
+function activePrimary(job) {
+  if (job.phase === 'captured') return ['Continue preflight', 'codex'];
+  if (job.phase === 'review') return ['Review CV & letter', 'review'];
+  if (job.phase === 'approved') return ['Open submission desk', 'submit'];
+  return ['Open application record', 'overview'];
+}
+
+function renderActiveWorkspace() {
+  const jobs = activeJobs();
+  $('#active-count').textContent = jobs.length;
+  if (!jobs.length) {
+    $('#active-job-list').innerHTML = '<div class="active-empty"><div><strong>No active applications.</strong><span>Paste an official job link to create one governed workspace.</span></div><button class="primary-button" type="button" data-active-action="new">+ New application</button></div>';
+    return;
+  }
+  $('#active-job-list').innerHTML = jobs.map(job => {
+    const coverage = job.coverage === null || job.coverage === undefined
+      ? 'Not assessed' : `${Math.round(job.coverage * 100)}% evidence coverage`;
+    const assessed = job.requirements.length > 0;
+    const gaps = assessed
+      ? `${job.spread.gap} gaps · ${job.hard_gaps.length} hard-gate gaps`
+      : 'Gaps not assessed';
+    const documents = job.outputs.cv || job.outputs.letter
+      ? `${job.outputs.cv ? 'CV ready' : 'CV missing'} · ${job.outputs.letter ? 'letter ready' : 'letter missing'}`
+      : 'CV and letter not created';
+    const feedbackCount = (job.feedback_items || []).length;
+    const openFeedback = job.workflow?.open_feedback || 0;
+    const source = job.artifacts.find(item => item.group === 'Source' && item.href);
+    const {steps, completed} = workflowProgress(job);
+    const [primaryLabel, primaryAction] = activePrimary(job);
+    return `<article class="active-job-card" data-job-card="${h(job.id)}">
+      <header class="active-job-header">
+        <span class="company-avatar">${h(companyInitials(job.company))}</span>
+        <div><p class="micro-label">${h(job.company)} · Ref ${h(job.reference)}</p><h2>${h(job.role)}</h2><span class="updated-label">Last activity ${h(dateTimeLabel(job.updated_at))}</span></div>
+        <span class="status-badge" data-phase="${h(job.phase)}">${h(phaseLabel(job.phase))}</span>
+      </header>
+      <div class="active-stage" aria-label="${completed} of ${steps.length} application gates complete">
+        ${steps.map(([label, done], index) => `<span class="active-stage-step ${done ? 'done' : ''} ${index === completed ? 'current' : ''}"><i></i>${h(label)}</span>`).join('')}
+      </div>
+      <div class="active-job-body">
+        <div class="active-next"><span class="micro-label">Next required action</span><strong>${h(job.next_action)}</strong></div>
+        <div class="active-facts">
+          <button type="button" data-active-action="evidence" data-job="${h(job.id)}"><span>Evidence & gaps</span><strong>${h(coverage)}</strong><small>${h(gaps)} · not an ATS score</small></button>
+          <button type="button" data-active-action="artifacts" data-job="${h(job.id)}"><span>Documents</span><strong>${h(documents)}</strong><small>${job.artifacts.length} accessible artefacts</small></button>
+          <button type="button" data-active-action="feedback" data-job="${h(job.id)}"><span>Comments</span><strong>${feedbackCount ? `${feedbackCount} recorded` : 'No comments yet'}</strong><small>${openFeedback ? `${openFeedback} awaiting resolution` : 'Add or review feedback'}</small></button>
+        </div>
+      </div>
+      <footer class="active-job-actions">
+        <button class="primary-button" type="button" data-active-action="${primaryAction}" data-job="${h(job.id)}">${h(primaryLabel)}</button>
+        <button class="secondary-button" type="button" data-active-action="overview" data-job="${h(job.id)}">Manage application</button>
+        ${source ? `<a class="secondary-button" href="${h(source.href)}" target="_blank">Open captured JD</a>` : ''}
+        <span>${completed}/${steps.length} gates complete</span>
+      </footer>
+    </article>`;
+  }).join('');
 }
 
 function renderHeader() {
@@ -186,7 +258,9 @@ function renderHeader() {
 function renderPrimaryAction() {
   const actions = state.data.attention;
   const action = actions.find(x => ['critical', 'action'].includes(x.severity)) || actions[0];
-  $('#primary-action').innerHTML = action
+  const control = $('#primary-action');
+  control.disabled = !action;
+  control.innerHTML = action
     ? `<span class="micro-label">Priority now · ${h(action.company)}</span><strong>${h(action.action)}</strong>`
     : '<span class="micro-label">Priority now</span><strong>No open application actions. Paste the next official job link when ready.</strong>';
 }
@@ -339,7 +413,10 @@ function handleAttention(item, source) {
     populateFeedbackResolution(job); openDialog('#resolve-feedback-dialog', job); return;
   }
   if (item.route === 'codex_prepare') {
-    if (state.session?.agent?.available) openAgent(job);
+    if (state.session?.agent?.available) {
+      openAgent(job);
+      startAgentTurn('Continue the governed pre-generation review for this exact JD. Ask only material questions, preserve any recorded answer, and stop before planning or drafting.', 'intake_review');
+    }
     else openDrawer(job, source);
     return;
   }
@@ -431,7 +508,7 @@ function renderDrawerContent() {
     loadReview(job);
     return;
   }
-  const renderers = {overview: drawerOverview, artifacts: drawerArtifacts, evidence: drawerEvidence, reasoning: drawerReasoning, timeline: drawerTimeline};
+  const renderers = {overview: drawerOverview, artifacts: drawerArtifacts, evidence: drawerEvidence, feedback: drawerFeedback, reasoning: drawerReasoning, timeline: drawerTimeline};
   $('#drawer-content').innerHTML = renderers[state.tab](job);
 }
 
@@ -504,13 +581,36 @@ function drawerEvidence(job) {
     const rank = {GAP: 0, PARTIAL: 1, TRANSFERABLE: 2, DIRECT: 3};
     return (rank[a.match] ?? 9) - (rank[b.match] ?? 9);
   });
+  const assessed = job.requirements.length > 0;
   return `<section class="drawer-section"><div class="drawer-section-title"><h3>Requirement coverage</h3></div>
     <div class="coverage-hero"><div class="coverage-ring" style="--value:${coverage}"><strong>${job.coverage === null || job.coverage === undefined ? '—' : `${coverage}%`}</strong></div>
       <div class="coverage-bars">${bars.map(([kind, value]) => `<div class="coverage-bar" data-kind="${kind}"><span>${titleCase(kind)}</span><span class="bar"><span style="width:${(value / total) * 100}%"></span></span><b>${value}</b></div>`).join('')}</div></div>
     <div class="disclaimer">${h(job.coverage_note)}</div>
   </section>
+  <section class="drawer-section"><div class="drawer-section-title"><h3>Gaps and mandatory risks</h3><span class="subtle">${assessed ? 'From the current evidence map' : 'Assessment has not run'}</span></div>
+    <div class="fact-grid">
+      ${fact('Unmatched requirements', assessed ? String(job.spread.gap) : 'Not assessed', assessed && job.spread.gap ? 'warn' : '')}
+      ${fact('Hard-gate gaps', assessed ? String(job.hard_gaps.length) : 'Not assessed', assessed && job.hard_gaps.length ? 'bad' : '')}
+      ${fact('Mandatory risks', assessed ? String(job.mandatory_risks.length) : 'Not assessed', assessed && job.mandatory_risks.length ? 'warn' : '')}
+    </div>
+    ${job.hard_gaps.length ? `<div class="unknown-box"><strong>Hard-gate gaps</strong><br>${job.hard_gaps.map(h).join('<br>')}</div>` : ''}
+    ${job.mandatory_risks.length ? `<div class="unknown-box"><strong>Mandatory risks</strong><br>${job.mandatory_risks.map(h).join('<br>')}</div>` : ''}
+  </section>
   <section class="drawer-section"><div class="drawer-section-title"><h3>Mapped requirements</h3><span class="subtle">${reqs.length} recorded</span></div>
     <div class="requirement-list">${reqs.length ? reqs.map(req => `<article class="requirement-item"><header><span>#${h(req.n || '—')}${req.hard_gate ? ' · HARD GATE' : ''}</span><span class="match-chip ${String(req.match || '').toLowerCase()}">${h(req.match || 'UNASSESSED')}</span></header>${h(req.text)}</article>`).join('') : '<div class="empty-state"><strong>No current match record.</strong></div>'}</div>
+  </section>`;
+}
+
+function drawerFeedback(job) {
+  const items = job.feedback_items || [];
+  return `<section class="drawer-section">
+    <div class="drawer-section-title"><h3>Application comments</h3><button class="secondary-button" type="button" data-review-action="feedback">Add comment</button></div>
+    <div class="disclaimer">Comments are governed review items. Open comments block approval; adopted or rejected decisions remain visible.</div>
+    <div class="feedback-history">${items.length ? items.map(item => `<article class="feedback-card">
+      <header><strong>${h(item.id)} · ${h(titleCase(item.scope))}</strong><span class="reason-status ${String(item.status || '').toLowerCase()}">${h(titleCase(item.status))}</span></header>
+      <p>${h(item.note)}</p><small>Opened ${h(dateTimeLabel(item.opened_at))}${item.author ? ` · ${h(item.author)}` : ''}</small>
+      ${item.implementation ? `<div class="feedback-resolution"><strong>Decision</strong><span>${h(item.implementation)}</span><strong>Validation</strong><span>${h(item.validation || 'Not recorded')}</span></div>` : ''}
+    </article>`).join('') : '<div class="empty-state"><strong>No comments recorded.</strong><span>Add feedback here; it will remain attached to this exact application.</span></div>'}</div>
   </section>`;
 }
 
@@ -622,7 +722,10 @@ function turnDuration(task) {
 function renderAgentQuickActions() {
   const job = state.agentJob;
   const actions = job ? [
-    ['prepare', 'Prepare / update application'],
+    ['workspace', 'Open application workspace'],
+    job.workflow?.preflight
+      ? ['prepare', 'Prepare / update application']
+      : ['preflight', 'Continue pre-generation review'],
     ['feedback', 'Discuss an improvement'],
     ['submission', 'Submission help'],
     ['outcome', 'Reason about an outcome'],
@@ -730,6 +833,14 @@ async function pollAgentTask() {
         if (captured.length === 1) {
           $('#intake-form').reset();
           toast(`Captured ${captured[0].company} · ${captured[0].role}.`);
+          state.intakeBaseline = null;
+          state.agentJob = captured[0];
+          $('#agent-title').textContent = captured[0].role;
+          $('#agent-context').textContent = `${captured[0].company} · Ref ${captured[0].reference} · ${phaseLabel(captured[0].phase)}`;
+          renderAgentQuickActions();
+          renderConversation();
+          await startAgentTurn('Inspect the newly captured exact JD. Run only the governed preflight, identify material questions or hard gates, and explain the next decision. Do not plan, draft, approve or build yet.', 'intake_review');
+          return;
         } else {
           openManualIntake(
             'The official page could not be captured. Paste the company, exact title and complete advert below.');
@@ -771,6 +882,13 @@ async function respondToAgent(decision = null, answers = null) {
 function agentQuickAction(action) {
   const job = state.agentJob;
   if (action === 'new') { closeAgent(); $('#intake-dialog').showModal(); return; }
+  if (action === 'workspace' && job) {
+    closeAgent(); openDrawer(job); return;
+  }
+  if (action === 'preflight' && job) {
+    startAgentTurn('Continue the governed pre-generation review for this exact JD. Ask only material questions, preserve any recorded answer, and stop before planning or drafting.', 'intake_review');
+    return;
+  }
   if (action === 'portfolio') {
     startAgentTurn('Audit the current portfolio attention items. Tell me only what needs a decision now, what can wait, and which observations must remain unknown.', 'ask');
   } else if (action === 'prepare') {
@@ -1111,10 +1229,39 @@ function trapFocus(event, root) {
   }
 }
 
+function handleActiveAction(event) {
+  const control = event.target.closest('[data-active-action]');
+  if (!control) return;
+  const action = control.dataset.activeAction;
+  if (action === 'new') { $('#intake-dialog').showModal(); return; }
+  const job = jobById(control.dataset.job);
+  if (!job) return;
+  if (action === 'codex') {
+    if (state.session?.agent?.available) {
+      openAgent(job);
+      startAgentTurn('Continue the governed pre-generation review for this exact JD. Ask only material questions, preserve any recorded answer, and stop before planning or drafting.', 'intake_review');
+    } else {
+      openDrawer(job, control);
+      toast('Codex is unavailable. The captured job and artefacts remain accessible.');
+    }
+    return;
+  }
+  if (action === 'submit') { populateSubmission(job); openDialog('#submission-dialog', job); return; }
+  openDrawer(job, control);
+  if (['artifacts', 'review', 'evidence', 'feedback'].includes(action)) state.tab = action;
+  renderDrawer();
+}
+
 function wireEvents() {
   $('#refresh-button').addEventListener('click', () => loadData(true));
   $('#theme-button').addEventListener('click', () => setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'));
   $('#new-job-button').addEventListener('click', () => $('#intake-dialog').showModal());
+  $('#active-job-list').addEventListener('click', handleActiveAction);
+  $('#primary-action').addEventListener('click', event => {
+    const actions = state.data?.attention || [];
+    const action = actions.find(x => ['critical', 'action'].includes(x.severity)) || actions[0];
+    if (action) handleAttention(action, event.currentTarget);
+  });
   $('#agent-button').addEventListener('click', () => openAgent(null));
   $('#global-search').addEventListener('input', event => { state.search = event.target.value; renderJobs(); });
   $('#filter-row').addEventListener('click', event => {

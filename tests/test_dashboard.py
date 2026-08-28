@@ -89,6 +89,39 @@ def main():
                        and snapshot['attention'][0]['cta'] == 'Continue'
                        and bool(snapshot['attention'][0]['detail'])))
         app_script = store.read_text(os.path.join(ROOT, 'dashboard', 'app.js'))
+        page_source = store.read_text(os.path.join(ROOT, 'dashboard', 'index.html'))
+        active_job = snapshot['jobs'][0]
+        checks.append(('active job projection preserves durable workspace state',
+                       bool(active_job['updated_at'])
+                       and isinstance(active_job['feedback_items'], list)
+                       and active_job['workflow']['captured'] is True
+                       and active_job['workflow']['preflight'] is False
+                       and active_job['outputs']['cv'] is False
+                       and active_job['outputs']['letter'] is False))
+        checks.append(('working applications appear before portfolio analytics',
+                       page_source.index('id="active-workspace"')
+                       < page_source.index('id="overview"')
+                       and page_source.index('id="active-job-list"')
+                       < page_source.index('id="kpi-grid"')))
+        checks.append(('active workspace exposes every required applicant touchpoint',
+                       'function renderActiveWorkspace()' in app_script
+                       and "['Captured', workflow.captured]" in app_script
+                       and 'data-active-action="evidence"' in app_script
+                       and 'data-active-action="artifacts"' in app_script
+                       and 'data-active-action="feedback"' in app_script
+                       and 'Open captured JD' in app_script
+                       and 'CV and letter not created' in app_script
+                       and 'not an ATS score' in app_script))
+        checks.append(('priority and continue controls execute their displayed action',
+                       '<button class="hero-action" id="primary-action"' in page_source
+                       and "$('#primary-action').addEventListener('click'" in app_script
+                       and "if (action === 'codex')" in app_script
+                       and "'Continue pre-generation review'" in app_script
+                       and "'intake_review'" in app_script))
+        checks.append(('Codex URL fallback binds the captured job and enters preflight',
+                       'state.agentJob = captured[0]' in app_script
+                       and "'intake_review'" in app_script
+                       and "['workspace', 'Open application workspace']" in app_script))
         checks.append(('every declared attention route has a browser interaction state',
                        all(f"item.route === '{route}'" in app_script
                            for route in dashboard.ATTENTION_ROUTES)
@@ -143,6 +176,14 @@ def main():
             snapshot['jobs'][0]['id'], comment['id'], 'ADOPTED',
             'Added the governed resolution dialog.',
             'Dashboard regression covers the route and record.')
+        resolved_snapshot = dashboard.build_snapshot()
+        resolved_comment = resolved_snapshot['jobs'][0]['feedback_items'][0]
+        checks.append(('resolved comments remain visible with decision evidence',
+                       resolved_comment['id'] == comment['id']
+                       and resolved_comment['status'] == 'ADOPTED'
+                       and bool(resolved_comment['implementation'])
+                       and bool(resolved_comment['validation'])
+                       and 'function drawerFeedback(job)' in app_script))
 
         thread_calls = []
         first_bridge = codex_bridge.CodexBridge()

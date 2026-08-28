@@ -306,7 +306,8 @@ def _job_snapshot(slug, applications, events):
     retained_count = sum(row['status'] in {'RETAINED_PLAUSIBLE', 'CONFIRMED'}
                          for row in hypotheses)
     open_count = sum(row['status'] == 'OPEN' for row in hypotheses)
-    open_feedback = [row for row in feedback.current(slug)
+    feedback_items = feedback.current(slug)
+    open_feedback = [row for row in feedback_items
                      if row.get('status') == 'OPEN']
     plan_available = all(os.path.isfile(os.path.join(directory, name)) for name in (
         'match.json', 'cv.json', 'cover-letter.json', 'employer-risk.json'))
@@ -357,6 +358,18 @@ def _job_snapshot(slug, applications, events):
             next_action = 'Review and bind the complete current CV and cover letter'
         elif presentation_record and not presentation_errors and approval_errors:
             next_action = 'Resolve the approval gate against the current presentation'
+    activity_dates = [str(jd.get('ingested') or '')]
+    activity_dates.extend(str(row.get('at') or '') for row in timeline)
+    for row in feedback_items:
+        activity_dates.extend([
+            str(row.get('opened_at') or ''), str(row.get('resolved_at') or '')])
+    activity_dates.extend([
+        str(approval.get('approved_at') or ''),
+        str((manifest or {}).get('approved_at') or ''),
+        str((app or {}).get('applied') or ''),
+        str((app or {}).get('responded') or ''),
+    ])
+    updated_at = max((value for value in activity_dates if value), default=None)
     return {
         'id': slug,
         'company': jd.get('company') or (app or {}).get('company') or 'Unknown company',
@@ -365,6 +378,7 @@ def _job_snapshot(slug, applications, events):
         'official_url': jd.get('url'),
         'phase': phase,
         'source_state': work_state,
+        'updated_at': updated_at,
         'next_action': next_action,
         'identity': identity_value,
         'coverage': match.get('coverage'),
@@ -428,6 +442,14 @@ def _job_snapshot(slug, applications, events):
             'id': row.get('id'), 'scope': row.get('scope'),
             'note': row.get('note'), 'opened_at': row.get('opened_at'),
         } for row in open_feedback],
+        'feedback_items': [{
+            'id': row.get('id'), 'scope': row.get('scope'),
+            'note': row.get('note'), 'author': row.get('author'),
+            'status': row.get('status'), 'opened_at': row.get('opened_at'),
+            'resolved_at': row.get('resolved_at'),
+            'implementation': row.get('implementation'),
+            'validation': row.get('validation'),
+        } for row in feedback_items],
         'artifacts': [{key: value for key, value in row.items() if key != '_path'}
                       for row in artifacts],
         '_artifacts': {row['id']: row for row in artifacts},

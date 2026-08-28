@@ -58,6 +58,42 @@ records used by the CLI.
 
 ## Interaction model
 
+### Persistent working-applications surface
+
+The first content below the command bar is the working-applications surface,
+not portfolio analytics. A successful URL capture creates or refreshes one card
+there immediately. Closing Codex, refreshing the browser or completing a turn
+must not make the work appear to vanish.
+
+Each active card must expose, without opening a folder:
+
+- exact company, role, reference, lifecycle state and last durable activity;
+- all seven gates and the current next action;
+- whether evidence coverage and gaps are assessed, with an explicit statement
+  that coverage is not an ATS score;
+- whether the CV and cover letter exist, plus direct artefact counts and links;
+- recorded and unresolved user comments;
+- direct controls for the next gate, the job workspace and captured JD.
+
+An absent output is a visible state, not a blank panel: for example, after JD
+capture the card says that coverage, gaps, CV and cover letter have not yet been
+created. Portfolio KPIs, lifecycle charts and learning remain secondary below
+this operational surface.
+
+### Touchpoint visibility contract
+
+| User touchpoint | What remains visible afterwards | Required next control |
+|---|---|---|
+| Paste URL | Active card, exact source-JD links and captured timestamp | Continue preflight or automatic scoped preflight |
+| Direct extraction blocked | Codex tries the same official URL; if capture succeeds it binds the job context and starts the same preflight used by direct intake | Preflight questions; otherwise the automatically reopened manual form |
+| Preflight incomplete | `Questions` gate open; coverage/gaps and documents labelled `not assessed/not created` | Continue in the job's Codex context |
+| Plan generated | Evidence coverage, requirement classes, hard gaps, risk record and draft availability | Open complete CV-and-letter review |
+| User reviews | Exact complete bundle remains readable in the Review tab | Add a scoped comment or mark the complete bundle presented |
+| User comments | All open and resolved comments remain attached to the job; open items block approval | Resolve, regenerate if adopted, then re-present |
+| User approves/builds | Direct verified CV and cover-letter links appear in the same workspace | External upload and exact submission record |
+| User submits | Exact sent files, date, channel and portal-answer evidence state remain visible | Await or record observed outcome |
+| User records outcome | Employer observation remains separate from hypotheses and learning | Discuss evidence only when a decision is still useful |
+
 ### Portfolio surface
 
 - Shows in-progress, submitted, progressed and rejected counts.
@@ -97,6 +133,8 @@ all been specified and covered by a regression test.
 - Evidence labels coverage as a local heuristic, never an ATS score.
 - Outcome displays employer facts before hypotheses.
 - Timeline shows immutable lifecycle events.
+- Comments shows both open and resolved review feedback with implementation and
+  validation, so chat suggestions do not disappear into conversation history.
 
 ### Codex panel
 
@@ -167,6 +205,10 @@ This is a deliberate authority boundary, not an unfinished dashboard feature.
 
 - Every job appears once and all lifecycle counts reconcile to the ledger.
 - A new JD can be captured without a command line and is immediately visible.
+- Working applications are above analytics and show real gate state, absent
+  outputs, evidence/gaps, comments and direct artefact controls.
+- Closing or completing a Codex intake turn cannot hide the captured job; a
+  Codex URL fallback binds the new job and continues into the same preflight.
 - URL-only intake extracts structured `JobPosting` fields, rejects private
   network targets and falls back to Codex before requesting manual entry.
 - A scoped Codex turn reaches the App Server; an unavailable service shows a

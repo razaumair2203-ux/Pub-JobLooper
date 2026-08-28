@@ -46,16 +46,26 @@
   </header>
 
   <main id="main">
+    <section class="active-workspace" id="active-workspace" aria-labelledby="active-workspace-title">
+      <div class="section-heading active-heading">
+        <div><p class="eyebrow">Working applications</p><h1 id="active-workspace-title">Continue where you left off</h1></div>
+        <span class="count-badge" id="active-count">0</span>
+      </div>
+      <div class="active-job-list" id="active-job-list">
+        <div class="empty-state"><span class="loader"></span><strong>Loading active applications…</strong></div>
+      </div>
+    </section>
+
     <section class="hero" id="overview" aria-labelledby="overview-title">
       <div>
         <p class="eyebrow"><span></span>Portfolio state</p>
         <h1 id="overview-title">Apply from one place.<br><em>Keep every decision traceable.</em></h1>
         <p class="hero-copy">Paste the official job link, work with Codex, review every section, approve the bundle and preserve what happened.</p>
       </div>
-      <div class="hero-action" id="primary-action">
+      <button class="hero-action" id="primary-action" type="button">
         <span class="micro-label">Priority now</span>
         <strong>Loading your next action…</strong>
-      </div>
+      </button>
     </section>
 
     <section class="kpi-grid" id="kpi-grid" aria-label="Application KPIs">
@@ -146,6 +156,7 @@
         <button type="button" data-tab="artifacts">Artefacts</button>
         <button type="button" data-tab="review">Review CV & letter</button>
         <button type="button" data-tab="evidence">Evidence</button>
+        <button type="button" data-tab="feedback">Comments</button>
         <button type="button" data-tab="reasoning">Outcome & reasoning</button>
         <button type="button" data-tab="timeline">Timeline</button>
       </nav>
