@@ -180,6 +180,7 @@
       </header>
       <div class="guardrail-strip"><strong>Codex reasons.</strong><span>Joblooper controls facts, gates, approval and files.</span></div>
       <div class="agent-quick-actions" id="agent-quick-actions"></div>
+      <section class="agent-artifacts" id="agent-artifacts" hidden></section>
       <div class="conversation" id="conversation">
         <div class="agent-welcome"><strong>What can I do here?</strong><span>Ask about a job, prepare an application, discuss feedback or reason about an outcome. Each job resumes its private Codex thread when available; durable learning still belongs in governed records.</span></div>
       </div>
@@ -219,6 +220,17 @@
       </details>
       <div class="dialog-status" id="intake-status"></div>
       <div class="dialog-actions"><button class="secondary-button dialog-close" type="button">Cancel</button><button class="primary-button" type="submit">Get job from link</button></div>
+    </form>
+  </dialog>
+
+  <dialog class="workspace-dialog preflight-dialog" id="preflight-dialog">
+    <form method="dialog" id="preflight-form">
+      <div class="dialog-heading"><div><p class="eyebrow">Deterministic preflight</p><h2>Review known fit gaps</h2></div><button class="icon-button dialog-close" type="button" aria-label="Close"><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+      <p class="dialog-copy">Approved ground truth has already been checked. Resolved facts are omitted below; only decisions that can change whether generation should proceed remain.</p>
+      <div class="preflight-summary" id="preflight-summary"></div>
+      <div class="preflight-decisions" id="preflight-decisions"></div>
+      <div class="dialog-status" id="preflight-status"></div>
+      <div class="dialog-actions"><button class="secondary-button dialog-close" type="button">Cancel</button><button class="secondary-button" id="preflight-codex" type="button"><span class="agent-orb"></span> Clarify with Codex</button><button class="primary-button" id="preflight-save" type="submit">Save decisions</button></div>
     </form>
   </dialog>
 

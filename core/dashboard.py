@@ -17,7 +17,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import (codex_bridge, dashboard_actions, dashboard_runtime, feedback,
-               integrity, learning, preflight, release, store, truth_review)
+               integrity, learning, match, preflight, release, store, truth_review)
 
 
 STATIC_ROOT = store.code_p('dashboard')
@@ -35,7 +35,7 @@ CAUSE_LABELS = {
 }
 ATTENTION_ROUTES = frozenset({
     'artifacts', 'codex_outcome', 'codex_prepare', 'feedback', 'outcome',
-    'review_bundle', 'submission', 'submission_metadata',
+    'preflight', 'review_bundle', 'submission', 'submission_metadata',
     'truth_integrity',
 })
 ARTIFACT_LABELS = {
@@ -77,7 +77,7 @@ WORK_ARTIFACTS = {
     'jd_record': ('jd.json', 'Job description · structured', 'Source'),
     'preflight_questions': (
         'PRE-GENERATION-QUESTIONS.md',
-        'Pre-generation questions · awaiting review', 'Review'),
+        'Preflight decisions · awaiting review', 'Review'),
     'match_record': ('match.json', 'Requirement evidence map', 'Evidence'),
     'preview': ('PREVIEW.md', 'Evidence review', 'Evidence'),
     'risk_review': ('EMPLOYER-RISK.md', 'Employer-risk review', 'Evidence'),
@@ -256,7 +256,7 @@ def _hypotheses(app):
 def _job_snapshot(slug, applications, events):
     directory = store.job_dir(slug)
     jd = store.read_json(os.path.join(directory, 'jd.json'), {}) or {}
-    match = store.read_json(os.path.join(directory, 'match.json'), {}) or {}
+    match_record = store.read_json(os.path.join(directory, 'match.json'), {}) or {}
     approval = store.read_json(os.path.join(directory, 'approval.json'), {}) or {}
     app = applications.get(slug)
     package, manifest = release.load_release(slug)
@@ -289,9 +289,21 @@ def _job_snapshot(slug, applications, events):
     else:
         integrity_state = 'not_packaged'
 
-    spread = match.get('spread') or {}
+    live_identity = match_record.get('identity') or None
+    live_mapping = match_record
+    if jd and not match_record:
+        try:
+            candidate_jd = dict(jd)
+            candidate_jd['_slug'] = slug
+            live_identity = match.pick_identity(candidate_jd)
+            live_mapping = match.match_jd(candidate_jd, live_identity)
+        except (OSError, ValueError, TypeError):
+            live_identity = None
+            live_mapping = {}
+    evidence_map = live_mapping
+    spread = evidence_map.get('spread') or {}
     reqs = []
-    for row in match.get('requirements') or []:
+    for row in evidence_map.get('requirements') or []:
         reqs.append({
             'n': row.get('n'), 'text': row.get('text'),
             'match': row.get('match'), 'hard_gate': bool(row.get('hard_gate')),
@@ -322,14 +334,19 @@ def _job_snapshot(slug, applications, events):
     preflight_questions_available = os.path.isfile(os.path.join(
         directory, 'PRE-GENERATION-QUESTIONS.md'))
     preflight_errors = []
-    if plan_available:
+    if jd and evidence_map:
         try:
             preflight_record, preflight_errors, _ = preflight.validate(
-                slug, jd, match, match.get('identity') or {})
+                slug, {**jd, '_slug': slug}, evidence_map,
+                match_record.get('identity') or live_identity or {})
         except (OSError, ValueError, TypeError) as error:
             preflight_errors = [str(error)]
     elif not preflight_record:
         preflight_errors = ['pre-generation review has not been completed']
+    if preflight_record and not preflight_errors:
+        for artifact in artifacts:
+            if artifact.get('id') == 'work-preflight_questions':
+                artifact['label'] = 'Preflight decisions · reviewed'
     presentation_record = None
     presentation_errors = []
     if plan_available:
@@ -351,7 +368,8 @@ def _job_snapshot(slug, applications, events):
         'case': any(row['label'] == 'Decision case' for row in artifacts),
     }
     output_count = sum(key_outputs.values())
-    identity_value = match.get('identity') or (app or {}).get('identity')
+    identity_value = (match_record.get('identity') or live_identity
+                      or (app or {}).get('identity'))
     if isinstance(identity_value, dict):
         identity_value = identity_value.get('primary')
     screening_status = ((app or {}).get('screening_evidence_status')
@@ -360,9 +378,9 @@ def _job_snapshot(slug, applications, events):
     next_action = _next_action(phase, app, work_state)
     if not app:
         if preflight_errors and preflight_questions_available:
-            next_action = 'Answer the prepared material questions before CV planning'
+            next_action = 'Review the prepared fit decisions before CV planning'
         elif preflight_errors:
-            next_action = 'Complete or refresh the material pre-generation questions'
+            next_action = 'Complete or refresh deterministic preflight'
         elif open_feedback:
             next_action = 'Resolve governed feedback before approval'
         elif plan_available and presentation_errors:
@@ -393,7 +411,7 @@ def _job_snapshot(slug, applications, events):
         'updated_at': updated_at,
         'next_action': next_action,
         'identity': identity_value,
-        'coverage': match.get('coverage'),
+        'coverage': evidence_map.get('coverage'),
         'coverage_note': 'Local evidence coverage heuristic · not an ATS or hiring score',
         'spread': {
             'direct': spread.get('DIRECT', 0),
@@ -402,8 +420,10 @@ def _job_snapshot(slug, applications, events):
             'gap': spread.get('GAP', 0),
         },
         'requirements': reqs,
-        'hard_gaps': match.get('hard_gate_gaps') or [],
-        'mandatory_risks': match.get('mandatory_risks') or [],
+        'hard_gaps': [row.get('text') for row in
+                      evidence_map.get('hard_gate_gaps') or [] if row.get('text')],
+        'mandatory_risks': [row.get('text') for row in
+                            evidence_map.get('mandatory_risks') or [] if row.get('text')],
         'approved_at': approval.get('approved_at') or (manifest or {}).get('approved_at'),
         'applied_date': (app or {}).get('applied'),
         'responded_date': (app or {}).get('responded'),
@@ -594,10 +614,17 @@ def build_snapshot(include_private=False):
                 'Current presentation and approval remain stale until the comment is resolved.',
                 'Review feedback', 'feedback')
         elif job['phase'] == 'captured':
-            add_attention(
-                job, 'prepare', 'Complete the pre-generation review',
-                'Answer only material questions before the CV or cover letter is planned.',
-                'Continue', 'codex_prepare')
+            if not workflow.get('preflight'):
+                add_attention(
+                    job, 'preflight', 'Review known fit gaps',
+                    'Resolved facts are omitted. Decide whether to proceed with each '
+                    'remaining recorded gap or stop to add evidence.',
+                    'Review decisions', 'preflight')
+            else:
+                add_attention(
+                    job, 'prepare', 'Prepare the CV and cover letter',
+                    'Preflight is complete. Codex can now tailor the bundle from approved truth.',
+                    'Prepare application', 'codex_prepare')
         elif job['phase'] == 'review':
             if workflow.get('can_approve'):
                 add_attention(
@@ -778,6 +805,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 'agent': self.server.codex_bridge.status(),
                 'capabilities': {
                     'intake': True, 'url_intake': True, 'feedback': True, 'review': True,
+                    'structured_preflight': True,
                     'feedback_resolution': True, 'submission_update': True,
                     'approve_build': True, 'record_submission': True,
                     'record_outcome': True, 'outcome_update': True,
@@ -792,6 +820,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return self._error('job is required')
             try:
                 return self._json(dashboard_actions.presentation(job))
+            except (OSError, ValueError) as error:
+                return self._error(error)
+        if parsed.path == '/api/preflight':
+            query = urllib.parse.parse_qs(parsed.query)
+            job = (query.get('job') or [''])[0]
+            if not job:
+                return self._error('job is required')
+            try:
+                return self._json(dashboard_actions.preflight_state(job))
             except (OSError, ValueError) as error:
                 return self._error(error)
         if parsed.path == '/api/agent/task':
@@ -876,6 +913,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 result = dashboard_actions.resolve_feedback(
                     body.get('job_id'), body.get('feedback_id'), body.get('status'),
                     body.get('implementation'), body.get('validation'))
+                return self._json({'ok': True, 'result': result})
+            if parsed.path == '/api/actions/preflight':
+                result = dashboard_actions.review_preflight(
+                    body.get('job_id'), body.get('answers') or {},
+                    body.get('reviewer') or 'dashboard-user')
                 return self._json({'ok': True, 'result': result})
             if parsed.path == '/api/actions/present':
                 result = dashboard_actions.mark_presented(body.get('job_id'))

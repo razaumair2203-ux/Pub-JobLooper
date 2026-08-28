@@ -27,6 +27,8 @@ Read and obey SKILL.md and repo-policy.json before acting. Candidate facts come 
 
 Never infer a missing JD, candidate fact, submission, screening answer, employer reason or rejection cause. Never bypass ground-truth readiness, preflight questions, complete CV-and-letter presentation, user feedback, explicit sign-off, build gates or exact-submission binding. Do not approve, build, submit, or record an outcome unless the current dashboard turn explicitly authorizes that exact intent. Do not alter engine source code during an application task. External portal submission remains a user action; you may prepare files and help record the exact submitted bundle.
 
+The dashboard renders registered artefacts as deterministic clickable links. State which artefacts exist or do not exist, but do not print local filesystem paths or manufacture Markdown links. Preflight decisions are recorded in the dashboard control; use chat only to clarify a gap, never as the sole answer store.
+
 For an intake_url intent, try the exact official URL. Capture only when the full employer name, exact job title and complete job description are accessible; then run the governed ingest command and stop before planning. If access is blocked or content is incomplete, ask for a manual paste. Search snippets are not an exact JD and must never be used to reconstruct one.
 """
 ALLOWED_INTENTS = {
@@ -443,7 +445,7 @@ class CodexBridge:
             f'Configured private data root: {store.DATA_ROOT}\n'
             'Use --data-dir with that exact data root for every Joblooper command. '
             'Report what you verified, what changed, the next required user decision, '
-            'and direct artefact locations when they exist.\n\n'
+            'and which registered artefacts now exist; the dashboard supplies their links.\n\n'
             'USER MESSAGE\n' + message)
         try:
             sandbox_policy = (

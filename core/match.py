@@ -52,7 +52,8 @@ _GATE_FORCE = re.compile(
 _PROFILE_GATE = re.compile(
     r'\b(work (authoris|authoriz)\w*|right to work|visa|iqama|residenc\w*|permit'
     r'|citizen\w*|nationalit\w*|security clearance|eligible to work|sponsor\w*'
-    r'|relocat\w*|based in|located in|fluent|native speaker|bilingual'
+    r'|relocat\w*|based in|located in|live and work|willing\w* to travel'
+    r'|travel globally|global travel|fluent|native speaker|bilingual'
     r'|arabic|english|language skills?)\b', re.I)
 
 
@@ -104,6 +105,20 @@ def _resolve_profile_gate(body, prof):
                 return (rule.get('classification', 'PARTIAL'),
                         rule.get('note', 'work-authorisation detail requires verification'))
         return 'PARTIAL', f"Based in {loc.get('based_in','?')}; sponsorship likely required"
+    if re.search(r'\b(willing\w* to travel|travel globally|global travel)\b', low):
+        return ('DIRECT' if wa.get('mobility') else 'PARTIAL',
+                ('Approved geographic mobility is recorded.' if wa.get('mobility')
+                 else 'Global travel willingness is not recorded.'))
+    if re.search(r'\blive and work\b', low):
+        destination_rule = next((
+            rule for rule in wa.get('display_rules') or []
+            if any(str(term).lower() in low for term in rule.get('terms') or [])
+        ), None)
+        if wa.get('mobility') and destination_rule:
+            return 'DIRECT', destination_rule.get(
+                'phrasing', wa.get('phrasing_approved', 'Approved mobility is recorded.'))
+        return ('DIRECT' if wa.get('mobility') else 'PARTIAL',
+                wa.get('phrasing_approved', 'Mobility requires confirmation.'))
     if re.search(r'\b(relocat|based in|located in)\w*', low):
         return ('DIRECT' if wa.get('mobility') else 'PARTIAL',
                 wa.get('phrasing_approved', ''))
@@ -359,7 +374,7 @@ def _domain_candidates(text, scored, by_id):
         typ = rec.get('type')
 
         if re.search(r'\bdegree\b', low) and re.search(
-                r'\b(aeronautical|aerospace|electronics?|avionics?)\b', low):
+                r'\b(aeronautical|aerospace|electrical|electronics?|avionics?)\b', low):
             return typ == 'education'
 
         # "Systems Engineering certification" (a personal credential) is not
@@ -400,12 +415,25 @@ def _exact_classification(text, scored, by_id):
     recs = [by_id[x['id']] for x in scored]
 
     if re.search(r'\bdegree\b', low) and re.search(
-            r'\b(aeronautical|aerospace|electronics?|avionics?)\b', low):
+            r'\b(aeronautical|aerospace|electrical|electronics?|avionics?)\b', low):
         direct = [r for r in recs if r.get('type') == 'education' and re.search(
             r'\b(be|beng|bachelor|degree)\b', _surface(r)) and re.search(
             r'\b(aeronautical|aerospace|electronics?|avionics?)\b', _surface(r))]
         if direct:
-            return 'DIRECT', 'exact degree-and-discipline evidence', direct[0]['id']
+            exact_discipline = bool(re.search(
+                r'\b(aeronautical|aerospace|electronics?|avionics?)\b', low)
+                and re.search(
+                    r'\b(aeronautical|aerospace|electronics?|avionics?)\b',
+                    _surface(direct[0])))
+            related_electrical = bool(
+                re.search(r'\belectrical engineering\b', low)
+                and re.search(r'\brelated (field|discipline)\b', low)
+                and re.search(r'\b(electronics?|avionics?)\b', _surface(direct[0])))
+            if exact_discipline or related_electrical:
+                note = ('verified degree in the advert\'s accepted related discipline'
+                        if related_electrical
+                        else 'exact degree-and-discipline evidence')
+                return 'DIRECT', note, direct[0]['id']
 
     if re.search(r'\baircraft\b.{0,35}\bcertif', low) or re.search(
             r'\bcertif\w*\b.{0,40}\baircraft\b', low):
@@ -455,14 +483,20 @@ def match_jd(jd, identity):
     ctx = _employer_context(jd)
 
     for r in jd.get('requirements', []):
-        if r.get('gate_type') == 'profile':
+        # Re-evaluate the route from current deterministic rules so a captured
+        # JD benefits from corrected gate taxonomy without rewriting its source
+        # record. The original parsed field remains preserved in the JD.
+        gate_type = _gate_type(r['text'])
+        if gate_type == 'profile':
             cls, note = _resolve_profile_gate(r['text'], prof)
-            rows.append({**r, 'match': cls, 'best': 0.0, 'anchors': [],
+            rows.append({**r, 'gate_type': gate_type,
+                         'match': cls, 'best': 0.0, 'anchors': [],
                          'resolved_from': 'profile.json', 'note': note})
             continue
 
-        if r.get('gate_type') == 'behavioural':
-            rows.append({**r, 'match': 'BEHAVIOURAL', 'best': 0.0, 'anchors': [],
+        if gate_type == 'behavioural':
+            rows.append({**r, 'gate_type': gate_type,
+                         'match': 'BEHAVIOURAL', 'best': 0.0, 'anchors': [],
                          'resolved_from': 'not evidence-based',
                          'note': 'asserted by every applicant; not scored'})
             continue

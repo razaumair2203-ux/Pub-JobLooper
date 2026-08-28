@@ -2,6 +2,7 @@
 import base64
 import binascii
 import datetime
+import json
 import os
 import re
 import subprocess
@@ -10,7 +11,7 @@ import tempfile
 import threading
 import urllib.parse
 
-from . import job_fetch, learning, release, store
+from . import job_fetch, learning, match, preflight, release, store
 
 
 _ACTION_LOCK = threading.Lock()
@@ -76,6 +77,13 @@ def ingest(raw, company, title, url=None):
     if not match:
         raise RuntimeError('Job was captured but its application key was not returned')
     result['job_id'] = match.group(1)
+    # Preflight discovery is deterministic and cheap. Prepare it immediately so
+    # the user lands on a durable decision control instead of waiting for an AI
+    # turn to restate the same known facts and gaps.
+    prepared = _run_cli(['preflight', result['job_id']], timeout=60)
+    if prepared['returncode'] not in {0, 1}:
+        raise ValueError(prepared['output'] or 'Preflight discovery failed')
+    result['preflight'] = prepared
     return result
 
 
@@ -90,6 +98,79 @@ def ingest_url(url):
             'company', 'title', 'url', 'extractor', 'characters')
     }
     result['extraction']['requested_url'] = requested_url
+    return result
+
+
+def preflight_state(job_id):
+    """Read the exact current decision set without changing application state."""
+    slug = store.resolve_job(job_id)
+    directory = store.job_dir(slug)
+    jd = store.read_json(os.path.join(directory, 'jd.json'), {}) or {}
+    if not jd:
+        raise ValueError('The exact captured job description is unavailable')
+    jd['_slug'] = slug
+    identity = match.pick_identity(jd)
+    mapping = match.match_jd(jd, identity)
+    rows = preflight.questions(jd, mapping, identity)
+    record, errors, _ = preflight.validate(slug, jd, mapping, identity)
+    resolved = [
+        row for row in mapping.get('requirements') or []
+        if (row.get('hard_gate') or row.get('kind') == 'mandatory')
+        and row.get('match') in {'DIRECT', 'BEHAVIOURAL'}]
+    return {
+        'job_id': slug,
+        'company': jd.get('company'),
+        'role': jd.get('title'),
+        'reference': jd.get('job_reference'),
+        'identity': identity.get('primary'),
+        'questions': rows,
+        'resolved_count': len(resolved),
+        'decision_count': len(rows),
+        'complete': bool(record and not errors),
+        'errors': errors,
+        'answers': record.get('answers') or {},
+        'decision': record.get('decision'),
+    }
+
+
+def review_preflight(job_id, answers, reviewer='dashboard-user'):
+    """Record explicit per-item decisions through the governed CLI."""
+    if not isinstance(answers, dict):
+        raise ValueError('Preflight decisions must be a JSON object')
+    clean = {}
+    for key, value in answers.items():
+        key = str(key or '').strip()
+        value = str(value or '').strip()
+        if not re.fullmatch(r'[A-Z0-9_-]{2,80}', key) or len(value) > 120:
+            raise ValueError('Preflight contains an invalid decision value')
+        clean[key] = value
+    current = preflight_state(job_id)
+    identity_choice = None
+    if any(row.get('id') == 'IDENTITY' for row in current['questions']):
+        identity_choice = clean.pop('IDENTITY', None)
+        if not identity_choice:
+            raise ValueError('Select the application identity before continuing')
+    answer_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+                mode='w', suffix='.json', prefix='joblooper-preflight-',
+                encoding='utf-8', delete=False) as stream:
+            json.dump(clean, stream, ensure_ascii=False)
+            answer_path = stream.name
+        arguments = [
+            'preflight', job_id, '--user-reviewed', '--reviewer',
+            str(reviewer or 'dashboard-user')[:200], '--answers-file', answer_path,
+            '--note', 'Structured decisions recorded through the local dashboard',
+        ]
+        if identity_choice:
+            arguments += ['--identity', identity_choice]
+        result = _run_cli(arguments, timeout=60)
+    finally:
+        if answer_path and os.path.isfile(answer_path):
+            os.unlink(answer_path)
+    if not result['ok']:
+        raise ValueError(result['output'] or 'Preflight decisions could not be recorded')
+    result['preflight'] = preflight_state(job_id)
     return result
 
 

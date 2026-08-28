@@ -365,14 +365,25 @@ def cmd_preflight(args):
     store.write_text(os.path.join(d, 'PRE-GENERATION-QUESTIONS.md'), report)
     say(report)
     if rows and not args.user_reviewed:
-        say('Review these questions with the user before generation. Then rerun with '
-            '--user-reviewed --reviewer <name> --note "<what was decided>".')
+        say('Review these decisions in the dashboard (chat is optional for clarification). '
+            'Then rerun with --user-reviewed --reviewer <name> '
+            '--answers-file <decisions.json>.')
         return 1
+    if rows and args.user_reviewed and not args.answers_file:
+        raise SystemExit(
+            'PREFLIGHT REFUSED — use structured --answers-file decisions; '
+            'a free-text note cannot resolve material gaps')
+    answers = None
+    if args.answers_file:
+        answers = store.read_json(os.path.abspath(args.answers_file))
+        if not isinstance(answers, dict):
+            raise SystemExit('PREFLIGHT REFUSED — answers file must contain a JSON object')
     try:
         record = preflight.create(
             slug, jd, mapping, identity,
             reviewer=args.reviewer if args.user_reviewed else None,
-            note=args.note if args.user_reviewed else None)
+            note=args.note if args.user_reviewed else None,
+            answers=answers if args.user_reviewed else None)
     except ValueError as error:
         raise SystemExit(f'PREFLIGHT REFUSED — {error}')
     say(f"preflight  {record['decision']} · {record['subject_sha256'][:12]}")
@@ -1685,7 +1696,7 @@ def main():
 
     s = sub.add_parser('preflight'); s.add_argument('job'); s.add_argument('--identity')
     s.add_argument('--user-reviewed', action='store_true')
-    s.add_argument('--reviewer'); s.add_argument('--note')
+    s.add_argument('--reviewer'); s.add_argument('--note'); s.add_argument('--answers-file')
     s.set_defaults(fn=cmd_preflight)
 
     s = sub.add_parser('plan'); s.add_argument('job'); s.add_argument('--identity')

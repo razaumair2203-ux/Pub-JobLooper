@@ -66,6 +66,14 @@ python jl.py plan <exact-job-key>
 python jl.py present <exact-job-key>
 ```
 
+The dashboard is the preferred preflight interface. It omits requirements
+already resolved by approved truth and asks for an explicit proceed/stop
+decision only on remaining fit risks. Reopening it restores the same saved
+state; it does not start another AI review. Chat may clarify a gap, but the
+decision is saved only by the Preflight control. Headless use passes the shown
+decision IDs as JSON with `preflight --user-reviewed --reviewer "Name"
+--answers-file decisions.json`.
+
 `present` prints every CV section, the full cover letter, the employer-risk
 decision and material-omission disclosure. It creates no DOCX or PDF. After the
 user signs off that exact presentation:
@@ -227,7 +235,8 @@ It opens the governed application workspace on `127.0.0.1`. From there, paste
 only the official job URL; Joblooper extracts the employer, exact title and
 complete advert. A blocked or JavaScript-only page is handed to Codex, and
 manual paste appears only if neither route can access the full JD. Then work
-with Codex in the selected job context, review the complete
+through the deterministic Preflight control, ask Codex to prepare the selected
+job, and review the complete
 CV and cover letter, save feedback, approve and build, record the exact sent
 bundle plus portal-answer evidence, capture the observed outcome, inspect KPIs,
 and open every known artefact without navigating folders. Every deterministic
@@ -235,7 +244,7 @@ action calls the same CLI gates and flat-file store; there is no dashboard
 database, synthetic ATS score or inferred rejection cause.
 
 The Attention queue is a completing task inbox rather than a warning list. It
-routes directly to review, feedback resolution, exact-submission metadata,
+routes directly to preflight decisions, review, feedback resolution, exact-submission metadata,
 outcome correction, integrity evidence or scoped Codex work. Dates, channel and
 late portal evidence can be updated after submission without modifying the
 hash-bound sent files.

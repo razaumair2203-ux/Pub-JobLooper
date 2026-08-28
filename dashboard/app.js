@@ -18,6 +18,7 @@ const state = {
   truthIntegrityDetail: '',
   actionJob: null,
   intakeBaseline: null,
+  preflightState: null,
 };
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -182,6 +183,7 @@ async function loadData(showToast = false) {
     if (state.agentJob) {
       state.agentJob = jobById(state.agentJob.id);
       renderAgentQuickActions();
+      renderAgentArtifacts();
     }
     if (showToast) toast('Dashboard refreshed from governed files.');
   } catch (error) {
@@ -216,7 +218,7 @@ function activeJobs() {
 function workflowProgress(job) {
   const workflow = job.workflow || {};
   const steps = [
-    ['Captured', workflow.captured], ['Questions', workflow.preflight],
+    ['Captured', workflow.captured], ['Preflight', workflow.preflight],
     ['Drafted', workflow.plan], ['Reviewed', workflow.presentation],
     ['Approved', workflow.approval], ['Built', workflow.package],
     ['Submitted', workflow.submission],
@@ -230,7 +232,10 @@ function activePrimary(job) {
     return ['View active Codex turn', 'active-turn'];
   }
   if (task?.status === 'failed') return ['Recover interrupted turn', 'active-turn'];
-  if (job.phase === 'captured') return ['Continue preflight', 'codex'];
+  if (job.phase === 'captured' && !job.workflow?.preflight) {
+    return ['Review preflight decisions', 'preflight'];
+  }
+  if (job.phase === 'captured') return ['Prepare application', 'prepare'];
   if (job.phase === 'review') return ['Review CV & letter', 'review'];
   if (job.phase === 'approved') return ['Open submission desk', 'submit'];
   return ['Open application record', 'overview'];
@@ -459,10 +464,13 @@ function handleAttention(item, source) {
   if (item.route === 'feedback') {
     populateFeedbackResolution(job); openDialog('#resolve-feedback-dialog', job); return;
   }
+  if (item.route === 'preflight') {
+    openPreflight(job); return;
+  }
   if (item.route === 'codex_prepare') {
     if (state.session?.agent?.available) {
       openAgent(job);
-      startAgentTurn('Continue the governed pre-generation review for this exact JD. Ask only material questions, preserve any recorded answer, and stop before planning or drafting.', 'intake_review');
+      startAgentTurn('Preflight decisions are complete. Prepare and present the complete CV and cover letter from the exact JD and approved ground truth. Preserve all gates; do not approve or build files.', 'prepare_application');
     }
     else openDrawer(job, source);
     return;
@@ -529,6 +537,7 @@ function renderDrawer() {
   const official = safeUrl(job.official_url);
   $('#drawer-actions').innerHTML = [
     official ? `<a class="action-link primary" href="${h(official)}" target="_blank" rel="noreferrer">Official advert ${icons.external}</a>` : '',
+    job.phase === 'captured' && !job.workflow?.preflight ? `<button class="action-link primary" type="button" data-drawer-action="preflight">Review preflight decisions</button>` : '',
     `<button class="action-link" type="button" data-drawer-action="codex"><span class="agent-orb"></span>Work with Codex</button>`,
     job.workflow?.can_review ? `<button class="action-link" type="button" data-drawer-action="review">Review complete bundle</button>` : '',
     `<button class="action-link" type="button" data-drawer-action="feedback">Add feedback</button>`,
@@ -563,7 +572,7 @@ function drawerOverview(job) {
   const outputNames = Object.entries(job.outputs).map(([key, value]) => `${value ? '✓' : '—'} ${titleCase(key)}`).join(' · ');
   const workflow = job.workflow || {};
   const workflowSteps = [
-    ['JD', workflow.captured], ['Questions', workflow.preflight], ['Plan', workflow.plan],
+    ['JD', workflow.captured], ['Preflight', workflow.preflight], ['Plan', workflow.plan],
     ['Review', workflow.presentation], ['Approved', workflow.approval],
     ['Built', workflow.package], ['Submitted', workflow.submission],
   ];
@@ -688,6 +697,91 @@ function drawerTimeline(job) {
   </section>`;
 }
 
+async function openPreflight(job) {
+  if (!job) return;
+  state.actionJob = job;
+  state.preflightState = null;
+  $('#preflight-summary').innerHTML = '<span class="loader"></span> Checking the exact JD against approved ground truth…';
+  $('#preflight-decisions').innerHTML = '';
+  $('#preflight-status').textContent = '';
+  $('#preflight-status').className = 'dialog-status';
+  $('#preflight-save').hidden = false;
+  $('#preflight-codex').hidden = false;
+  const dialog = $('#preflight-dialog');
+  if (!dialog.open) dialog.showModal();
+  try {
+    const response = await fetch(`/api/preflight?job=${encodeURIComponent(job.id)}`, {cache: 'no-store'});
+    const value = await response.json();
+    if (!response.ok) throw new Error(value.error || `Preflight returned ${response.status}`);
+    state.preflightState = value;
+    renderPreflight(value);
+  } catch (error) {
+    $('#preflight-summary').textContent = 'Preflight could not be loaded.';
+    $('#preflight-status').textContent = error.message;
+    $('#preflight-save').hidden = true;
+  }
+}
+
+function renderPreflight(value) {
+  const decisions = value.questions || [];
+  $('#preflight-summary').innerHTML = `<strong>${h(value.company)} · ${h(value.role)}</strong><br>${h(value.resolved_count)} mandatory facts or behaviours already resolved · ${h(value.decision_count)} decisions remain`;
+  if (!decisions.length) {
+    $('#preflight-decisions').innerHTML = '<div class="empty-state"><strong>No material decisions remain.</strong><span>Complete the deterministic check, then prepare the application.</span></div>';
+  } else {
+    $('#preflight-decisions').innerHTML = decisions.map(row => {
+      const saved = value.answers?.[row.id]?.decision || '';
+      const options = (row.options || []).map(option => `<option value="${h(option.value)}" ${saved === option.value ? 'selected' : ''}>${h(option.label)}</option>`).join('');
+      return `<article class="preflight-item" data-kind="${h(row.kind)}">
+        <header><span>${h(row.id)}</span><strong>${h(row.title || titleCase(row.kind))}</strong></header>
+        ${row.requirement ? `<p>${h(row.requirement)}</p>` : `<p>${h(row.question)}</p>`}
+        ${row.reason ? `<small>${h(row.reason)}</small>` : ''}
+        <label>Your decision<select name="${h(row.id)}" required ${value.complete ? 'disabled' : ''}><option value="">Choose…</option>${options}</select></label>
+        <div class="preflight-effects">${(row.options || []).map(option => `<span><strong>${h(option.label)}:</strong> ${h(option.consequence)}</span>`).join('')}</div>
+      </article>`;
+    }).join('');
+  }
+  if (value.complete) {
+    $('#preflight-status').textContent = 'Preflight decisions are saved and bound to the current JD and approved truth.';
+    $('#preflight-status').classList.add('good');
+    $('#preflight-save').hidden = true;
+  } else {
+    $('#preflight-save').textContent = decisions.length ? 'Save decisions' : 'Complete preflight';
+  }
+}
+
+async function submitPreflight(event) {
+  event.preventDefault();
+  if (!state.actionJob || !state.preflightState) return;
+  const form = event.currentTarget;
+  const status = $('#preflight-status');
+  const answers = Object.fromEntries(new FormData(form));
+  const blocking = Object.entries(answers).find(([, value]) =>
+    ['ADD_NEW_EVIDENCE', 'ADD_NEW_CONTEXT'].includes(value));
+  if (blocking) {
+    status.textContent = `${blocking[0]} is paused for new evidence or context. Use “Clarify with Codex” to update ground truth; generation remains blocked.`;
+    return;
+  }
+  setFormBusy(form, true);
+  status.textContent = 'Binding your decisions to this exact JD and approved truth…';
+  try {
+    const result = await apiPost('/api/actions/preflight', {
+      job_id: state.actionJob.id, answers, reviewer: 'dashboard-user',
+    });
+    state.preflightState = result.result.preflight;
+    status.textContent = 'Preflight complete. The application is ready for evidence-led preparation.';
+    status.classList.add('good');
+    const jobId = state.actionJob.id;
+    await loadData();
+    setTimeout(() => {
+      $('#preflight-dialog').close();
+      toast('Preflight saved. Prepare the CV and cover letter when ready.');
+      const refreshed = jobById(jobId);
+      if (refreshed) openDrawer(refreshed);
+    }, 650);
+  } catch (error) { status.textContent = error.message; }
+  finally { setFormBusy(form, false); }
+}
+
 function openDialog(id, job = null) {
   const dialog = $(id);
   state.actionJob = job;
@@ -720,6 +814,7 @@ function openAgent(job = null, prefill = '', intent = 'ask') {
     ? 'Bounded read-only diagnosis. No evidence will be changed.'
     : 'No approval or file generation is implied by a message.';
   renderAgentQuickActions();
+  renderAgentArtifacts();
   renderConversation();
   const panel = $('#agent-workspace');
   $('#agent-backdrop').hidden = false;
@@ -781,6 +876,26 @@ function renderAgentQuickActions() {
     ['outcome', 'Reason about an outcome'],
   ] : [['portfolio', 'What needs attention?'], ['new', 'Start a new application']];
   $('#agent-quick-actions').innerHTML = actions.map(([action, label]) => `<button class="quick-action" type="button" data-agent-action="${action}">${h(label)}</button>`).join('');
+}
+
+function renderAgentArtifacts() {
+  const root = $('#agent-artifacts');
+  const job = state.agentJob;
+  if (!job) { root.hidden = true; root.innerHTML = ''; return; }
+  const available = (job.artifacts || []).filter(item => item.href);
+  const outputsReady = job.outputs?.cv || job.outputs?.letter;
+  const priority = available.filter(item =>
+    item.group === 'Source' || item.group === 'Review'
+    || item.label.startsWith('CV ·') || item.label.startsWith('Cover letter'))
+    .sort((a, b) => {
+      const rank = item => item.label.startsWith('CV ·') || item.label.startsWith('Cover letter')
+        ? 0 : item.group === 'Review' ? 1 : 2;
+      return rank(a) - rank(b);
+    });
+  const shown = (priority.length ? priority : available).slice(0, 6);
+  root.hidden = false;
+  root.innerHTML = `<div class="agent-artifact-head"><div><span>Application artefacts</span><strong>${outputsReady ? 'Current outputs are linked below' : 'CV and cover letter have not been created yet'}</strong></div><button type="button" data-agent-artifacts="all">Open all (${available.length})</button></div>
+    <div class="agent-artifact-list">${shown.length ? shown.map(item => `<a href="${h(item.href)}" target="_blank"><span class="file-icon">${icons.file}</span><span><strong>${h(item.label)}</strong><small>${h(item.state.replaceAll('_', ' '))}</small></span></a>`).join('') : '<span>No durable artefact is available yet.</span>'}</div>`;
 }
 
 function renderConversation() {
@@ -935,8 +1050,10 @@ async function pollAgentTask() {
           $('#agent-title').textContent = captured[0].role;
           $('#agent-context').textContent = `${captured[0].company} · Ref ${captured[0].reference} · ${phaseLabel(captured[0].phase)}`;
           renderAgentQuickActions();
+          renderAgentArtifacts();
           renderConversation();
-          await startAgentTurn('Inspect the newly captured exact JD. Run only the governed preflight, identify material questions or hard gates, and explain the next decision. Do not plan, draft, approve or build yet.', 'intake_review');
+          closeAgent();
+          await openPreflight(captured[0]);
           return;
         } else {
           openManualIntake(
@@ -1017,7 +1134,8 @@ function agentQuickAction(action) {
     closeAgent(); openDrawer(job); return;
   }
   if (action === 'preflight' && job) {
-    startAgentTurn('Continue the governed pre-generation review for this exact JD. Ask only material questions, preserve any recorded answer, and stop before planning or drafting.', 'intake_review');
+    closeAgent();
+    openPreflight(job);
     return;
   }
   if (action === 'portfolio') {
@@ -1144,13 +1262,7 @@ async function submitIntake(event) {
     const job = jobById(response.result.job_id);
     form.reset();
     $('#intake-dialog').close();
-    if (state.session?.agent?.available) {
-      openAgent(job);
-      await startAgentTurn('Inspect the newly captured exact JD. Run only the governed preflight, identify material questions or hard gates, and explain the next decision. Do not plan, draft, approve or build yet.', 'intake_review');
-    } else {
-      openDrawer(job);
-      toast('Exact job captured. Codex is unavailable, so no contextual review was started.');
-    }
+    await openPreflight(job);
   } catch (error) {
     if (!completeManual && state.session?.agent?.available) {
       state.intakeBaseline = state.data.jobs.map(job => job.id);
@@ -1368,10 +1480,11 @@ function handleActiveAction(event) {
   const job = jobById(control.dataset.job);
   if (!job) return;
   if (action === 'active-turn') { openAgent(job); return; }
-  if (action === 'codex') {
+  if (action === 'preflight') { openPreflight(job); return; }
+  if (action === 'prepare' || action === 'codex') {
     if (state.session?.agent?.available) {
       openAgent(job);
-      startAgentTurn('Continue the governed pre-generation review for this exact JD. Ask only material questions, preserve any recorded answer, and stop before planning or drafting.', 'intake_review');
+      startAgentTurn('Preflight decisions are complete. Prepare and present the complete CV and cover letter from the exact JD and approved ground truth. Preserve all gates; do not approve or build files.', 'prepare_application');
     } else {
       openDrawer(job, control);
       toast('Codex is unavailable. The captured job and artefacts remain accessible.');
@@ -1414,6 +1527,7 @@ function wireEvents() {
     const button = event.target.closest('[data-drawer-action]');
     if (!button || !state.selectedJob) return;
     const job = state.selectedJob;
+    if (button.dataset.drawerAction === 'preflight') { closeDrawer(); openPreflight(job); }
     if (button.dataset.drawerAction === 'codex') openAgent(job);
     if (button.dataset.drawerAction === 'review') { state.tab = 'review'; renderDrawer(); }
     if (button.dataset.drawerAction === 'feedback') openDialog('#feedback-dialog', job);
@@ -1459,6 +1573,16 @@ function wireEvents() {
     const action = event.target.closest('[data-agent-action]')?.dataset.agentAction;
     if (action) agentQuickAction(action);
   });
+  $('#agent-artifacts').addEventListener('click', event => {
+    const action = event.target.closest('[data-agent-artifacts]')?.dataset.agentArtifacts;
+    if (action === 'all' && state.agentJob) {
+      const job = state.agentJob;
+      closeAgent();
+      openDrawer(job);
+      state.tab = 'artifacts';
+      renderDrawer();
+    }
+  });
   $('#pending-request').addEventListener('click', event => {
     const decision = event.target.closest('[data-pending-decision]')?.dataset.pendingDecision;
     if (decision) respondToAgent(decision);
@@ -1470,6 +1594,15 @@ function wireEvents() {
   });
   $$('.dialog-close').forEach(button => button.addEventListener('click', () => button.closest('dialog').close()));
   $('#intake-form').addEventListener('submit', submitIntake);
+  $('#preflight-form').addEventListener('submit', submitPreflight);
+  $('#preflight-codex').addEventListener('click', () => {
+    const job = state.actionJob;
+    const decisions = state.preflightState?.questions || [];
+    $('#preflight-dialog').close();
+    openAgent(job,
+      `Clarify one of these recorded preflight gaps without inventing evidence: ${decisions.map(row => `${row.id}: ${row.requirement || row.question}`).join(' | ')}. Any final proceed/stop decision will be saved in the dashboard Preflight review.`,
+      'ask');
+  });
   $('#feedback-form').addEventListener('submit', submitFeedback);
   $('#resolve-feedback-form').addEventListener('submit', submitFeedbackResolution);
   $('#approval-form').addEventListener('submit', submitApproval);

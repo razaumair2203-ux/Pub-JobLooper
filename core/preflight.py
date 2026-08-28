@@ -8,7 +8,8 @@ from . import store
 SCHEMA = 'joblooper.preflight.v1'
 
 
-def questions(jd, mapping, identity):
+def legacy_questions(jd, mapping, identity):
+    """Return the original v1 rows so historical signed records stay verifiable."""
     rows = []
     ranked = identity.get('ranked') or []
     top = ranked[0][1] if ranked else 0.0
@@ -70,6 +71,84 @@ def questions(jd, mapping, identity):
     return rows
 
 
+def _choice(value, label, consequence, completes=True):
+    return {
+        'value': value, 'label': label, 'consequence': consequence,
+        'completes_preflight': bool(completes),
+    }
+
+
+def questions(jd, mapping, identity):
+    """Return decisions from known state instead of speculative fact questions."""
+    requirements = {
+        f"REQ-{row.get('n')}": row for row in mapping.get('requirements') or []}
+    rows = []
+    for legacy in legacy_questions(jd, mapping, identity):
+        row_id = legacy.get('id')
+        if row_id == 'IDENTITY':
+            rows.append({
+                'id': row_id, 'kind': 'POSITIONING',
+                'title': 'Select the application identity',
+                'question': legacy.get('question'),
+                'options': [
+                    _choice(value, str(value).replace('_', ' ').title(),
+                            'Recompute the evidence map in this identity lane.')
+                    for value in legacy.get('options') or []
+                ],
+            })
+            continue
+        if row_id in requirements:
+            requirement = requirements[row_id]
+            classification = requirement.get('match') or 'GAP'
+            rows.append({
+                'id': row_id, 'kind': 'KNOWN_GAP',
+                'title': f"Requirement {requirement.get('n')} - {classification.title()} match",
+                'classification': classification,
+                'requirement_number': requirement.get('n'),
+                'requirement': requirement.get('text'),
+                'reason': requirement.get('note') or
+                          'Approved truth does not directly evidence the full requirement.',
+                'question': (
+                    'Choose whether to proceed with this recorded fit risk. No missing '
+                    'experience will be implied or invented.'),
+                'options': [
+                    _choice(
+                        'PROCEED_WITH_RECORDED_GAP', 'Proceed with recorded gap',
+                        'Continue without claiming the missing requirement.'),
+                    _choice(
+                        'ADD_NEW_EVIDENCE', 'I have new evidence',
+                        'Stop here and update approved ground truth before generation.',
+                        completes=False),
+                ],
+            })
+            continue
+        if legacy.get('kind') == 'CANDIDATE_CONTEXT':
+            rows.append({
+                **legacy, 'title': 'Confirm application-specific context',
+                'options': [
+                    _choice('CONFIRMED_FOR_APPLICATION', 'Confirmed for this application',
+                            'Record this decision without promoting it to career truth.'),
+                    _choice('NOT_CONFIRMED', 'Not confirmed',
+                            'Proceed with the eligibility or availability risk visible.'),
+                ],
+            })
+            continue
+        if legacy.get('kind') == 'PRIOR_OUTCOME_CONTEXT':
+            rows.append({
+                **legacy, 'title': 'Review retained outcome context',
+                'options': [
+                    _choice('REVIEWED_NO_CHANGE', 'Reviewed - no new evidence',
+                            'Keep the prior signal as context, never as employer fact.'),
+                    _choice('ADD_NEW_CONTEXT', 'I have new context',
+                            'Stop and record the new context before generation.',
+                            completes=False),
+                ],
+            })
+            continue
+        rows.append(legacy)
+    return rows
+
+
 def subject(jd, mapping, identity, rows):
     value = {
         'jd': jd, 'mapping_classes': [
@@ -86,18 +165,52 @@ def path(slug):
     return os.path.join(store.job_dir(slug), 'preflight.json')
 
 
-def create(slug, jd, mapping, identity, reviewer=None, note=None):
+def _normalise_answers(rows, answers):
+    if not isinstance(answers, dict):
+        raise ValueError('structured preflight answers must be a JSON object')
+    expected = {row.get('id'): row for row in rows}
+    missing = [row_id for row_id in expected if not str(answers.get(row_id) or '').strip()]
+    if missing:
+        raise ValueError('answer every preflight decision: ' + ', '.join(missing))
+    normalised = {}
+    for row_id, row in expected.items():
+        decision = str(answers.get(row_id) or '').strip()
+        options = {str(option.get('value')): option
+                   for option in row.get('options') or []
+                   if isinstance(option, dict)}
+        if decision not in options:
+            raise ValueError(f'{row_id} has an unsupported decision')
+        if not options[decision].get('completes_preflight', True):
+            if decision == 'ADD_NEW_EVIDENCE':
+                raise ValueError(
+                    f'{row_id} requires a ground-truth evidence update and renewed user approval')
+            raise ValueError(f'{row_id} requires clarification before preflight can complete')
+        normalised[row_id] = {'decision': decision}
+    return normalised
+
+
+def create(slug, jd, mapping, identity, reviewer=None, note=None, answers=None):
     rows = questions(jd, mapping, identity)
-    if rows and (not str(reviewer or '').strip() or not str(note or '').strip()):
-        raise ValueError('material questions require user review, reviewer and context note')
+    structured_answers = None
+    if rows and answers is not None:
+        structured_answers = _normalise_answers(rows, answers)
+    if rows and not str(reviewer or '').strip():
+        raise ValueError('material decisions require an identified user reviewer')
+    if rows and structured_answers is None and not str(note or '').strip():
+        raise ValueError(
+            'material decisions require structured answers or a reviewed legacy context note')
     record = {
         '_schema': SCHEMA, 'app_id': slug, 'created_at': store.now(),
         'subject_sha256': subject(jd, mapping, identity, rows),
         'questions': rows,
-        'decision': ('USER_CONTEXT_REVIEWED' if rows else 'NO_MATERIAL_QUESTIONS'),
+        'decision': (('STRUCTURED_DECISIONS_RECORDED' if structured_answers is not None
+                      else 'USER_CONTEXT_REVIEWED')
+                     if rows else 'NO_MATERIAL_QUESTIONS'),
         'reviewer': str(reviewer or 'deterministic-preflight').strip(),
         'note': str(note or 'No material candidate question was identified.').strip(),
     }
+    if structured_answers is not None:
+        record['answers'] = structured_answers
     store.write_json(path(slug), record)
     return record
 
@@ -108,23 +221,49 @@ def validate(slug, jd, mapping, identity):
     problems = []
     if record.get('_schema') != SCHEMA:
         problems.append('pre-generation review has not been completed')
-    elif record.get('subject_sha256') != subject(jd, mapping, identity, rows):
-        problems.append('pre-generation review is stale relative to JD or approved truth')
-    elif rows and record.get('decision') != 'USER_CONTEXT_REVIEWED':
+        return record, problems, rows
+    current_subject = subject(jd, mapping, identity, rows)
+    if record.get('subject_sha256') != current_subject:
+        # Preserve exact historical packages created before decision controls
+        # replaced prose-only questions. Nothing is rewritten in place.
+        old_rows = legacy_questions(jd, mapping, identity)
+        if record.get('subject_sha256') != subject(jd, mapping, identity, old_rows):
+            problems.append('pre-generation review is stale relative to JD or approved truth')
+            return record, problems, rows
+    if rows and record.get('decision') not in {
+            'USER_CONTEXT_REVIEWED', 'STRUCTURED_DECISIONS_RECORDED'}:
         problems.append('material candidate questions were not reviewed with the user')
+    elif rows and record.get('decision') == 'STRUCTURED_DECISIONS_RECORDED':
+        try:
+            _normalise_answers(rows, {
+                key: value.get('decision') if isinstance(value, dict) else value
+                for key, value in (record.get('answers') or {}).items()})
+        except ValueError as error:
+            problems.append(str(error))
     elif not rows and record.get('decision') != 'NO_MATERIAL_QUESTIONS':
         problems.append('pre-generation no-question decision is invalid')
     return record, problems, rows
 
 
 def to_markdown(jd, identity, rows):
-    out = [f"# PRE-GENERATION REVIEW — {jd.get('company')} · {jd.get('title')}", '',
+    out = [f"# PRE-GENERATION REVIEW - {jd.get('company')} - {jd.get('title')}", '',
            f"**Proposed identity:** `{identity.get('primary')}`  ",
-           '**Rule:** ask only questions that can change evidence, eligibility or '
-           'positioning; answers never become truth without evidence review.', '']
+           '**Rule:** resolved facts are not re-asked. Known gaps require an explicit '
+           'proceed-or-stop decision; no answer becomes career truth without evidence review.',
+           '**Where to answer:** use the dashboard Preflight review. Chat is optional '
+           'for clarification, not the system of record.', '']
     if not rows:
         out += ['No material candidate questions were identified.', '']
     else:
         for row in rows:
-            out += [f"## {row['id']} · {row['kind']}", '', row['question'], '']
+            out += [f"## {row['id']} - {row['kind']}", '']
+            if row.get('requirement'):
+                out += [row['requirement'], '',
+                        f"**Recorded state:** {row.get('classification')}",
+                        f"**Reason:** {row.get('reason')}", '']
+            out += [row['question'], '']
+            for option in row.get('options') or []:
+                if isinstance(option, dict):
+                    out += [f"- **{option.get('label')}** - {option.get('consequence')}"]
+            out += ['']
     return '\n'.join(out)

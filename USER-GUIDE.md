@@ -48,9 +48,14 @@ python jl.py plan <exact-job-key>
 python jl.py present <exact-job-key>
 ```
 
-Answer only the material questions returned by `preflight`. `present` shows the
-entire CV, cover letter, omission disclosure and rejection-risk assessment in
-chat. No DOCX or PDF exists yet.
+Use the dashboard **Preflight review** for the remaining decisions. Joblooper
+has already checked approved truth, so resolved facts do not appear again.
+Choose **Proceed with recorded gap** to continue without inventing the missing
+experience, or **I have new evidence** to stop and update ground truth. Chat is
+available to clarify a gap, but it is not where the decision is stored.
+Reopening Preflight restores the same application state. `present` then shows
+the entire CV, cover letter, omission disclosure and rejection-risk assessment
+in chat. No DOCX or PDF exists yet.
 
 ## 4. Approve and find the files
 
@@ -81,13 +86,14 @@ The local workspace answers what is in progress, what needs attention, which
 exact files belong to each job, which outcomes were observed, and which
 rejection lessons survived challenge. It is also the simplest front door:
 paste the official job URL, let Joblooper extract the employer, title and full
-advert, ask Codex to run preflight and prepare the application, review the
+advert, resolve the deterministic preflight decisions, ask Codex to prepare the
+application, and review the
 complete CV and letter, add comments, approve and build, record the exact sent
 files and portal answers, and paste the employer response. The same CLI gates
 control every action; the dashboard does not maintain a second database.
 
 Use **Attention queue** as the task inbox. A row opens the exact required
-interaction: pre-generation questions, complete review, feedback resolution,
+interaction: preflight decisions, complete review, feedback resolution,
 submission, record correction, outcome correction, integrity evidence or scoped
 Codex reasoning. Applications merely awaiting an employer response stay visible
 in the ledger without becoming false tasks.

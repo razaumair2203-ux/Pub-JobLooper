@@ -7,6 +7,7 @@ import sys
 import tempfile
 import threading
 import urllib.error
+import urllib.parse
 import urllib.request
 
 
@@ -84,9 +85,9 @@ def main():
                        and snapshot['kpis']['in_progress'] == 1
                        and snapshot['jobs'][0]['phase'] == 'captured'))
         checks.append(('attention queue exposes a typed action instead of a dead-end warning',
-                       snapshot['attention'][0]['kind'] == 'prepare'
-                       and snapshot['attention'][0]['route'] == 'codex_prepare'
-                       and snapshot['attention'][0]['cta'] == 'Continue'
+                       snapshot['attention'][0]['kind'] == 'preflight'
+                       and snapshot['attention'][0]['route'] == 'preflight'
+                       and snapshot['attention'][0]['cta'] == 'Review decisions'
                        and bool(snapshot['attention'][0]['detail'])))
         app_script = store.read_text(os.path.join(ROOT, 'dashboard', 'app.js'))
         page_source = store.read_text(os.path.join(ROOT, 'dashboard', 'index.html'))
@@ -108,7 +109,7 @@ def main():
                        interrupted_job['workflow']['preflight'] is False
                        and interrupted_job['workflow']['preflight_questions'] is True
                        and interrupted_job['next_action']
-                       == 'Answer the prepared material questions before CV planning'
+                       == 'Review the prepared fit decisions before CV planning'
                        and any(item['id'] == 'work-preflight_questions'
                                and item['group'] == 'Review'
                                and item['href']
@@ -131,13 +132,19 @@ def main():
         checks.append(('priority and continue controls execute their displayed action',
                        '<button class="hero-action" id="primary-action"' in page_source
                        and "$('#primary-action').addEventListener('click'" in app_script
-                       and "if (action === 'codex')" in app_script
-                       and "'Continue pre-generation review'" in app_script
-                       and "'intake_review'" in app_script))
-        checks.append(('Codex URL fallback binds the captured job and enters preflight',
+                       and "if (action === 'preflight')" in app_script
+                       and 'function openPreflight(job)' in app_script
+                       and "'/api/actions/preflight'" in app_script))
+        checks.append(('URL fallback binds the captured job to deterministic preflight',
                        'state.agentJob = captured[0]' in app_script
-                       and "'intake_review'" in app_script
+                       and 'await openPreflight(captured[0])' in app_script
                        and "['workspace', 'Open application workspace']" in app_script))
+        checks.append(('preflight answers and artefact access are first-class dashboard controls',
+                       'id="preflight-dialog"' in page_source
+                       and 'id="agent-artifacts"' in page_source
+                       and 'function submitPreflight(event)' in app_script
+                       and 'function renderAgentArtifacts()' in app_script
+                       and 'CV and cover letter have not been created yet' in app_script))
         checks.append(('failed Codex turns end thinking and expose safe recovery',
                        'CODEX TURN INTERRUPTED' in app_script
                        and 'No completed response was received' in app_script
@@ -353,11 +360,44 @@ def main():
                            and session['dashboard_version']
                            and session['capabilities']['intake'] is True
                            and session['capabilities']['url_intake'] is True
+                           and session['capabilities']['structured_preflight'] is True
                            and session['capabilities']['feedback_resolution'] is True
                            and session['capabilities']['submission_update'] is True
                            and session['capabilities']['record_outcome'] is True
                            and session['capabilities']['agent_chat'] is True
                            and session['capabilities']['external_portal_submission'] is False))
+
+            status, headers, body = fetch(
+                base + '/api/preflight?job=' + urllib.parse.quote(api['jobs'][0]['id']))
+            preflight_view = json.loads(body.decode('utf-8'))
+            checks.append(('preflight endpoint returns exact actionable decisions',
+                           status == 200 and preflight_view['questions']
+                           and preflight_view['complete'] is False
+                           and all(row['kind'] == 'KNOWN_GAP'
+                                   for row in preflight_view['questions'])))
+            refused_answers = {
+                row['id']: ('ADD_NEW_EVIDENCE' if index == 0
+                            else 'PROCEED_WITH_RECORDED_GAP')
+                for index, row in enumerate(preflight_view['questions'])}
+            try:
+                post(base + '/api/actions/preflight', session['csrf_token'], {
+                    'job_id': api['jobs'][0]['id'], 'answers': refused_answers,
+                })
+                evidence_stop_refused = False
+            except urllib.error.HTTPError as error:
+                evidence_stop_refused = error.code == 400
+            accepted_answers = {
+                row['id']: 'PROCEED_WITH_RECORDED_GAP'
+                for row in preflight_view['questions']}
+            status, headers, preflight_saved = post(
+                base + '/api/actions/preflight', session['csrf_token'], {
+                    'job_id': api['jobs'][0]['id'], 'answers': accepted_answers,
+                })
+            checks.append(('dashboard records decisions but blocks unreviewed new evidence',
+                           evidence_stop_refused and status == 200
+                           and preflight_saved['result']['preflight']['complete'] is True
+                           and set(preflight_saved['result']['preflight']['answers'])
+                           == set(accepted_answers)))
 
             status, headers, body = fetch(base + '/api/health')
             health = json.loads(body.decode('utf-8'))

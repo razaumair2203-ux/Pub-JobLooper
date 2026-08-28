@@ -29,10 +29,16 @@ must be discoverable; copying only `SKILL.md` is not a functional installation.
    and complete JD are accessible. Search snippets are not an exact JD; if both
    routes fail, ask the user to paste the advert manually. For supplied text,
    use `python jl.py ingest`. Use the unique application key returned.
-3. Run `python jl.py preflight <key>` before planning. Ask only its material
-   questions, including retained risks or exact positive outcomes from
-   sufficiently similar applications; if the answer adds a candidate fact,
-   update and reapprove truth. Prior outcomes are context, never causal proof.
+3. Run `python jl.py preflight <key>` before planning. It must resolve the exact
+   JD against approved truth first: omit facts already answered, then present
+   only remaining known gaps or application decisions. Record each decision in
+   the dashboard Preflight control; chat is optional for clarification and is
+   never the answer store. `Proceed with recorded gap` creates no candidate
+   fact. `I have new evidence` stops generation until truth is updated and
+   reapproved. For headless CLI use, pass the same per-item decisions with
+   `--answers-file`; a free-text acknowledgement cannot resolve the gate.
+   Retained risks or exact positive outcomes from sufficiently similar
+   applications remain context, never causal proof.
    Then run `python jl.py plan <key>` once per unchanged truth/JD/feedback state.
    Treat registered atomic truth records as
    candidate ground truth; archives are provenance inputs, not a runtime search
@@ -100,7 +106,7 @@ must be discoverable; copying only `SKILL.md` is not a functional installation.
    by a progress message. A successful Codex URL fallback must bind the newly
    captured job and continue through the same scoped preflight as direct intake.
    A failed Codex turn must end the streaming state, refresh governed files,
-   expose any durable partial output (including prepared preflight questions),
+   expose any durable partial output (including prepared preflight decisions),
    and offer safe resume plus direct workspace access. Resume must re-read the
    current gate and repeat no completed mutation; it never implies approval.
 

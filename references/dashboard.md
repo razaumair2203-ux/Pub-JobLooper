@@ -46,7 +46,7 @@ records used by the CLI.
 | Journey step | Applicant interaction | Controller and proof of completion | Fail-closed behaviour |
 |---|---|---|---|
 | Capture | Paste the official job URL; use manual fields only after both access routes fail | Bounded URL extractor, then scoped Codex URL fallback, then deterministic `ingest`; when both access routes fail, the manual-paste panel reopens automatically with the URL preserved and the first missing field focused | Private-network URLs, blocked pages, incomplete content and search-snippet reconstruction are refused; advert prose is never candidate truth |
-| Clarify | Ask Codex to inspect the captured job | Codex App Server in that job context; governed `preflight` record | Material unanswered questions stop planning; unavailable Codex never fakes a review |
+| Preflight | Review only unresolved fit decisions; use Codex only when a gap needs explanation | Deterministic JD/truth match plus per-item governed `preflight` answers | Resolved facts are not re-asked; new evidence stops for truth review; chat cannot complete the gate |
 | Prepare | Discuss positioning and generate through the existing pipeline | Truth/JD/feedback fingerprints plus `match`, `cv`, `cover-letter` and risk records | Stale or unapproved truth, hard gates or unanswered questions stop generation |
 | Review | Read the full CV and cover letter in the Review tab; add scoped comments | Exact presentation digest and append-only feedback | Open feedback or any content change makes presentation/sign-off stale |
 | Approve | Tick exact-bundle confirmation and name the reviewer | Approval digest bound to the current presentation | Chat approval, partial review or stale content is refused |
@@ -75,19 +75,19 @@ Each active card must expose, without opening a folder:
 - recorded and unresolved user comments;
 - direct controls for the next gate, the job workspace and captured JD.
 
-An absent output is a visible state, not a blank panel: for example, after JD
-capture the card says that coverage, gaps, CV and cover letter have not yet been
-created. Portfolio KPIs, lifecycle charts and learning remain secondary below
+An absent output is a visible state, not a blank panel: after JD capture the
+card shows the deterministic evidence/gap assessment and says that the CV and
+cover letter have not been created. Portfolio KPIs, lifecycle charts and learning remain secondary below
 this operational surface.
 
 ### Touchpoint visibility contract
 
 | User touchpoint | What remains visible afterwards | Required next control |
 |---|---|---|
-| Paste URL | Active card, exact source-JD links and captured timestamp | Continue preflight or automatic scoped preflight |
-| Direct extraction blocked | Codex tries the same official URL; if capture succeeds it binds the job context and starts the same preflight used by direct intake | Preflight questions; otherwise the automatically reopened manual form |
-| Preflight incomplete | `Questions` gate open; coverage/gaps and documents labelled `not assessed/not created` | Continue in the job's Codex context |
-| Codex interrupted | `Thinking` ends; current governed files are re-read; any prepared questions or other partial artefacts become visible and the failure is labelled without assuming completion | Resume safely from the next incomplete gate or open the application workspace |
+| Paste URL | Active card, exact source-JD links, evidence/gap assessment and captured timestamp | Review deterministic preflight decisions |
+| Direct extraction blocked | Codex tries only the same official URL; if capture succeeds it binds the job and opens the same deterministic control used by direct intake | Preflight decisions; otherwise the automatically reopened manual form |
+| Preflight incomplete | `Preflight` gate open; resolved facts omitted; remaining known gaps and their consequences visible | Save proceed/stop decisions in Preflight; chat is optional clarification |
+| Codex interrupted | `Thinking` ends; current governed files are re-read; registered artefacts and their absence remain visible and the failure is labelled without assuming completion | Resume safely from the next incomplete contextual task or open the application workspace |
 | Plan generated | Evidence coverage, requirement classes, hard gaps, risk record and draft availability | Open complete CV-and-letter review |
 | User reviews | Exact complete bundle remains readable in the Review tab | Add a scoped comment or mark the complete bundle presented |
 | User comments | All open and resolved comments remain attached to the job; open items block approval | Resolve, regenerate if adopted, then re-present |
@@ -111,7 +111,7 @@ is visible in the application ledger but is not a task.
 
 | Queue state | Direct interaction | Successful output |
 |---|---|---|
-| Captured JD | Continue with Codex | Material pre-generation questions or a verified no-question preflight |
+| Captured JD | Review preflight decisions | Per-gap proceed/stop decisions or a verified no-decision preflight |
 | Review ready | Open complete review | Current CV and cover letter, then feedback or sign-off |
 | Open feedback | Resolve feedback | Append-only adopted/rejected decision with rationale and validation |
 | Approved bundle | Open submission desk | Hash-bound exact-submission receipt |
@@ -127,7 +127,7 @@ all been specified and covered by a regression test.
 
 ### Job workspace
 
-- Overview shows the seven gates: JD, questions, plan, review, approval, build
+- Overview shows the seven gates: JD, preflight, plan, review, approval, build
   and submission.
 - Artefacts resolve to allowlisted files inside the configured data root.
 - Review displays the exact complete CV and cover letter before sign-off.
@@ -154,10 +154,13 @@ all been specified and covered by a regression test.
 - Chat display is conversational context, not system memory. Anything that must
   survive or influence a future application is saved through truth, feedback,
   submission, outcome or reasoning records.
+- The selected job always shows registered clickable artefacts above the
+  conversation and explicitly says when the CV or cover letter does not exist;
+  agent prose never substitutes filesystem paths for these controls.
 - A failed or disconnected turn is terminal, not a perpetual streaming state.
   The panel shows a concise interruption, refreshes the deterministic projection
   and offers a deliberate safe resume that first re-reads the job and repeats no
-  completed mutation. A prepared preflight-question file is a visible partial
+  completed mutation. A prepared preflight-decision file is a visible partial
   artefact, not proof that preflight was reviewed.
 - A free-form job-scoped request to prepare, generate or tailor a CV/application
   receives the application-work execution profile; ordinary questions remain
@@ -225,7 +228,9 @@ This is a deliberate authority boundary, not an unfinished dashboard feature.
 - Working applications are above analytics and show real gate state, absent
   outputs, evidence/gaps, comments and direct artefact controls.
 - Closing or completing a Codex intake turn cannot hide the captured job; a
-  Codex URL fallback binds the new job and continues into the same preflight.
+  Codex URL fallback binds the new job and opens the same deterministic preflight.
+- Reopening Preflight returns the existing decision state and never starts a
+  duplicate Codex turn; every legitimate decision is answerable in the dialog.
 - A failed stream cannot remain labelled `Thinking`; retry inputs and any
   durable partial artefact survive, and three failed task polls stop rather than
   creating an infinite reconnect loop.
