@@ -667,13 +667,32 @@ async function startAgentTurn(message, intent = 'ask') {
     state.activeTask = result.task;
     renderAgentState();
     pollAgentTask();
+    return true;
   } catch (error) {
     const answer = messages[messages.length - 1];
     answer.text = error.message;
     answer.streaming = false;
     renderConversation();
     toast(error.message);
+    return false;
   }
+}
+
+function openManualIntake(message) {
+  const dialog = $('#intake-dialog');
+  const manual = $('#manual-intake');
+  const form = $('#intake-form');
+  manual.open = true;
+  $('#intake-status').textContent = message;
+  $('#intake-status').classList.remove('good');
+  if (!$('#agent-workspace').hidden) closeAgent();
+  if (!dialog.open) dialog.showModal();
+  requestAnimationFrame(() => {
+    const target = ['company', 'title', 'jd']
+      .map(name => form.elements[name])
+      .find(field => !String(field.value || '').trim());
+    target?.focus();
+  });
 }
 
 async function pollAgentTask() {
@@ -712,8 +731,8 @@ async function pollAgentTask() {
           $('#intake-form').reset();
           toast(`Captured ${captured[0].company} · ${captured[0].role}.`);
         } else {
-          $('#manual-intake').open = true;
-          toast('The link was not captured. Manual paste remains available under New application.');
+          openManualIntake(
+            'The official page could not be captured. Paste the company, exact title and complete advert below.');
         }
         state.intakeBaseline = null;
       }
@@ -851,8 +870,7 @@ async function submitIntake(event) {
   const completeManual = manual.every(Boolean);
   const url = String(data.url || '').trim();
   if (hasManual && !completeManual) {
-    $('#manual-intake').open = true;
-    status.textContent = 'Manual capture requires company, exact title and the complete advert.';
+    openManualIntake('Manual capture requires company, exact title and the complete advert.');
     return;
   }
   if (completeManual && url && !safeUrl(url)) {
@@ -890,14 +908,18 @@ async function submitIntake(event) {
       status.textContent = `Direct extraction was blocked. Handing the official link to Codex…`;
       $('#intake-dialog').close();
       openAgent(null);
-      await startAgentTurn(
+      const started = await startAgentTurn(
         `Capture a new application from this exact official URL: ${url}\n\n` +
         `The bounded direct extractor reported: ${error.message}\n\n` +
         'Try to access the exact official page. If and only if the full employer name, exact job title and complete job description are available, run the governed Joblooper ingest command with this URL, then stop before planning. If the page remains blocked or incomplete, explicitly tell me that it cannot be captured and ask me to use the manual-paste fallback. Do not reconstruct the advert from search snippets or infer missing content.',
         'intake_url');
+      if (!started) {
+        state.intakeBaseline = null;
+        openManualIntake(
+          'The official page could not be captured. Paste the company, exact title and complete advert below.');
+      }
     } else {
-      $('#manual-intake').open = true;
-      status.textContent = `${error.message} Paste the complete advert in the manual fallback.`;
+      openManualIntake(`${error.message} Paste the complete advert below.`);
     }
   } finally { setFormBusy(form, false); }
 }

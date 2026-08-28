@@ -97,6 +97,11 @@ def main():
                            for item in snapshot['attention'])))
         checks.append(('public API projection contains no filesystem paths',
                        '"_path"' not in encoded and os.path.abspath(data) not in encoded))
+        checks.append(('blocked URL journey automatically exposes manual capture',
+                       'function openManualIntake(message)' in app_script
+                       and "if (!dialog.open) dialog.showModal()" in app_script
+                       and 'const started = await startAgentTurn(' in app_script
+                       and 'if (!started)' in app_script))
         checks.append(('coverage is labelled as evidence, never an ATS score',
                        'not an ATS or hiring score' in snapshot['jobs'][0]['coverage_note']))
         checks.append(('captured JD is directly addressable through registry',

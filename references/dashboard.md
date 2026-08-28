@@ -45,7 +45,7 @@ records used by the CLI.
 
 | Journey step | Applicant interaction | Controller and proof of completion | Fail-closed behaviour |
 |---|---|---|---|
-| Capture | Paste the official job URL; use manual fields only after both access routes fail | Bounded URL extractor, then scoped Codex URL fallback, then deterministic `ingest`; one stable job key and captured raw JD | Private-network URLs, blocked pages, incomplete content and search-snippet reconstruction are refused; advert prose is never candidate truth |
+| Capture | Paste the official job URL; use manual fields only after both access routes fail | Bounded URL extractor, then scoped Codex URL fallback, then deterministic `ingest`; when both access routes fail, the manual-paste panel reopens automatically with the URL preserved and the first missing field focused | Private-network URLs, blocked pages, incomplete content and search-snippet reconstruction are refused; advert prose is never candidate truth |
 | Clarify | Ask Codex to inspect the captured job | Codex App Server in that job context; governed `preflight` record | Material unanswered questions stop planning; unavailable Codex never fakes a review |
 | Prepare | Discuss positioning and generate through the existing pipeline | Truth/JD/feedback fingerprints plus `match`, `cv`, `cover-letter` and risk records | Stale or unapproved truth, hard gates or unanswered questions stop generation |
 | Review | Read the full CV and cover letter in the Review tab; add scoped comments | Exact presentation digest and append-only feedback | Open feedback or any content change makes presentation/sign-off stale |
