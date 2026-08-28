@@ -13,6 +13,8 @@ const state = {
   agentConversations: {},
   activeTask: null,
   taskPoller: null,
+  taskPollFailures: 0,
+  serverInstanceId: null,
   truthIntegrityDetail: '',
   actionJob: null,
   intakeBaseline: null,
@@ -110,12 +112,43 @@ function toast(message) {
 async function loadSession() {
   const response = await fetch('/api/session', {cache: 'no-store'});
   if (!response.ok) throw new Error(`Dashboard session returned ${response.status}`);
-  state.session = await response.json();
+  const session = await response.json();
+  if (state.serverInstanceId && session.instance_id !== state.serverInstanceId) {
+    preserveDashboardContext();
+    location.reload();
+    return;
+  }
+  state.session = session;
+  state.serverInstanceId = session.instance_id;
+  if (state.data) renderHeader();
   const button = $('#agent-button');
   button.disabled = !state.session.agent.available;
   button.title = state.session.agent.available
     ? 'Open the guarded Codex workspace'
     : 'Install or expose the Codex CLI to enable agent conversation';
+}
+
+function preserveDashboardContext() {
+  const message = String($('#agent-message')?.value || '').trim();
+  const jobId = state.agentJob?.id || state.activeTask?.job_id || null;
+  if (!message && !jobId) return;
+  sessionStorage.setItem('joblooper-dashboard-context', JSON.stringify({
+    job_id: jobId, message, saved_at: new Date().toISOString(),
+  }));
+}
+
+async function monitorDashboardInstance() {
+  try {
+    const response = await fetch('/api/health', {cache: 'no-store'});
+    if (!response.ok) return;
+    const health = await response.json();
+    if (state.serverInstanceId && health.instance_id !== state.serverInstanceId) {
+      preserveDashboardContext();
+      location.reload();
+    }
+  } catch {
+    // A replacement briefly removes the listener; the next poll sees its new identity.
+  }
 }
 
 async function apiPost(path, body) {
@@ -192,6 +225,11 @@ function workflowProgress(job) {
 }
 
 function activePrimary(job) {
+  const task = state.activeTask?.job_id === job.id ? state.activeTask : null;
+  if (task && ['starting', 'running', 'waiting'].includes(task.status)) {
+    return ['View active Codex turn', 'active-turn'];
+  }
+  if (task?.status === 'failed') return ['Recover interrupted turn', 'active-turn'];
   if (job.phase === 'captured') return ['Continue preflight', 'codex'];
   if (job.phase === 'review') return ['Review CV & letter', 'review'];
   if (job.phase === 'approved') return ['Open submission desk', 'submit'];
@@ -206,6 +244,9 @@ function renderActiveWorkspace() {
     return;
   }
   $('#active-job-list').innerHTML = jobs.map(job => {
+    const task = state.activeTask?.job_id === job.id ? state.activeTask : null;
+    const taskRunning = task && ['starting', 'running', 'waiting'].includes(task.status);
+    const taskFailed = task?.status === 'failed';
     const coverage = job.coverage === null || job.coverage === undefined
       ? 'Not assessed' : `${Math.round(job.coverage * 100)}% evidence coverage`;
     const assessed = job.requirements.length > 0;
@@ -220,7 +261,12 @@ function renderActiveWorkspace() {
     const source = job.artifacts.find(item => item.group === 'Source' && item.href);
     const {steps, completed} = workflowProgress(job);
     const [primaryLabel, primaryAction] = activePrimary(job);
-    return `<article class="active-job-card" data-job-card="${h(job.id)}">
+    const nextAction = taskRunning
+      ? `Codex is working · ${task.scope || 'application task'} · ${turnDuration(task)}`
+      : taskFailed
+        ? 'Codex was interrupted · durable files were refreshed · recovery is available'
+        : job.next_action;
+    return `<article class="active-job-card${taskRunning ? ' working' : ''}${taskFailed ? ' interrupted' : ''}" data-job-card="${h(job.id)}">
       <header class="active-job-header">
         <span class="company-avatar">${h(companyInitials(job.company))}</span>
         <div><p class="micro-label">${h(job.company)} · Ref ${h(job.reference)}</p><h2>${h(job.role)}</h2><span class="updated-label">Last activity ${h(dateTimeLabel(job.updated_at))}</span></div>
@@ -230,7 +276,7 @@ function renderActiveWorkspace() {
         ${steps.map(([label, done], index) => `<span class="active-stage-step ${done ? 'done' : ''} ${index === completed ? 'current' : ''}"><i></i>${h(label)}</span>`).join('')}
       </div>
       <div class="active-job-body">
-        <div class="active-next"><span class="micro-label">Next required action</span><strong>${h(job.next_action)}</strong></div>
+        <div class="active-next"><span class="micro-label">${taskRunning ? 'Work in progress' : taskFailed ? 'Interruption detected' : 'Next required action'}</span><strong>${h(nextAction)}</strong></div>
         <div class="active-facts">
           <button type="button" data-active-action="evidence" data-job="${h(job.id)}"><span>Evidence & gaps</span><strong>${h(coverage)}</strong><small>${h(gaps)} · not an ATS score</small></button>
           <button type="button" data-active-action="artifacts" data-job="${h(job.id)}"><span>Documents</span><strong>${h(documents)}</strong><small>${job.artifacts.length} accessible artefacts</small></button>
@@ -241,7 +287,7 @@ function renderActiveWorkspace() {
         <button class="primary-button" type="button" data-active-action="${primaryAction}" data-job="${h(job.id)}">${h(primaryLabel)}</button>
         <button class="secondary-button" type="button" data-active-action="overview" data-job="${h(job.id)}">Manage application</button>
         ${source ? `<a class="secondary-button" href="${h(source.href)}" target="_blank">Open captured JD</a>` : ''}
-        <span>${completed}/${steps.length} gates complete</span>
+        <span>${taskRunning ? 'Live turn · durable gates shown above' : taskFailed ? 'No completion assumed' : `${completed}/${steps.length} gates complete`}</span>
       </footer>
     </article>`;
   }).join('');
@@ -252,7 +298,8 @@ function renderHeader() {
   const pill = $('#truth-pill');
   pill.textContent = truth.errors ? 'TRUTH BLOCKED' : truth.ready ? 'TRUTH READY' : 'TRUTH NEEDS REVIEW';
   pill.style.color = truth.errors ? 'var(--red)' : truth.ready ? 'var(--green)' : 'var(--amber)';
-  $('#last-refresh').textContent = `Refreshed ${dateTimeLabel(generatedAt)}`;
+  const version = state.session?.dashboard_version;
+  $('#last-refresh').textContent = `Refreshed ${dateTimeLabel(generatedAt)}${version ? ` · v${version}` : ''}`;
 }
 
 function renderPrimaryAction() {
@@ -701,6 +748,9 @@ function renderAgentState() {
       ? 'YOUR APPROVAL NEEDED'
       : `CODEX WORKING${elapsed ? ` · ${elapsed}` : ''}`;
     label.style.color = state.activeTask.status === 'waiting' ? 'var(--amber)' : 'var(--cyan)';
+  } else if (state.activeTask?.status === 'failed') {
+    label.textContent = 'CODEX TURN INTERRUPTED';
+    label.style.color = 'var(--amber)';
   } else {
     const last = state.activeTask?.duration_ms ?? agent?.performance?.last_duration_ms;
     label.textContent = `CODEX READY${last !== null && last !== undefined ? ` · last ${durationLabel(last)}` : ''}`;
@@ -737,15 +787,39 @@ function renderConversation() {
   const root = $('#conversation');
   const messages = agentMessages();
   const welcome = '<div class="agent-welcome"><strong>Guarded workspace</strong><span>Candidate facts remain governed. This job resumes its private Codex thread when available; approval and external submission stay explicit.</span></div>';
-  root.innerHTML = welcome + messages.map(message => `<div class="message ${message.role}${message.streaming ? ' streaming' : ''}"><span>${h(message.text || (message.streaming ? 'Thinking' : ''))}</span>${message.duration_ms !== undefined ? `<small class="turn-metrics">${h(durationLabel(message.duration_ms))} · ${h(message.scope || 'proportional')} · ${h(message.work_items || 0)} work items</small>` : ''}</div>`).join('');
+  const taskMatchesJob = (state.activeTask?.job_id || null) === (state.agentJob?.id || null);
+  const interrupted = state.activeTask?.status === 'failed' && taskMatchesJob;
+  const recovery = interrupted ? `<div class="turn-recovery" role="alert">
+    <strong>Codex stopped before completing this turn.</strong>
+    <span>Joblooper refreshed the governed files. Partial work is preserved only when it appears in this application's gates or artefacts; no approval or document build is assumed.</span>
+    <code>${h(turnFailureLabel(state.activeTask.error))}</code>
+    <div><button class="primary-button" type="button" data-agent-recovery="resume">Resume safely</button>${state.agentJob ? '<button class="secondary-button" type="button" data-agent-recovery="workspace">Open application</button>' : ''}</div>
+  </div>` : '';
+  root.innerHTML = welcome + messages.map(message => `<div class="message ${message.role}${message.streaming ? ' streaming' : ''}${message.failed ? ' failed' : ''}"><span>${h(message.text || (message.streaming ? 'Thinking' : ''))}</span>${message.duration_ms !== undefined ? `<small class="turn-metrics">${h(durationLabel(message.duration_ms))} · ${h(message.scope || 'proportional')} · ${h(message.work_items || 0)} work items</small>` : ''}</div>`).join('') + recovery;
   const scroll = $('.agent-scroll');
   scroll.scrollTop = scroll.scrollHeight;
+}
+
+function turnFailureLabel(error) {
+  const text = String(error || '').trim();
+  if (/stream disconnected before completion/i.test(text)) {
+    return 'Connection to Codex ended before a completed response was received.';
+  }
+  if (/task returned 404|dashboard instance changed|dashboard was replaced/i.test(text)) {
+    return 'The dashboard was updated while this turn was running; its live task status is no longer available.';
+  }
+  return text || 'No completed response was received.';
 }
 
 function agentMessages() {
   const key = state.agentJob?.id || 'portfolio';
   if (!state.agentConversations[key]) state.agentConversations[key] = [];
   return state.agentConversations[key];
+}
+
+function composerIntent(message) {
+  if (state.agentIntent && state.agentIntent !== 'ask') return state.agentIntent;
+  return state.agentJob ? 'auto' : 'ask';
 }
 
 async function startAgentTurn(message, intent = 'ask') {
@@ -769,13 +843,22 @@ async function startAgentTurn(message, intent = 'ask') {
     });
     state.activeTask = result.task;
     renderAgentState();
+    renderActiveWorkspace();
     pollAgentTask();
     return true;
   } catch (error) {
     const answer = messages[messages.length - 1];
-    answer.text = error.message;
+    answer.text = turnFailureLabel(error.message);
     answer.streaming = false;
+    answer.failed = true;
+    state.activeTask = {
+      id: null, job_id: state.agentJob?.id || null, intent, user: message,
+      status: 'failed', error: error.message, duration_ms: 0,
+      scope: 'turn start', work_items: 0,
+    };
     renderConversation();
+    renderAgentState();
+    renderActiveWorkspace();
     toast(error.message);
     return false;
   }
@@ -803,13 +886,26 @@ async function pollAgentTask() {
   if (!state.activeTask) return;
   try {
     const response = await fetch(`/api/agent/task?id=${encodeURIComponent(state.activeTask.id)}`, {cache: 'no-store'});
+    if (response.status === 404) {
+      await markAgentInterrupted('The dashboard was replaced while this Codex turn was running.');
+      return;
+    }
     if (!response.ok) throw new Error(`Agent task returned ${response.status}`);
+    state.taskPollFailures = 0;
     state.activeTask = await response.json();
+    renderActiveWorkspace();
     const answer = [...agentMessages()].reverse().find(message => message.role === 'agent' && message.streaming);
     if (answer) {
-      answer.text = state.activeTask.assistant || (state.activeTask.status === 'waiting' ? 'Waiting for your decision.' : 'Thinking');
+      if (state.activeTask.status === 'failed') {
+        const partial = String(state.activeTask.assistant || '').trim();
+        answer.text = partial && !/codexErrorInfo|stream disconnected before completion/i.test(partial)
+          ? `Partial response before interruption:\n\n${partial}`
+          : 'No completed response was received. Check the recovered application state below.';
+        answer.failed = true;
+      } else {
+        answer.text = state.activeTask.assistant || (state.activeTask.status === 'waiting' ? 'Waiting for your decision.' : 'Thinking');
+      }
       answer.streaming = ['starting', 'running', 'waiting'].includes(state.activeTask.status);
-      if (state.activeTask.status === 'failed') answer.text += `\n\n${state.activeTask.error || 'The Codex turn failed.'}`;
       if (!['starting', 'running', 'waiting'].includes(state.activeTask.status)
           && state.activeTask.duration_ms !== undefined) {
         answer.duration_ms = state.activeTask.duration_ms;
@@ -828,6 +924,7 @@ async function pollAgentTask() {
       await loadData();
       await loadSession();
       renderAgentState();
+      renderConversation();
       if (completedIntent === 'intake_url' && intakeBaseline) {
         const captured = state.data.jobs.filter(job => !intakeBaseline.includes(job.id));
         if (captured.length === 1) {
@@ -849,9 +946,43 @@ async function pollAgentTask() {
       }
     }
   } catch (error) {
-    toast(error.message);
+    state.taskPollFailures += 1;
+    if (state.taskPollFailures >= 3) {
+      await markAgentInterrupted(error.message);
+      return;
+    }
+    toast(`Reconnecting to the active Codex turn (${state.taskPollFailures}/3)…`);
     state.taskPoller = setTimeout(pollAgentTask, 1800);
   }
+}
+
+async function markAgentInterrupted(error) {
+  clearTimeout(state.taskPoller);
+  const previous = state.activeTask || {};
+  state.activeTask = {...previous, status: 'failed', error,
+    duration_ms: previous.duration_ms ?? 0};
+  const answer = [...agentMessages()].reverse().find(
+    message => message.role === 'agent' && message.streaming);
+  if (answer) {
+    answer.text = 'No completed response was received. Joblooper refreshed the durable application state.';
+    answer.streaming = false;
+    answer.failed = true;
+  }
+  await loadData();
+  try { await loadSession(); } catch { /* recovery remains available from governed files */ }
+  renderConversation();
+  renderAgentState();
+  renderActiveWorkspace();
+}
+
+function resumeInterruptedTurn() {
+  const failed = state.activeTask;
+  if (!failed || failed.status !== 'failed') return;
+  const original = String(failed.user || '').trim();
+  const intent = failed.intent || 'ask';
+  startAgentTurn(
+    'Resume safely after the interrupted turn. Re-read the current governed job state first. Preserve completed durable work, repeat no completed mutation, and continue only from the next incomplete gate. Do not infer approval or document generation from the failed turn.\n\nOriginal request:\n' + original,
+    intent);
 }
 
 function renderPendingRequest() {
@@ -1236,6 +1367,7 @@ function handleActiveAction(event) {
   if (action === 'new') { $('#intake-dialog').showModal(); return; }
   const job = jobById(control.dataset.job);
   if (!job) return;
+  if (action === 'active-turn') { openAgent(job); return; }
   if (action === 'codex') {
     if (state.session?.agent?.available) {
       openAgent(job);
@@ -1308,7 +1440,13 @@ function wireEvents() {
   $('#agent-backdrop').addEventListener('click', closeAgent);
   $('#agent-form').addEventListener('submit', event => {
     event.preventDefault();
-    startAgentTurn($('#agent-message').value, state.agentIntent || 'ask');
+    const message = $('#agent-message').value;
+    startAgentTurn(message, composerIntent(message));
+  });
+  $('#conversation').addEventListener('click', event => {
+    const action = event.target.closest('[data-agent-recovery]')?.dataset.agentRecovery;
+    if (action === 'resume') resumeInterruptedTurn();
+    if (action === 'workspace' && state.agentJob) { closeAgent(); openDrawer(state.agentJob); }
   });
   $('#truth-integrity-codex').addEventListener('click', () => {
     $('#truth-integrity-dialog').close();
@@ -1368,10 +1506,19 @@ setTheme(preferredTheme);
 wireEvents();
 async function bootstrap() {
   await Promise.all([loadSession(), loadData()]);
+  const restoredRaw = sessionStorage.getItem('joblooper-dashboard-context');
+  sessionStorage.removeItem('joblooper-dashboard-context');
+  let restored = null;
+  try { restored = restoredRaw ? JSON.parse(restoredRaw) : null; } catch { restored = null; }
+  const restoredJob = restored?.job_id ? jobById(restored.job_id) : null;
   const params = new URLSearchParams(location.search);
   const job = params.get('job') ? jobById(params.get('job')) : null;
-  if (params.get('new') === '1') $('#intake-dialog').showModal();
+  if (restoredJob || restored?.message) {
+    openAgent(restoredJob, restored?.message || '');
+    toast('Dashboard updated. Your application context was restored.');
+  } else if (params.get('new') === '1') $('#intake-dialog').showModal();
   else if (params.get('view') === 'agent') openAgent(job);
   else if (job) openDrawer(job);
+  setInterval(monitorDashboardInstance, 4000);
 }
 bootstrap().catch(error => toast(error.message));

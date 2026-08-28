@@ -7,6 +7,7 @@ history.
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 import threading
@@ -32,6 +33,26 @@ ALLOWED_INTENTS = {
     'ask', 'intake_url', 'intake_review', 'prepare_application', 'feedback_discussion',
     'finalize_artifacts', 'submission_help', 'outcome_review', 'integrity_review',
 }
+
+
+def resolve_intent(message, intent='ask', job_id=None):
+    """Route a free-form job message to an execution profile, not a fact source."""
+    if intent != 'auto':
+        return intent
+    if not job_id:
+        return 'ask'
+    text = str(message or '').casefold()
+    artifact = re.search(r'\b(cv|resume|résumé|cover letter|application)\b', text)
+    work = re.search(
+        r'\b(prepare|create|generate|draft|tailor|rewrite|update|optimise|optimize|improve)\b',
+        text)
+    if artifact and work:
+        return 'prepare_application'
+    if re.search(r'\b(reject|rejection|interview|offer|outcome|response)\b', text):
+        return 'outcome_review'
+    if re.search(r'\b(feedback|comment|suggestion|improve this)\b', text):
+        return 'feedback_discussion'
+    return 'ask'
 TURN_PROFILES = {
     'ask': {
         'effort': 'medium', 'scope': 'proportional', 'read_only': False,
@@ -388,6 +409,7 @@ class CodexBridge:
             raise ValueError('message is required')
         if len(message) > 120000:
             raise ValueError('message exceeds the 120,000-character dashboard limit')
+        intent = resolve_intent(message, intent, job_id)
         if intent not in ALLOWED_INTENTS:
             raise ValueError('unsupported dashboard intent')
         self._start()

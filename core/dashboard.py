@@ -13,6 +13,7 @@ import subprocess
 import threading
 import urllib.parse
 import webbrowser
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import (codex_bridge, dashboard_actions, dashboard_runtime, feedback,
@@ -74,6 +75,9 @@ RECORD_ARTIFACTS = {
 WORK_ARTIFACTS = {
     'job_description': ('jd.raw.md', 'Job description · captured', 'Source'),
     'jd_record': ('jd.json', 'Job description · structured', 'Source'),
+    'preflight_questions': (
+        'PRE-GENERATION-QUESTIONS.md',
+        'Pre-generation questions · awaiting review', 'Review'),
     'match_record': ('match.json', 'Requirement evidence map', 'Evidence'),
     'preview': ('PREVIEW.md', 'Evidence review', 'Evidence'),
     'risk_review': ('EMPLOYER-RISK.md', 'Employer-risk review', 'Evidence'),
@@ -153,12 +157,15 @@ def _artifact_state(path, expected_sha=None):
 def _artifact_entry(slug, artifact_id, label, group, path, expected_sha=None,
                     sent=False):
     state = _artifact_state(path, expected_sha)
+    modified_at = (datetime.fromtimestamp(os.path.getmtime(path)).astimezone().isoformat(
+        timespec='seconds') if path and os.path.isfile(path) else None)
     return {
         'id': artifact_id,
         'label': label,
         'group': group,
         'filename': os.path.basename(path) if path else None,
         'bytes': os.path.getsize(path) if path and os.path.isfile(path) else None,
+        'modified_at': modified_at,
         'state': state,
         'sent': bool(sent),
         'href': ('/artifact?job=' + urllib.parse.quote(slug)
@@ -210,9 +217,9 @@ def _artifacts(slug, directory, package, manifest, submission):
         rows.append(_artifact_entry(slug, 'work-' + key, label, group, path))
         seen.add(path.casefold())
     rows.sort(key=lambda row: (
-        ['Application', 'Source', 'Evidence', 'Outcome', 'Governance',
+        ['Application', 'Source', 'Review', 'Evidence', 'Outcome', 'Governance',
          'Working output', 'Other'].index(row['group'])
-        if row['group'] in {'Application', 'Source', 'Evidence', 'Outcome',
+        if row['group'] in {'Application', 'Source', 'Review', 'Evidence', 'Outcome',
                             'Governance', 'Working output', 'Other'} else 99,
         row['label']))
     return rows
@@ -312,6 +319,8 @@ def _job_snapshot(slug, applications, events):
     plan_available = all(os.path.isfile(os.path.join(directory, name)) for name in (
         'match.json', 'cv.json', 'cover-letter.json', 'employer-risk.json'))
     preflight_record = store.read_json(os.path.join(directory, 'preflight.json'), {}) or {}
+    preflight_questions_available = os.path.isfile(os.path.join(
+        directory, 'PRE-GENERATION-QUESTIONS.md'))
     preflight_errors = []
     if plan_available:
         try:
@@ -350,7 +359,9 @@ def _job_snapshot(slug, applications, events):
                             else 'not_captured'))
     next_action = _next_action(phase, app, work_state)
     if not app:
-        if preflight_errors:
+        if preflight_errors and preflight_questions_available:
+            next_action = 'Answer the prepared material questions before CV planning'
+        elif preflight_errors:
             next_action = 'Complete or refresh the material pre-generation questions'
         elif open_feedback:
             next_action = 'Resolve governed feedback before approval'
@@ -360,6 +371,7 @@ def _job_snapshot(slug, applications, events):
             next_action = 'Resolve the approval gate against the current presentation'
     activity_dates = [str(jd.get('ingested') or '')]
     activity_dates.extend(str(row.get('at') or '') for row in timeline)
+    activity_dates.extend(str(row.get('modified_at') or '') for row in artifacts)
     for row in feedback_items:
         activity_dates.extend([
             str(row.get('opened_at') or ''), str(row.get('resolved_at') or '')])
@@ -419,6 +431,7 @@ def _job_snapshot(slug, applications, events):
             'captured': bool(jd),
             'preflight': bool(exact_submitted_history
                               or (preflight_record and not preflight_errors)),
+            'preflight_questions': preflight_questions_available,
             'preflight_errors': preflight_errors,
             'plan': plan_available,
             'presentation': bool(exact_submitted_history
@@ -760,6 +773,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if parsed.path == '/api/session':
             return self._json({
                 'csrf_token': self.server.session_token,
+                'instance_id': self.server.instance_id,
+                'dashboard_version': dashboard_runtime.DASHBOARD_VERSION,
                 'agent': self.server.codex_bridge.status(),
                 'capabilities': {
                     'intake': True, 'url_intake': True, 'feedback': True, 'review': True,

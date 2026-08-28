@@ -78,9 +78,11 @@ must be discoverable; copying only `SKILL.md` is not a functional installation.
    never kill an unrelated process merely because it occupies the port.
    After changing any tracked Joblooper source, skill, test or dashboard file,
    validate the affected behavior and, before the final response, silently run
-   `python jl.py dashboard --port 8765 --no-open`. Do not ask the user to restart
-   and do not announce a successful routine handoff. Report only if the verified
-   replacement fails; never leave an older authenticated instance serving.
+   `python jl.py dashboard --port 8765`. This replaces the authenticated prior
+   instance and opens the current page; a compatible already-open client also
+   detects the new instance, preserves its active job/draft and reloads. Do not
+   ask the user to restart or announce a successful routine handoff. Report only
+   if the verified replacement fails; never leave older code as the visible page.
    Read the [dashboard contract](references/dashboard.md) when changing or
    explaining its controls, journeys or claims.
    Route deterministic facts directly; size Codex effort to the decision. A
@@ -97,6 +99,10 @@ must be discoverable; copying only `SKILL.md` is not a functional installation.
    or documents must be labelled `not assessed` or `not created`, never implied
    by a progress message. A successful Codex URL fallback must bind the newly
    captured job and continue through the same scoped preflight as direct intake.
+   A failed Codex turn must end the streaming state, refresh governed files,
+   expose any durable partial output (including prepared preflight questions),
+   and offer safe resume plus direct workspace access. Resume must re-read the
+   current gate and repeat no completed mutation; it never implies approval.
 
 Treat the dashboard as a living product: turn user feedback into a specific
 journey problem and acceptance check, improve the authoritative private source,

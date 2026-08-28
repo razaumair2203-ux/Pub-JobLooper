@@ -87,6 +87,7 @@ this operational surface.
 | Paste URL | Active card, exact source-JD links and captured timestamp | Continue preflight or automatic scoped preflight |
 | Direct extraction blocked | Codex tries the same official URL; if capture succeeds it binds the job context and starts the same preflight used by direct intake | Preflight questions; otherwise the automatically reopened manual form |
 | Preflight incomplete | `Questions` gate open; coverage/gaps and documents labelled `not assessed/not created` | Continue in the job's Codex context |
+| Codex interrupted | `Thinking` ends; current governed files are re-read; any prepared questions or other partial artefacts become visible and the failure is labelled without assuming completion | Resume safely from the next incomplete gate or open the application workspace |
 | Plan generated | Evidence coverage, requirement classes, hard gaps, risk record and draft availability | Open complete CV-and-letter review |
 | User reviews | Exact complete bundle remains readable in the Review tab | Add a scoped comment or mark the complete bundle presented |
 | User comments | All open and resolved comments remain attached to the job; open items block approval | Resolve, regenerate if adopted, then re-present |
@@ -153,6 +154,22 @@ all been specified and covered by a regression test.
 - Chat display is conversational context, not system memory. Anything that must
   survive or influence a future application is saved through truth, feedback,
   submission, outcome or reasoning records.
+- A failed or disconnected turn is terminal, not a perpetual streaming state.
+  The panel shows a concise interruption, refreshes the deterministic projection
+  and offers a deliberate safe resume that first re-reads the job and repeats no
+  completed mutation. A prepared preflight-question file is a visible partial
+  artefact, not proof that preflight was reviewed.
+- A free-form job-scoped request to prepare, generate or tailor a CV/application
+  receives the application-work execution profile; ordinary questions remain
+  proportional. This routing changes reasoning effort, never factual authority.
+
+### Live-version continuity
+
+The session exposes a bounded dashboard instance identifier. An open client
+polls that identity; after an authenticated replacement it preserves the active
+job and unsent Codex draft, reloads current assets, and restores that context.
+The canonical post-change launch also opens the current address so a client
+that predates this capability cannot remain the only visible page.
 
 ## Rejection language contract
 
@@ -209,6 +226,11 @@ This is a deliberate authority boundary, not an unfinished dashboard feature.
   outputs, evidence/gaps, comments and direct artefact controls.
 - Closing or completing a Codex intake turn cannot hide the captured job; a
   Codex URL fallback binds the new job and continues into the same preflight.
+- A failed stream cannot remain labelled `Thinking`; retry inputs and any
+  durable partial artefact survive, and three failed task polls stop rather than
+  creating an infinite reconnect loop.
+- Replacing the dashboard changes its instance identity; a loaded compatible
+  client reloads automatically and restores its active job/draft.
 - URL-only intake extracts structured `JobPosting` fields, rejects private
   network targets and falls back to Codex before requesting manual entry.
 - A scoped Codex turn reaches the App Server; an unavailable service shows a

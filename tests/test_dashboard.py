@@ -96,8 +96,24 @@ def main():
                        and isinstance(active_job['feedback_items'], list)
                        and active_job['workflow']['captured'] is True
                        and active_job['workflow']['preflight'] is False
+                       and active_job['workflow']['preflight_questions'] is False
                        and active_job['outputs']['cv'] is False
                        and active_job['outputs']['letter'] is False))
+        question_path = os.path.join(
+            store.job_dir(active_job['id']), 'PRE-GENERATION-QUESTIONS.md')
+        store.write_text(question_path, '# PRE-GENERATION REVIEW\n\n## REQ-1\n\nMaterial question.')
+        interrupted_snapshot = dashboard.build_snapshot()
+        interrupted_job = interrupted_snapshot['jobs'][0]
+        checks.append(('interrupted preparation exposes its durable partial output',
+                       interrupted_job['workflow']['preflight'] is False
+                       and interrupted_job['workflow']['preflight_questions'] is True
+                       and interrupted_job['next_action']
+                       == 'Answer the prepared material questions before CV planning'
+                       and any(item['id'] == 'work-preflight_questions'
+                               and item['group'] == 'Review'
+                               and item['href']
+                               for item in interrupted_job['artifacts'])))
+        os.unlink(question_path)
         checks.append(('working applications appear before portfolio analytics',
                        page_source.index('id="active-workspace"')
                        < page_source.index('id="overview"')
@@ -122,6 +138,30 @@ def main():
                        'state.agentJob = captured[0]' in app_script
                        and "'intake_review'" in app_script
                        and "['workspace', 'Open application workspace']" in app_script))
+        checks.append(('failed Codex turns end thinking and expose safe recovery',
+                       'CODEX TURN INTERRUPTED' in app_script
+                       and 'No completed response was received' in app_script
+                       and 'data-agent-recovery="resume"' in app_script
+                       and 'function resumeInterruptedTurn()' in app_script
+                       and 'repeat no completed mutation' in app_script
+                       and 'state.taskPollFailures >= 3' in app_script))
+        checks.append(('job-scoped CV requests receive the application-work profile',
+                       'function composerIntent(message)' in app_script
+                       and "state.agentJob ? 'auto' : 'ask'" in app_script
+                       and 'composerIntent(message)' in app_script
+                       and codex_bridge.resolve_intent(
+                           'Using ground truth, tailor the CV for this role.',
+                           'auto', active_job['id']) == 'prepare_application'
+                       and codex_bridge.resolve_intent(
+                           'What is the next gate?', 'auto', active_job['id']) == 'ask'
+                       and codex_bridge.resolve_intent(
+                           'Why was this rejection observed?',
+                           'auto', active_job['id']) == 'outcome_review'))
+        checks.append(('open browsers detect replacement and preserve job context',
+                       'function monitorDashboardInstance()' in app_script
+                       and 'health.instance_id !== state.serverInstanceId' in app_script
+                       and "sessionStorage.setItem('joblooper-dashboard-context'" in app_script
+                       and 'setInterval(monitorDashboardInstance, 4000)' in app_script))
         checks.append(('every declared attention route has a browser interaction state',
                        all(f"item.route === '{route}'" in app_script
                            for route in dashboard.ATTENTION_ROUTES)
@@ -238,6 +278,31 @@ def main():
                        and performance['completed_turns'] == 1
                        and performance['last_duration_ms'] is not None))
 
+        failed_calls = []
+        failed_bridge = codex_bridge.CodexBridge()
+        failed_bridge._start = lambda: None
+        failed_bridge._thread = lambda key: 'thread-failed'
+        failed_bridge._request = lambda method, params: (
+            failed_calls.append((method, params))
+            or {'turn': {'id': 'turn-failed', 'status': 'inProgress'}})
+        failed_task = failed_bridge.start_turn(
+            'Tailor the CV from governed truth.', 'prepare_application',
+            snapshot['jobs'][0]['id'])
+        failed_bridge._notification({
+            'method': 'turn/completed',
+            'params': {'threadId': 'thread-failed', 'turn': {
+                'id': 'turn-failed', 'status': 'failed',
+                'error': {'message': 'stream disconnected before completion'},
+            }},
+        })
+        failed_task = failed_bridge.task(failed_task['id'])
+        checks.append(('interrupted application turn preserves recovery inputs',
+                       failed_task['status'] == 'failed'
+                       and failed_task['intent'] == 'prepare_application'
+                       and failed_task['job_id'] == snapshot['jobs'][0]['id']
+                       and failed_task['user'] == 'Tailor the CV from governed truth.'
+                       and 'stream disconnected' in failed_task['error']))
+
         store.write_jsonl(store.data_p('index', 'applications.jsonl'), [{
             'app_id': snapshot['jobs'][0]['id'],
             'company': 'Example Aerospace',
@@ -284,6 +349,8 @@ def main():
             session = json.loads(body.decode('utf-8'))
             checks.append(('session advertises guarded interaction capabilities',
                            status == 200 and session['csrf_token']
+                           and session['instance_id']
+                           and session['dashboard_version']
                            and session['capabilities']['intake'] is True
                            and session['capabilities']['url_intake'] is True
                            and session['capabilities']['feedback_resolution'] is True

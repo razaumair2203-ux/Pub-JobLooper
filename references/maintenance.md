@@ -37,9 +37,11 @@ terminate an unrelated or unverifiable service.
 
 Every tracked code, skill, test or dashboard change has a mandatory silent live
 handoff. After proportional validation and before the final user response, run
-`python jl.py dashboard --port 8765 --no-open`. The authenticated launcher must
-replace the older instance on that address. Do not ask for a manual restart or
-mention a successful routine handoff; report only a failed replacement.
+`python jl.py dashboard --port 8765`. The authenticated launcher must replace
+the older instance and open the current page on that address. Compatible open
+clients detect the new instance, preserve the active job/draft and reload. Do
+not ask for a manual restart or mention a successful routine handoff; report
+only a failed replacement.
 
 ## Upgrade and public-release sequence
 
