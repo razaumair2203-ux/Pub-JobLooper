@@ -26,6 +26,7 @@ $allChecks = @(
     @('case lifecycle', @('tests/test_case_lifecycle.py')),
     @('local dashboard', @('tests/test_dashboard.py')),
     @('dashboard journey', @('tests/test_dashboard_journey.py')),
+    @('browser dashboard journey', @('tests/test_dashboard_browser.py')),
     @('PDF extraction', @('tests/test_pdftext.py')),
     @('portability and onboarding', @('tests/test_portability.py')),
     @('single-writer safety', @('tests/test_locking.py')),
@@ -36,7 +37,7 @@ $allChecks = @(
 $checks = switch ($Scope) {
     'dashboard' { $allChecks | Where-Object { $_[0] -in @(
         'truth integrity', 'local dashboard', 'dashboard journey',
-        'standalone skill installation') } }
+        'browser dashboard journey', 'standalone skill installation') } }
     'mirror' { $allChecks | Where-Object { $_[0] -in @(
         'truth integrity', 'standalone skill installation',
         'personal/public repository boundary', 'repository policy') } }

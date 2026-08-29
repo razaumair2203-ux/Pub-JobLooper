@@ -32,6 +32,7 @@ def main():
             note='Fictional mandatory gap reviewed for lifecycle testing.')
         mapping['_preflight'] = {
             'subject_sha256': preflight_record['subject_sha256'],
+            'binding_sha256': preflight.binding_digest(preflight_record),
             'decision': preflight_record['decision'],
             'reviewer': preflight_record['reviewer']}
         mapping['learning_signals'] = []
@@ -58,6 +59,7 @@ def main():
         artefacts = {
             'jd': os.path.join(directory, 'jd.json'),
             'jd_raw': os.path.join(directory, 'jd.raw.md'),
+            'preflight': os.path.join(directory, 'preflight.json'),
             'match': os.path.join(directory, 'match.json'),
             'cv': os.path.join(directory, 'cv.json'),
             'letter': os.path.join(directory, 'cover-letter.json'),
@@ -111,12 +113,21 @@ def main():
         shutil.rmtree(store.job_dir(duplicate_slug))
         selected, response, duplicate = employer_response.ingest(
             email,
-            received=store.today())
+            received=store.today(), latency='under_24h',
+            employer_reason='The position has been filled.')
+        response_app = next(
+            app for app in store.applications() if app['app_id'] == slug)
         checks.append(('response resolves to one exact submitted JD and CV manifest',
                        selected['slug'] == slug and not duplicate
                        and selected['app']['applied'] is None
                        and response['submitted_manifest_sha256']
                        == manifest['manifest_sha256']))
+        checks.append(('one response mutation records exact timing and stated reason',
+                       response_app['response_latency']['band'] == 'under_24h'
+                       and response_app['stated_reason']
+                       == 'The position has been filled.'
+                       and sum(event['event'] == 'OUTCOME'
+                               for event in store.application_events()) == 1))
         learning.record_hypothesis(
             slug, 'TIMING_INTERNAL', 0.7, 'Fast closure suggests an advanced candidate.',
             'reviewer', ['Outcome arrived quickly'], ['No direct employer confirmation'],

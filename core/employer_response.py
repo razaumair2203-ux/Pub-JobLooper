@@ -160,7 +160,8 @@ def stated_reason(text):
     return None
 
 
-def ingest(text, explicit_job=None, explicit_status=None, received=None):
+def ingest(text, explicit_job=None, explicit_status=None, received=None,
+           latency=None, employer_reason=None):
     selected = resolve(text, explicit_job)
     status = classify_status(text, explicit_status)
     slug = selected['slug']
@@ -186,7 +187,7 @@ def ingest(text, explicit_job=None, explicit_status=None, received=None):
         raise ValueError('response date cannot precede the exact submission date')
 
     response_id = f"R{len(existing) + 1:03d}"
-    reason = stated_reason(text)
+    reason = str(employer_reason or '').strip() or stated_reason(text)
     event = {
         '_schema': 'joblooper.employer-response.v1',
         'response_id': response_id, 'received': response_date,
@@ -205,7 +206,12 @@ def ingest(text, explicit_job=None, explicit_status=None, received=None):
     app = next(row for row in apps if row.get('app_id') == slug)
     app['status'] = status
     app['responded'] = response_date
+    app['responded_date_status'] = 'recorded'
     app['days'] = (responded - applied).days if applied else None
+    app['response_latency'] = {
+        'band': latency or 'unknown',
+        'basis': 'user_reported' if latency else 'not_provided',
+    }
     app['employer_response_id'] = response_id
     app['employer_response_sha256'] = raw_sha256
     if reason:

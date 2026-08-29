@@ -8,6 +8,23 @@ from . import store
 SCHEMA = 'joblooper.preflight.v1'
 
 
+def binding_digest(record):
+    """Hash the exact reviewed decision record, excluding only its timestamp.
+
+    ``subject_sha256`` proves which questions were asked. The binding digest
+    also proves the selected answers and reviewer, so later edits cannot remain
+    silently valid for an existing plan.
+    """
+    record = record or {}
+    fields = (
+        '_schema', 'app_id', 'subject_sha256', 'questions', 'decision',
+        'reviewer', 'note', 'answers',
+    )
+    return store.sha256_text(store.canonical_json({
+        key: record.get(key) for key in fields
+    }))
+
+
 def legacy_questions(jd, mapping, identity):
     """Return the original v1 rows so historical signed records stay verifiable."""
     rows = []
@@ -211,12 +228,14 @@ def create(slug, jd, mapping, identity, reviewer=None, note=None, answers=None):
     }
     if structured_answers is not None:
         record['answers'] = structured_answers
+    record['binding_sha256'] = binding_digest(record)
     existing = store.read_json(path(slug), {}) or {}
     comparable = ('_schema', 'app_id', 'subject_sha256', 'questions', 'decision',
                   'reviewer', 'note', 'answers')
     event = {
         'event': 'PREFLIGHT_RECORDED', 'app_id': slug,
         'subject_sha256': record['subject_sha256'],
+        'binding_sha256': record['binding_sha256'],
         'decision': record['decision'], 'reviewer': record['reviewer'],
         'decision_count': len(rows),
     }
@@ -241,6 +260,9 @@ def validate(slug, jd, mapping, identity):
     if record.get('_schema') != SCHEMA:
         problems.append('pre-generation review has not been completed')
         return record, problems, rows
+    if (record.get('binding_sha256')
+            and record.get('binding_sha256') != binding_digest(record)):
+        problems.append('pre-generation decision record digest mismatch')
     current_subject = subject(jd, mapping, identity, rows)
     if record.get('subject_sha256') != current_subject:
         # Preserve exact historical packages created before decision controls

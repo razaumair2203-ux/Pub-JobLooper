@@ -9,7 +9,7 @@ import urllib.request
 from . import store
 
 
-DASHBOARD_VERSION = '1.4.1'
+DASHBOARD_VERSION = '1.4.2'
 HEALTH_SCHEMA = 'joblooper.dashboard-health.v1'
 CONTROL_SCHEMA = 'joblooper.dashboard-instance.v1'
 CONTROL_FILE = 'dashboard_instance.json'

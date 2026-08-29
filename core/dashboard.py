@@ -34,7 +34,7 @@ CAUSE_LABELS = {
     'NO_SIGNAL': 'No reliable signal',
 }
 ATTENTION_ROUTES = frozenset({
-    'artifacts', 'codex_outcome', 'evidence', 'feedback', 'outcome', 'prepare',
+    'artifacts', 'build', 'codex_outcome', 'evidence', 'feedback', 'outcome', 'prepare',
     'preflight', 'review_bundle', 'submission', 'submission_metadata',
     'truth_integrity',
 })
@@ -45,6 +45,7 @@ ARTIFACT_LABELS = {
     'letter_docx': ('Cover letter · editable', 'Application'),
     'jd_raw': ('Job description · captured', 'Source'),
     'jd': ('Job description · structured', 'Source'),
+    'preflight': ('Preflight decisions · exact submitted record', 'Governance'),
     'match': ('Requirement evidence map', 'Evidence'),
     'cv': ('CV · structured record', 'Evidence'),
     'letter': ('Cover letter · structured record', 'Evidence'),
@@ -75,6 +76,7 @@ RECORD_ARTIFACTS = {
 WORK_ARTIFACTS = {
     'job_description': ('jd.raw.md', 'Job description · captured', 'Source'),
     'jd_record': ('jd.json', 'Job description · structured', 'Source'),
+    'preflight_record': ('preflight.json', 'Preflight decisions · exact record', 'Review'),
     'preflight_questions': (
         'PRE-GENERATION-QUESTIONS.md',
         'Preflight decisions · awaiting review', 'Review'),
@@ -87,6 +89,7 @@ WORK_ARTIFACTS = {
     'risk_review': ('EMPLOYER-RISK.md', 'Employer-risk review', 'Evidence'),
     'presentation_record': (
         'presentation.json', 'Complete-review receipt', 'Governance'),
+    'plan_receipt': ('plan-receipt.json', 'Plan publication receipt', 'Governance'),
     'approval_record': ('approval.json', 'Approval record', 'Governance'),
     'oversight': ('OVERSIGHT.md', 'Oversight review', 'Governance'),
     'case': ('CASE.md', 'Decision case', 'Outcome'),
@@ -104,7 +107,7 @@ def _work_state(directory):
     return _normalise_status(match.group(1)) if match else 'captured'
 
 
-def _phase(slug, app, package, work_state):
+def _phase(slug, app, approved, work_state):
     status = _normalise_status((app or {}).get('status'))
     if status in learning.NEGATIVE_OUTCOMES:
         return 'rejected'
@@ -116,9 +119,7 @@ def _phase(slug, app, package, work_state):
         return 'applied'
     if app:
         return status or 'applied'
-    if package and release.has_record_file(package, release.SUBMISSION_NAME):
-        return 'applied'
-    if package:
+    if approved:
         return 'approved'
     if work_state in {'plan', 'presented', 'planned', 'review', 'reviewed'}:
         return 'review'
@@ -271,13 +272,15 @@ def _job_snapshot(slug, applications, events):
         release.record_path(package, release.SUBMISSION_NAME), {})
         if package else {}) or {}
     work_state = _work_state(directory)
-    phase = _phase(slug, app, package, work_state)
+    has_manifest = bool(package and manifest)
+    package_errors = release.verify_release(slug)[1] if has_manifest else []
+    package_ready = bool(has_manifest and not package_errors)
+    phase = _phase(slug, app, bool(approval or package_ready), work_state)
     artifacts = _artifacts(slug, directory, package, manifest, submission)
     hypotheses = _hypotheses(app)
 
-    package_errors = release.verify_release(slug)[1] if package else []
     submission_receipt, submission_errors = (
-        release.verify_submission(slug) if app and package else (None, []))
+        release.verify_submission(slug) if app and package_ready else (None, []))
     if submission and not app:
         submission_errors = [
             *submission_errors,
@@ -286,13 +289,17 @@ def _job_snapshot(slug, applications, events):
     exact_submission = learning._exact_submission(app or {})
     exact_submitted_history = bool(
         app and exact_submission and submission_receipt and not submission_errors)
-    if submission_receipt and not submission_errors:
+    if submission and not app and package_ready:
+        integrity_state = 'submission_incomplete'
+    elif submission_receipt and not submission_errors:
         integrity_state = ('submission_verified_with_exception'
                            if package_errors else 'verified')
     elif package_errors or submission_errors:
         integrity_state = 'attention'
-    elif package:
+    elif package_ready:
         integrity_state = 'verified'
+    elif package and approval:
+        integrity_state = 'build_incomplete'
     else:
         integrity_state = 'not_packaged'
 
@@ -335,10 +342,12 @@ def _job_snapshot(slug, applications, events):
     feedback_items = feedback.current(slug)
     open_feedback = [row for row in feedback_items
                      if row.get('status') == 'OPEN']
-    plan_available = all(os.path.isfile(os.path.join(directory, name)) for name in (
-        'match.json', 'cv.json', 'cover-letter.json', 'employer-risk.json'))
+    plan_projection = dashboard_actions.plan_state(slug)
+    plan_available = plan_projection['available']
+    plan_current = plan_projection['current']
+    plan_errors = plan_projection['errors']
     gate_blockers = []
-    if plan_available:
+    if plan_current:
         try:
             cv_record = store.read_json(os.path.join(directory, 'cv.json'), {}) or {}
             _, blocked_gates = gates.run_all(cv_record, match_record)
@@ -370,7 +379,7 @@ def _job_snapshot(slug, applications, events):
                 artifact['label'] = 'Preflight decisions · reviewed'
     presentation_record = None
     presentation_errors = []
-    if plan_available:
+    if plan_current:
         try:
             presentation_record, presentation_errors = release.validate_presentation(slug)
         except (OSError, ValueError, TypeError) as error:
@@ -402,36 +411,56 @@ def _job_snapshot(slug, applications, events):
             next_action = 'Review the prepared fit decisions before CV planning'
         elif preflight_errors:
             next_action = 'Complete or refresh deterministic preflight'
-        elif not plan_available:
-            next_action = 'Generate the CV and cover-letter review bundle'
+        elif not plan_current:
+            if plan_available:
+                next_action = 'Refresh the stale CV and cover-letter review bundle'
+            else:
+                next_action = 'Generate the CV and cover-letter review bundle'
         elif open_feedback:
             next_action = 'Resolve governed feedback before approval'
-        elif plan_available and presentation_errors:
+        elif gate_blockers:
+            next_action = 'Resolve the deterministic output gate before sign-off'
+        elif approval_record and not approval_errors and not package_ready:
+            next_action = 'Finish building the approved CV and cover letter'
+        elif plan_current and presentation_errors:
             next_action = 'Review and bind the complete current CV and cover letter'
         elif presentation_record and not presentation_errors and approval_errors:
             next_action = 'Resolve the approval gate against the current presentation'
+    historical_complete = bool(package_ready or exact_submitted_history)
     workflow = {
         'captured': bool(jd),
-        'preflight': bool(exact_submitted_history
+        'preflight': bool(historical_complete
                           or (preflight_record and not preflight_errors)),
         'preflight_questions': preflight_questions_available,
-        'preflight_errors': preflight_errors,
-        'plan': plan_available,
-        'presentation': bool(exact_submitted_history
-                             or (presentation_record and not presentation_errors)),
-        'presentation_errors': presentation_errors,
-        'approval': bool(exact_submitted_history
+        'preflight_errors': ([] if historical_complete else preflight_errors),
+        'plan_available': plan_available,
+        'plan_current': plan_current,
+        'plan_errors': ([] if historical_complete else plan_errors),
+        'plan': bool(historical_complete or plan_current),
+        'presentation': bool(historical_complete
+                             or (plan_current and presentation_record
+                                 and not presentation_errors)),
+        'presentation_errors': ([] if historical_complete else presentation_errors),
+        'approval': bool(historical_complete
                          or (approval_record and not approval_errors)),
-        'approval_errors': approval_errors,
-        'gate_blockers': gate_blockers,
-        'package': bool(package),
+        'approval_errors': ([] if historical_complete else approval_errors),
+        'gate_blockers': ([] if historical_complete else gate_blockers),
+        'package': package_ready,
+        'build_incomplete': bool(approval_record and not approval_errors
+                                 and not package_ready),
         'submission': bool(app),
         'outcome': phase in {'progressed', 'rejected', 'closed'},
         'open_feedback': len(open_feedback),
-        'can_review': plan_available,
-        'can_approve': bool(presentation_record and not presentation_errors
-                            and not open_feedback and not gate_blockers),
-        'can_submit': bool(package and not app and not submission),
+        'can_review': bool(plan_current and not historical_complete),
+        'can_approve': bool(not historical_complete and plan_current
+                            and presentation_record and not presentation_errors
+                            and (not approval_record or approval_errors)
+                            and not open_feedback
+                            and not gate_blockers),
+        'can_build': bool(not package_ready and approval_record
+                          and not approval_errors),
+        'submission_reconcile': bool(package_ready and submission and not app),
+        'can_submit': bool(package_ready and not app),
         'can_record_outcome': bool(
             app and exact_submission and submission_receipt
             and not submission_errors),
@@ -447,7 +476,9 @@ def _job_snapshot(slug, applications, events):
         ('prepare', 'Generate review bundle', workflow['plan'],
          'CV, cover-letter, evidence-map and employer-risk records',
          ('CV and cover-letter review records are available'
-          if workflow['plan'] else 'CV and cover letter have not been created')),
+          if workflow['plan'] else
+          ('Existing review records are stale and require refresh'
+           if plan_available else 'CV and cover letter have not been created'))),
         ('review', 'Review complete bundle', workflow['presentation'],
          'Full CV and letter plus a current presentation receipt',
          ('Complete bundle is bound to the current review'
@@ -462,7 +493,9 @@ def _job_snapshot(slug, applications, events):
         ('build', 'Build sendable files', workflow['package'],
          'Dated verified CV/letter package and manifest',
          ('Verified package is available' if workflow['package']
-          else 'No sendable documents have been built')),
+          else ('Approval is saved; document build must be finished'
+                if workflow['build_incomplete']
+                else 'No sendable documents have been built'))),
         ('submit', 'Record exact submission', workflow['submission'],
          'Hash-bound sent-file receipt and portal-evidence state',
          ('Exact submission record exists' if workflow['submission']
@@ -470,7 +503,8 @@ def _job_snapshot(slug, applications, events):
         ('outcome', 'Record observed outcome', workflow['outcome'],
          'Employer observation kept separate from hypotheses',
          ('Observed outcome is recorded' if workflow['outcome']
-          else 'No employer outcome is recorded')),
+          else ('Awaiting an employer observation' if phase == 'applied'
+                else 'No employer outcome is recorded'))),
     ]
     first_open = next((row[0] for row in touchpoint_specs if not row[2]), None)
     touchpoints = [{
@@ -478,6 +512,7 @@ def _job_snapshot(slug, applications, events):
         'label': label,
         'status': ('complete' if complete else
                    'blocked' if identifier == 'approve' and gate_blockers else
+                   'waiting' if identifier == 'outcome' and phase == 'applied' else
                    'current' if identifier == first_open else 'pending'),
         'expected_output': expected,
         'actual_output': actual,
@@ -601,7 +636,7 @@ def build_snapshot(include_private=False):
             store.job_dir(job['id']), release.PRESENTATION_NAME), {}))
                         or job['phase'] in {'approved', 'applied', 'progressed', 'rejected', 'closed'}
                         for job in jobs),
-        'approved': sum(bool(store.approved_dir(job['id'])) for job in jobs),
+        'approved': sum(bool(job.get('workflow', {}).get('approval')) for job in jobs),
         'applied': len(app_rows),
         'progressed': len(positive),
         'rejected': len(negative),
@@ -699,7 +734,13 @@ def build_snapshot(include_private=False):
                     'Preflight is complete. Generate the review bundle from the exact JD and approved truth.',
                     'Generate review bundle', 'prepare')
         elif job['phase'] == 'review':
-            if workflow.get('gate_blockers'):
+            if not workflow.get('plan'):
+                add_attention(
+                    job, 'prepare', 'Refresh the CV and cover letter',
+                    '; '.join(workflow.get('plan_errors') or [])
+                    or 'The current plan is missing or stale.',
+                    'Refresh review bundle', 'prepare')
+            elif workflow.get('gate_blockers'):
                 blocker = workflow['gate_blockers'][0]
                 add_attention(
                     job, 'gate_blocked', 'Resolve blocking application gates',
@@ -716,10 +757,22 @@ def build_snapshot(include_private=False):
                     'Read every section and add feedback before any document is built.',
                     'Open review', 'review_bundle')
         elif job['phase'] == 'approved':
-            add_attention(
-                job, 'submit', 'Submit or record the approved bundle',
-                'Use the exact verified CV and cover letter and preserve portal answers.',
-                'Submission desk', 'submission')
+            if workflow.get('can_build'):
+                add_attention(
+                    job, 'build', 'Finish building approved documents',
+                    'Approval is safely recorded, but no verified package manifest exists yet.',
+                    'Finish build', 'build', 'critical')
+            elif workflow.get('submission_reconcile'):
+                add_attention(
+                    job, 'submission_reconcile', 'Finish recording the exact submission',
+                    'The exact receipt exists, but the application ledger write was interrupted. '
+                    'Confirm the same sent files to complete the durable record.',
+                    'Finish record', 'submission', 'critical')
+            elif workflow.get('can_submit'):
+                add_attention(
+                    job, 'submit', 'Submit or record the approved bundle',
+                    'Use the exact verified CV and cover letter and preserve portal answers.',
+                    'Submission desk', 'submission')
         elif job['phase'] == 'progressed':
             add_attention(
                 job, 'next_stage', 'Prepare for the observed next stage',
@@ -886,6 +939,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     'intake': True, 'url_intake': True, 'feedback': True, 'review': True,
                     'structured_preflight': True,
                     'deterministic_prepare': True,
+                    'deterministic_build_recovery': True,
                     'feedback_resolution': True, 'submission_update': True,
                     'approve_build': True, 'record_submission': True,
                     'record_outcome': True, 'outcome_update': True,
@@ -1009,6 +1063,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 result = dashboard_actions.approve_and_build(
                     body.get('job_id'), body.get('reviewer'),
                     body.get('confirmation'), bool(body.get('no_pdf')))
+                return self._json({'ok': True, 'result': result})
+            if parsed.path == '/api/actions/build':
+                result = dashboard_actions.build_application(
+                    body.get('job_id'), bool(body.get('no_pdf')))
                 return self._json({'ok': True, 'result': result})
             if parsed.path == '/api/actions/submit':
                 job_id = body.get('job_id')

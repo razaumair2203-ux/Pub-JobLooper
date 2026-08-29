@@ -71,6 +71,9 @@ python jl.py open <exact-job-key> folder
 The dated folder is named with creation date, company, full job title and job
 reference. Its root contains only the sendable CV and cover letter; evidence,
 JD, gates and manifests live in `APPLICATION-RECORD/` one level below.
+If document rendering stops after approval, the dashboard shows **Finish build**
+and reuses the saved approval. Files are submit-ready only after the manifest
+verifies; do not approve a second time.
 
 ## 5. See the whole portfolio
 
@@ -94,9 +97,10 @@ control every action; the dashboard does not maintain a second database.
 
 Use **Attention queue** as the task inbox. A row opens the exact required
 interaction: preflight decisions, complete review, feedback resolution,
-submission, record correction, outcome correction, integrity evidence or scoped
-Codex reasoning. Applications merely awaiting an employer response stay visible
-in the ledger without becoming false tasks.
+finish-build or submission-record recovery, submission, record correction,
+outcome correction, integrity evidence or scoped Codex reasoning. Applications
+merely awaiting an employer response stay visible in the ledger without
+becoming false tasks.
 
 After submission, choose **Update dates & portal evidence** from Attention or
 the job workspace to correct the submission date/channel, attach saved portal

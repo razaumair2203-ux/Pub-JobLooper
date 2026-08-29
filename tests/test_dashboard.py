@@ -125,7 +125,9 @@ def main():
                        < page_source.index('id="kpi-grid"')))
         checks.append(('active workspace exposes every required applicant touchpoint',
                        'function renderActiveWorkspace()' in app_script
-                       and "['Captured', workflow.captured]" in app_script
+                       and 'job.touchpoints' in app_script
+                       and 'status: item.status' in app_script
+                       and 'function workflowProgress(job)' in app_script
                        and 'data-active-action="evidence"' in app_script
                        and 'data-active-action="artifacts"' in app_script
                        and 'data-active-action="feedback"' in app_script
@@ -369,6 +371,7 @@ def main():
                            and session['capabilities']['url_intake'] is True
                            and session['capabilities']['structured_preflight'] is True
                            and session['capabilities']['deterministic_prepare'] is True
+                           and session['capabilities']['deterministic_build_recovery'] is True
                            and session['capabilities']['feedback_resolution'] is True
                            and session['capabilities']['submission_update'] is True
                            and session['capabilities']['record_outcome'] is True

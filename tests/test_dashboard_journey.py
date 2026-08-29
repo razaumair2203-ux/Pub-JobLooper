@@ -1,5 +1,6 @@
 """One observable dashboard journey from captured JD to recorded outcome."""
 import copy
+import base64
 import os
 import shutil
 import sys
@@ -10,7 +11,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FIXTURE = os.path.join(ROOT, 'examples', 'starter')
 sys.path.insert(0, ROOT)
 
-from core import dashboard, dashboard_actions, store, vec
+from core import dashboard, dashboard_actions, match, preflight, release, store, vec
 
 
 def check(name, condition, results):
@@ -34,9 +35,9 @@ def main():
               and {row['id'] for row in captured['artifacts']}
               >= {'work-job_description', 'work-jd_record'}, results)
 
-        preflight = dashboard_actions.preflight_state(job_id)
+        preflight_view = dashboard_actions.preflight_state(job_id)
         answers = {row['id']: 'PROCEED_WITH_RECORDED_GAP'
-                   for row in preflight['questions']}
+                   for row in preflight_view['questions']}
         dashboard_actions.review_preflight(job_id, answers, 'journey-user')
         reviewed = dashboard.build_snapshot()['jobs'][0]
         check('preflight writes durable answers and makes generation current',
@@ -66,11 +67,47 @@ def main():
               and any(row['event'] == 'PLAN_CREATED'
                       for row in planned['timeline']), results)
 
+        plan_receipt_path = os.path.join(
+            store.job_dir(job_id), release.PLAN_RECEIPT_NAME)
+        original_plan_receipt = store.read_json(plan_receipt_path)
+        original_plan_events = sum(
+            row['event'] == 'PLAN_CREATED' for row in planned['timeline'])
+        repeated_plan = dashboard_actions.prepare_application(job_id)
+        after_repeat = dashboard.build_snapshot()['jobs'][0]
+        check('repeated prepare reopens the current review without regenerating files',
+              repeated_plan['reused'] is True
+              and store.read_json(plan_receipt_path) == original_plan_receipt
+              and sum(row['event'] == 'PLAN_CREATED'
+                      for row in after_repeat['timeline']) == original_plan_events,
+              results)
+
+        preflight_path = preflight.path(job_id)
+        original_preflight = store.read_json(preflight_path)
+        jd = store.read_json(os.path.join(store.job_dir(job_id), 'jd.json'))
+        jd['_slug'] = job_id
+        identity = match.pick_identity(jd)
+        current_mapping = match.match_jd(jd, identity)
+        preflight.create(
+            job_id, jd, current_mapping, identity, reviewer='second-reviewer',
+            answers=answers, note='A new explicit review of the same material gaps.')
+        stale_plan = dashboard.build_snapshot()['jobs'][0]
+        check('changed preflight decisions stale the plan instead of reusing old prose',
+              stale_plan['workflow']['preflight'] is True
+              and stale_plan['workflow']['plan_available'] is True
+              and stale_plan['workflow']['plan_current'] is False
+              and stale_plan['workflow']['plan'] is False
+              and stale_plan['workflow']['can_approve'] is False
+              and stale_plan['touchpoints'][2]['status'] == 'current', results)
+        store.write_json(preflight_path, original_preflight)
+
         cv_path = os.path.join(store.job_dir(job_id), 'cv.json')
         original_cv = store.read_json(cv_path)
         tampered_cv = copy.deepcopy(original_cv)
         tampered_cv['header']['headline'] += ' · Part-66'
         store.write_json(cv_path, tampered_cv)
+        blocker_receipt = copy.deepcopy(original_plan_receipt)
+        blocker_receipt['plan_sha256'] = release.plan_digest(job_id)
+        store.write_json(plan_receipt_path, blocker_receipt)
         blocked = dashboard.build_snapshot()['jobs'][0]
         check('blocking gates are visible before an approval control is offered',
               bool(blocked['workflow']['gate_blockers'])
@@ -79,6 +116,7 @@ def main():
               and next(item for item in dashboard.build_snapshot()['attention']
                        if item['job_id'] == job_id)['route'] == 'evidence', results)
         store.write_json(cv_path, original_cv)
+        store.write_json(plan_receipt_path, original_plan_receipt)
 
         dashboard_actions.mark_presented(job_id)
         presented = dashboard.build_snapshot()['jobs'][0]
@@ -90,9 +128,25 @@ def main():
               and any(row['id'] == 'work-presentation_record'
                       for row in presented['artifacts']), results)
 
-        dashboard_actions.approve_and_build(
+        release.approve(
             job_id, 'journey-user',
-            'I reviewed the complete CV and cover letter', no_pdf=True)
+            {gate: 'PASS' for gate in release.MANUAL_GATES},
+            ('Explicitly reviewed relevance, specificity, contradictions, bloat, '
+             'ATS terminology and hostile-recruiter risk.'),
+            user_signoff=True)
+        interrupted_build = dashboard.build_snapshot()['jobs'][0]
+        interrupted_attention = next(
+            item for item in dashboard.build_snapshot()['attention']
+            if item['job_id'] == job_id)
+        check('saved approval exposes Finish build and never a false submit state',
+              interrupted_build['workflow']['approval'] is True
+              and interrupted_build['workflow']['package'] is False
+              and interrupted_build['workflow']['can_build'] is True
+              and interrupted_build['workflow']['can_submit'] is False
+              and interrupted_build['touchpoints'][5]['status'] == 'current'
+              and interrupted_attention['route'] == 'build', results)
+
+        dashboard_actions.build_application(job_id, no_pdf=True)
         built, registry = dashboard.build_snapshot(include_private=True)
         packaged = built['jobs'][0]
         check('approval and build expose a verified dated package',
@@ -105,15 +159,46 @@ def main():
               and (job_id, 'manifest-docx') in registry
               and (job_id, 'manifest-letter_docx') in registry, results)
 
-        dashboard_actions.record_submission(
+        package, manifest = release.load_release(job_id)
+        manifest_digest = manifest['manifest_sha256']
+        repeated_build = dashboard_actions.approve_and_build(
+            job_id, 'journey-user',
+            'I reviewed the complete CV and cover letter', no_pdf=True)
+        check('repeated approval or build is an idempotent verified-package no-op',
+              repeated_build['reused'] is True
+              and release.load_release(job_id)[1]['manifest_sha256'] == manifest_digest
+              and not release.verify_release(job_id)[1], results)
+
+        release.record_submission(
             job_id, registry[(job_id, 'manifest-docx')],
             registry[(job_id, 'manifest-letter_docx')], channel='portal')
+        interrupted_submission = dashboard.build_snapshot()['jobs'][0]
+        reconcile_attention = next(
+            item for item in dashboard.build_snapshot()['attention']
+            if item['job_id'] == job_id)
+        check('submission receipt without ledger exposes one recoverable action',
+              interrupted_submission['workflow']['submission_reconcile'] is True
+              and interrupted_submission['workflow']['can_submit'] is True
+              and interrupted_submission['exact_submission'] is False
+              and reconcile_attention['kind'] == 'submission_reconcile'
+              and reconcile_attention['route'] == 'submission', results)
+
+        dashboard_actions.record_submission(
+            job_id, registry[(job_id, 'manifest-docx')],
+            registry[(job_id, 'manifest-letter_docx')], channel='portal',
+            applied_date=store.today(),
+            screening={
+                'name': 'portal-answers.txt',
+                'base64': base64.b64encode(
+                    b'Exact fictional portal answers for journey testing.').decode('ascii'),
+            })
         submitted = dashboard.build_snapshot()['jobs'][0]
-        check('submission binds the exact sent files and makes outcome current',
+        check('submission binds the exact sent files and waits without a false task',
               submitted['workflow']['submission'] is True
               and submitted['exact_submission'] is True
               and submitted['touchpoints'][6]['status'] == 'complete'
-              and submitted['touchpoints'][7]['status'] == 'current', results)
+              and submitted['touchpoints'][7]['status'] == 'waiting'
+              and not dashboard.build_snapshot()['attention'], results)
 
         dashboard_actions.record_outcome(
             job_id, 'rejected', latency='under_24h')

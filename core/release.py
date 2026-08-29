@@ -15,7 +15,8 @@ MANUAL_GATES = (
 ARTEFACT_NAMES = {
     'docx': 'CV.docx', 'pdf': 'CV.pdf', 'markdown': 'CV.md',
     'ats': 'CV-ATS.txt', 'preview': 'EVIDENCE.md', 'audit': 'GATE-AUDIT.csv',
-    'jd_raw': 'JOB-DESCRIPTION.md', 'jd': 'JD.json', 'match': 'MATCH.json',
+    'jd_raw': 'JOB-DESCRIPTION.md', 'jd': 'JD.json',
+    'preflight': 'PREFLIGHT.json', 'match': 'MATCH.json',
     'cv': 'CV.json', 'approval': 'APPROVAL.json',
     'presentation': 'PRESENTATION.json', 'feedback': 'FEEDBACK.json',
     'oversight': 'OVERSIGHT.md', 'letter': 'COVER-LETTER.json',
@@ -27,11 +28,12 @@ ARTEFACT_NAMES = {
 
 MANIFEST_NAME = 'MANIFEST.json'
 PRESENTATION_NAME = 'presentation.json'
+PLAN_RECEIPT_NAME = 'plan-receipt.json'
 SUBMISSION_NAME = 'SUBMISSION.json'
 RECORD_DIR_NAME = 'APPLICATION-RECORD'
 EMPLOYER_FACING_LABELS = {'docx', 'pdf', 'letter_docx', 'letter_pdf'}
 REQUIRED_RELEASE_LABELS = {
-    'jd', 'jd_raw', 'match', 'cv', 'preview', 'letter', 'risk',
+    'jd', 'jd_raw', 'preflight', 'match', 'cv', 'preview', 'letter', 'risk',
     'risk_markdown', 'approval', 'presentation', 'feedback', 'audit',
     'docx', 'markdown', 'ats', 'letter_docx', 'letter_markdown', 'letter_ats',
 }
@@ -337,8 +339,13 @@ def present(slug):
         raise ValueError('employer-risk review found a verified CV improvement; re-plan before presentation')
     preflight_record, preflight_errors, _ = preflight.validate(
         slug, files['jd'], files['match'], files['match'].get('identity') or {})
-    expected_preflight = (files['match'].get('_preflight') or {}).get('subject_sha256')
-    if preflight_errors or preflight_record.get('subject_sha256') != expected_preflight:
+    planned_preflight = files['match'].get('_preflight') or {}
+    expected_preflight = planned_preflight.get('subject_sha256')
+    expected_binding = planned_preflight.get('binding_sha256')
+    if (preflight_errors
+            or preflight_record.get('subject_sha256') != expected_preflight
+            or not expected_binding
+            or preflight.binding_digest(preflight_record) != expected_binding):
         raise ValueError('pre-generation review is missing or stale')
     content = presentation_content(slug)
     omissions = (files['cv'].get('_selection') or {}).get('omitted') or []
@@ -476,8 +483,12 @@ def validate_approval(slug):
         preflight_record, preflight_errors, _ = preflight.validate(
             slug, files['jd'], files['match'], files['match'].get('identity') or {})
         errors.extend(preflight_errors)
-        if preflight_record.get('subject_sha256') != (
-                (files['match'].get('_preflight') or {}).get('subject_sha256')):
+        planned_preflight = files['match'].get('_preflight') or {}
+        if (preflight_record.get('subject_sha256')
+                != planned_preflight.get('subject_sha256')
+                or not planned_preflight.get('binding_sha256')
+                or preflight.binding_digest(preflight_record)
+                != planned_preflight.get('binding_sha256')):
             errors.append('plan is not bound to the current pre-generation review')
         current = store.generation_fingerprint(files['jd'])
         if approval.get('inputs_sha256') != current['sha256']:
@@ -748,8 +759,10 @@ def _capture_screening_evidence(package, screening_file):
     target = record_path(package, 'SCREENING-ANSWERS' + extension, create=True)
     if os.path.abspath(target) != source:
         if os.path.exists(target):
-            raise ValueError('screening-answer evidence is already present')
-        shutil.copy2(source, target)
+            if store.sha256_file(source) != store.sha256_file(target):
+                raise ValueError('different screening-answer evidence is already present')
+        else:
+            shutil.copy2(source, target)
     return {
         'file': os.path.relpath(target, package).replace('\\', '/'),
         'sha256': store.sha256_file(target),

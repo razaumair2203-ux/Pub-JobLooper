@@ -268,15 +268,19 @@ main { max-width: var(--max); margin: 0 auto; padding: 0 24px 60px; }
 .active-job-header { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 15px 17px 13px; }
 .active-job-header h2 { margin: 2px 0 0; font-size: 1.05rem; line-height: 1.25; letter-spacing: -.02em; }
 .updated-label { display: block; margin-top: 3px; color: var(--muted); font-size: .62rem; }
-.active-stage { display: grid; grid-template-columns: repeat(7, 1fr); padding: 0 17px 13px; }
+.active-stage { display: grid; grid-template-columns: repeat(8, 1fr); padding: 0 17px 13px; }
 .active-stage-step { position: relative; display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 6px; color: var(--muted); font-size: .57rem; white-space: nowrap; }
 .active-stage-step::after { content: ""; height: 1px; background: var(--line-strong); }
 .active-stage-step:last-child::after { display: none; }
 .active-stage-step i { width: 7px; height: 7px; border: 1px solid var(--muted); border-radius: 50%; }
-.active-stage-step.done { color: var(--green); }
-.active-stage-step.done i { border-color: var(--green); background: var(--green); box-shadow: 0 0 0 3px var(--green-soft); }
+.active-stage-step.complete { color: var(--green); }
+.active-stage-step.complete i { border-color: var(--green); background: var(--green); box-shadow: 0 0 0 3px var(--green-soft); }
 .active-stage-step.current { color: var(--cyan); font-weight: 700; }
 .active-stage-step.current i { border-color: var(--cyan); box-shadow: 0 0 0 3px var(--cyan-soft); }
+.active-stage-step.blocked { color: var(--red); font-weight: 700; }
+.active-stage-step.blocked i { border-color: var(--red); box-shadow: 0 0 0 3px var(--red-soft); }
+.active-stage-step.waiting { color: var(--amber); }
+.active-stage-step.waiting i { border-color: var(--amber); box-shadow: 0 0 0 3px var(--amber-soft); }
 .active-job-body { display: grid; grid-template-columns: minmax(230px, .9fr) 2.1fr; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .active-next { display: grid; align-content: center; gap: 5px; padding: 15px 17px; border-right: 1px solid var(--line); }
 .active-next strong { font-size: .8rem; line-height: 1.4; }
@@ -732,11 +736,13 @@ h1 em { color: var(--text-soft); font-style: normal; font-weight: 420; }
 
 .toast { position: fixed; z-index: 100; right: 24px; bottom: 24px; max-width: 360px; padding: 12px 15px; border: 1px solid var(--line-strong); border-radius: 11px; color: var(--text); background: var(--surface-raised); box-shadow: var(--shadow); font-size: .7rem; }
 
-.workflow-track { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
+.workflow-track { display: grid; grid-template-columns: repeat(8, 1fr); gap: 5px; }
 .workflow-step { min-height: 64px; padding: 9px 7px; border: 1px solid var(--line); border-radius: 9px; color: var(--muted); background: var(--surface); font-size: .56rem; text-align: center; }
 .workflow-step::before { content: ""; display: block; width: 8px; height: 8px; margin: 0 auto 7px; border: 2px solid currentColor; border-radius: 50%; }
-.workflow-step.done { color: var(--green); background: var(--green-soft); }
+.workflow-step.complete { color: var(--green); background: var(--green-soft); }
 .workflow-step.current { color: var(--cyan); border-color: color-mix(in srgb, var(--cyan) 45%, transparent); background: var(--cyan-soft); }
+.workflow-step.blocked { color: var(--red); background: var(--red-soft); }
+.workflow-step.waiting { color: var(--amber); background: var(--amber-soft); }
 .touchpoint-proof { margin-top: 12px; border: 1px solid var(--line); border-radius: 11px; overflow: hidden; }
 .touchpoint-proof article { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: start; padding: 10px 12px; border-bottom: 1px solid var(--line); background: var(--surface); }
 .touchpoint-proof article:last-child { border-bottom: 0; }
@@ -754,6 +760,9 @@ h1 em { color: var(--text-soft); font-style: normal; font-weight: 420; }
 .touchpoint-proof article[data-status="blocked"] { background: var(--red-soft); }
 .touchpoint-proof article[data-status="blocked"] i { border-color: var(--red); }
 .touchpoint-proof article[data-status="blocked"] b { color: var(--red); }
+.touchpoint-proof article[data-status="waiting"] { background: var(--amber-soft); }
+.touchpoint-proof article[data-status="waiting"] i { border-color: var(--amber); }
+.touchpoint-proof article[data-status="waiting"] b { color: var(--amber); }
 .gate-block-notice { display: grid; gap: 4px; margin: 0 0 14px; padding: 11px 13px; border-left: 3px solid var(--red); color: var(--text-soft); background: var(--red-soft); font-size: .64rem; }
 .gate-block-notice strong { color: var(--red); }
 .gate-block-list { display: grid; gap: 8px; }

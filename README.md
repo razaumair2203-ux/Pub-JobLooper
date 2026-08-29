@@ -243,6 +243,12 @@ and open every known artefact without navigating folders. Every deterministic
 action calls the same CLI gates and flat-file store; there is no dashboard
 database, synthetic ATS score or inferred rejection cause.
 
+Each step is receipt-backed and retry-safe. An unchanged Prepare reopens the
+current review, an interrupted approval/build exposes **Finish build** without a
+second approval, and an interrupted submission receipt/ledger write exposes one
+exact reconciliation action. A directory or attempted command is never treated
+as proof of completion.
+
 The Attention queue is a completing task inbox rather than a warning list. It
 routes directly to preflight decisions, deterministic generation, review,
 feedback resolution, exact-submission metadata,

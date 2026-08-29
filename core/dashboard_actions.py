@@ -14,7 +14,7 @@ import urllib.parse
 from . import job_fetch, learning, match, preflight, release, store
 
 
-_ACTION_LOCK = threading.Lock()
+_ACTION_LOCK = threading.RLock()
 FEEDBACK_SCOPES = {'content', 'format', 'workflow', 'truth', 'rule'}
 OUTCOME_STATES = {'rejected', 'interview', 'offer', 'progressed', 'ghosted', 'withdrawn'}
 LATENCY_BANDS = {'under_24h', '1_3d', '4_7d', '8_30d', 'over_30d', 'unknown'}
@@ -130,6 +130,62 @@ def preflight_state(job_id):
         'errors': errors,
         'answers': record.get('answers') or {},
         'decision': record.get('decision'),
+        'subject_sha256': record.get('subject_sha256'),
+        'binding_sha256': (preflight.binding_digest(record) if record else None),
+    }
+
+
+def plan_state(job_id):
+    """Project whether the existing review bundle is complete and current."""
+    slug = store.resolve_job(job_id)
+    directory = store.job_dir(slug)
+    names = ('match.json', 'cv.json', 'cover-letter.json', 'employer-risk.json')
+    missing = [name for name in names
+               if not os.path.isfile(os.path.join(directory, name))]
+    if missing:
+        return {
+            'job_id': slug, 'available': False, 'current': False,
+            'errors': ['missing plan artefact(s): ' + ', '.join(missing)],
+        }
+    jd = store.read_json(os.path.join(directory, 'jd.json'), {}) or {}
+    mapping = store.read_json(os.path.join(directory, 'match.json'), {}) or {}
+    cv = store.read_json(os.path.join(directory, 'cv.json'), {}) or {}
+    letter = store.read_json(os.path.join(directory, 'cover-letter.json'), {}) or {}
+    receipt = store.read_json(os.path.join(directory, release.PLAN_RECEIPT_NAME), {}) or {}
+    if not jd:
+        return {
+            'job_id': slug, 'available': True, 'current': False,
+            'errors': ['captured job description is missing'],
+        }
+    jd['_slug'] = slug
+    current_inputs = store.generation_fingerprint(jd).get('sha256')
+    errors = []
+    if (receipt.get('_schema') != 'joblooper.plan-receipt.v1'
+            or receipt.get('app_id') != slug
+            or receipt.get('plan_sha256') != release.plan_digest(slug)):
+        errors.append('plan publication receipt is missing or stale')
+    for label, record in (('match', mapping), ('CV', cv), ('cover letter', letter)):
+        planned = (record.get('_inputs') or {}).get('sha256')
+        if planned != current_inputs:
+            errors.append(f'{label} is stale relative to the current JD, truth or engine')
+    identity = mapping.get('identity') or {}
+    preflight_record, preflight_errors, _ = preflight.validate(
+        slug, jd, mapping, identity)
+    errors.extend(preflight_errors)
+    planned_preflight = mapping.get('_preflight') or {}
+    if (preflight_record.get('subject_sha256')
+            != planned_preflight.get('subject_sha256')
+            or not planned_preflight.get('binding_sha256')
+            or preflight.binding_digest(preflight_record)
+            != planned_preflight.get('binding_sha256')):
+        errors.append('plan is not bound to the exact current preflight decisions')
+    if (receipt.get('preflight_binding_sha256')
+            != planned_preflight.get('binding_sha256')):
+        errors.append('plan receipt is not bound to the exact preflight decisions')
+    return {
+        'job_id': slug, 'available': True, 'current': not errors,
+        'errors': list(dict.fromkeys(errors)),
+        'inputs_sha256': current_inputs,
     }
 
 
@@ -182,19 +238,47 @@ def prepare_application(job_id):
     this as one allowlisted dashboard action means a dropped conversation can
     never leave the user wondering whether the CV was actually created.
     """
-    current = preflight_state(job_id)
-    if not current['complete']:
-        raise ValueError(
-            'Preflight decisions are not complete for the current JD and approved truth')
-    result = _run_cli(['plan', current['job_id']], timeout=180)
-    if not result['ok']:
-        raise ValueError(result['output'] or 'CV and cover-letter preparation failed')
-    review = presentation(current['job_id'])
-    if not review['available']:
-        raise RuntimeError(
-            'Planning completed but the complete CV-and-cover-letter review is unavailable')
-    result['review'] = review
-    return result
+    with _ACTION_LOCK:
+        current = preflight_state(job_id)
+        if not current['complete']:
+            raise ValueError(
+                'Preflight decisions are not complete for the current JD and approved truth')
+        package, manifest = release.load_release(current['job_id'])
+        if package:
+            if manifest:
+                _, errors = release.verify_release(current['job_id'])
+                if errors:
+                    raise ValueError('Approved package integrity requires attention: '
+                                     + '; '.join(errors))
+                raise ValueError(
+                    'A verified approved package already exists. Open Submission; '
+                    'record feedback before requesting a new plan.')
+            approval, approval_errors = release.validate_approval(current['job_id'])
+            if approval and not approval_errors:
+                raise ValueError(
+                    'Approval is already recorded and document build is incomplete. '
+                    'Use Finish build instead of regenerating the plan.')
+        existing = plan_state(current['job_id'])
+        if existing['current']:
+            review = presentation(current['job_id'])
+            if not review['available']:
+                raise RuntimeError(
+                    'Current plan exists but the complete CV-and-cover-letter review is unavailable')
+            return {
+                'ok': True, 'returncode': 0,
+                'output': 'Current CV and cover-letter review bundle reused; no files changed.',
+                'reused': True, 'review': review,
+            }
+        result = _run_cli(['plan', current['job_id']], timeout=180)
+        if not result['ok']:
+            raise ValueError(result['output'] or 'CV and cover-letter preparation failed')
+        review = presentation(current['job_id'])
+        if not review['available']:
+            raise RuntimeError(
+                'Planning completed but the complete CV-and-cover-letter review is unavailable')
+        result['review'] = review
+        result['reused'] = False
+        return result
 
 
 def record_feedback(job_id, scope, note, author='dashboard-user'):
@@ -271,19 +355,66 @@ def approve_and_build(job_id, reviewer, confirmation, no_pdf=False):
         raise ValueError('Exact CV-and-cover-letter review confirmation is required')
     if not reviewer:
         raise ValueError('Reviewer name is required')
-    approved = _run_cli([
-        'approve', job_id, '--reviewer', reviewer, '--all-pass', '--user-signoff',
-        '--note', 'Explicit approval recorded through the local dashboard',
-    ], timeout=90)
-    if not approved['ok']:
-        raise ValueError(approved['output'] or 'Approval was refused')
-    arguments = ['build', job_id]
-    if no_pdf:
-        arguments.append('--no-pdf')
-    built = _run_cli(arguments, timeout=300)
-    if not built['ok']:
-        raise ValueError(built['output'] or 'Build was refused')
-    return {'ok': True, 'output': approved['output'] + '\n\n' + built['output']}
+    with _ACTION_LOCK:
+        slug = store.resolve_job(job_id)
+        package, manifest = release.load_release(slug)
+        if manifest:
+            _, errors = release.verify_release(slug)
+            if errors:
+                raise ValueError('Approved package integrity requires attention: '
+                                 + '; '.join(errors))
+            return {
+                'ok': True,
+                'output': 'Approval and verified document package already exist; no files changed.',
+                'reused': True,
+            }
+        current_approval, approval_errors = release.validate_approval(slug)
+        if not current_approval or approval_errors:
+            approved = _run_cli([
+                'approve', slug, '--reviewer', reviewer, '--all-pass', '--user-signoff',
+                '--note', ('Dashboard reviewer explicitly confirmed relevance, specificity, '
+                           'contradictions, bloat, ATS terminology and hostile-recruiter risk.'),
+            ], timeout=90)
+            if not approved['ok']:
+                raise ValueError(approved['output'] or 'Approval was refused')
+            approval_output = approved['output']
+        else:
+            approval_output = 'Current exact-bundle approval reused.'
+        built = build_application(slug, no_pdf=no_pdf)
+        return {
+            'ok': True,
+            'output': approval_output + '\n\n' + built['output'],
+            'reused': bool(current_approval and not approval_errors),
+        }
+
+
+def build_application(job_id, no_pdf=False):
+    """Finish an interrupted build without repeating user approval."""
+    with _ACTION_LOCK:
+        slug = store.resolve_job(job_id)
+        package, manifest = release.load_release(slug)
+        if manifest:
+            _, errors = release.verify_release(slug)
+            if errors:
+                raise ValueError('Approved package integrity requires attention: '
+                                 + '; '.join(errors))
+            return {
+                'ok': True,
+                'output': 'Verified document package already exists; no files changed.',
+                'reused': True,
+            }
+        approval, errors = release.validate_approval(slug)
+        if not approval or errors:
+            raise ValueError('A current exact-bundle approval is required before build: '
+                             + '; '.join(errors or ['approval missing']))
+        arguments = ['build', slug]
+        if no_pdf:
+            arguments.append('--no-pdf')
+        built = _run_cli(arguments, timeout=300)
+        if not built['ok']:
+            raise ValueError(built['output'] or 'Build was refused')
+        built['reused'] = False
+        return built
 
 
 def _screening_file(screening):
@@ -413,7 +544,6 @@ def record_outcome(job_id, status, response_date=None, latency=None,
     if response_text and status not in {'rejected', 'interview', 'offer', 'progressed'}:
         raise ValueError('Exact response ingestion supports rejected, interview, offer or progressed')
 
-    outputs = []
     response_path = None
     try:
         if response_text:
@@ -422,13 +552,18 @@ def record_outcome(job_id, status, response_date=None, latency=None,
                     encoding='utf-8', delete=False) as stream:
                 stream.write(response_text)
                 response_path = stream.name
-            captured = _run_cli([
+            arguments = [
                 'response', response_path, '--job', slug, '--status', status,
                 '--date', response_date,
-            ], timeout=90)
+            ]
+            if latency:
+                arguments += ['--latency', latency]
+            if employer_reason:
+                arguments += ['--reason', employer_reason]
+            captured = _run_cli(arguments, timeout=90)
             if not captured['ok']:
                 raise ValueError(captured['output'] or 'Employer response could not be correlated')
-            outputs.append(captured['output'])
+            return {'ok': True, 'output': captured['output']}
 
         arguments = ['outcome', slug, '--status', status]
         if response_date:
@@ -440,8 +575,7 @@ def record_outcome(job_id, status, response_date=None, latency=None,
         observed = _run_cli(arguments, timeout=90)
         if not observed['ok']:
             raise ValueError(observed['output'] or 'Outcome could not be recorded')
-        outputs.append(observed['output'])
+        return {'ok': True, 'output': observed['output']}
     finally:
         if response_path and os.path.isfile(response_path):
             os.unlink(response_path)
-    return {'ok': True, 'output': '\n\n'.join(part for part in outputs if part)}

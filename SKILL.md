@@ -45,6 +45,10 @@ must be discoverable; copying only `SKILL.md` is not a functional installation.
    deterministic plan after a completed preflight. Routine generation must not
    depend on a conversational stream completing; use Codex for contextual
    review and material improvement decisions.
+   A current plan exists only when all governed plan records and the final plan
+   receipt agree with the exact preflight decision digest. Repeating generation
+   against that unchanged state reopens the current review; it must not create
+   another version or restart contextual reasoning.
    Treat registered atomic truth records as
    candidate ground truth; archives are provenance inputs, not a runtime search
    corpus. Do not turn employer research into candidate truth.
@@ -58,7 +62,10 @@ must be discoverable; copying only `SKILL.md` is not a functional installation.
    cover letter second—in chat, or expose the same complete content in the
    dashboard Review tab. Obtain explicit user sign-off on that exact bundle.
    Any change requires a new complete presentation.
-6. Only after sign-off, run `approve`, then `build`. Report the absolute dated
+6. Only after sign-off, run `approve`, then `build`. Approval and build are
+   separate durable touchpoints: an approval folder without a verified manifest
+   is **build incomplete**, never a sendable package. Resume it with `build`
+   against the existing approval; do not approve again. Report the absolute dated
    application-folder path and direct CV and cover-letter paths. Use `show` or
    `open`, so the user never has to hunt through internal folders. Do not call
    an approval folder a review folder.
@@ -120,6 +127,10 @@ must be discoverable; copying only `SKILL.md` is not a functional installation.
    dashboard projection; never keep a pre-action snapshot as the visible gate.
    If generation returns without both CV and cover-letter records, fail the
    action visibly instead of reporting preparation complete.
+   Treat retries as reconciliation, not new work: Prepare reopens a current
+   plan, Build reuses a current approval, and Submit completes a missing ledger
+   write from the exact existing receipt. A repeated action must be a verified
+   no-op or expose one explicit recovery state.
    Project deterministic output-gate blockers into Review, Evidence and
    Attention before sign-off; never expose approval for a bundle the CLI would
    already refuse to build.
@@ -149,5 +160,7 @@ chat confirmation.
 - **Impactful:** preserve the chronological career argument, quantified outcomes
   and full-spectrum ownership while removing duplication.
 
-Apply user feedback through the append-only feedback workflow. Promote a lesson
-to a reusable rule only after its implementation and validation are recorded.
+Apply user feedback through the append-only feedback workflow. Rejected feedback
+requires a rationale; adopted feedback cannot be marked resolved until a changed
+plan digest proves that it was implemented. Promote a lesson to a reusable rule
+only after its implementation and validation are recorded.

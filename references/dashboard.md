@@ -48,11 +48,11 @@ records used by the CLI.
 |---|---|---|---|
 | Capture | Paste the official job URL; use manual fields only after both access routes fail | Bounded URL extractor, then scoped Codex URL fallback, then deterministic `ingest`; when both access routes fail, the manual-paste panel reopens automatically with the URL preserved and the first missing field focused | Private-network URLs, blocked pages, incomplete content and search-snippet reconstruction are refused; advert prose is never candidate truth |
 | Preflight | Review only unresolved fit decisions; use Codex only when a gap needs explanation | Deterministic JD/truth match plus per-item governed `preflight` answers; **Save & generate** durably records these before invoking preparation | Resolved facts are not re-asked; new evidence stops for truth review; chat cannot complete the gate |
-| Prepare | Select **Generate CV & letter**, or type an unambiguous generation request in the job panel | One allowlisted `plan` action revalidates truth/JD/preflight/feedback and must produce `match`, `cv`, `cover-letter` and risk records | The action does not rely on a Codex stream; missing CV or letter records are a visible failure; stale or unapproved truth and unanswered preflight decisions stop generation; output-gate failures remain visible and block approval/build |
+| Prepare | Select **Generate CV & letter**, or type an unambiguous generation request in the job panel | One allowlisted `plan` action revalidates truth/JD/preflight/feedback and publishes `match`, `cv`, `cover-letter` and risk records followed by one plan receipt bound to the exact preflight decision digest | The action does not rely on a Codex stream; an incomplete or stale receipt is not a current plan; repeating Prepare reopens an unchanged current review without regenerating it |
 | Review | Read the full CV and cover letter in the Review tab; add scoped comments | Exact presentation digest and append-only feedback | Open feedback or any content change makes presentation/sign-off stale |
 | Approve | Tick exact-bundle confirmation and name the reviewer | Approval digest bound to the current presentation | Chat approval, partial review or stale content is refused |
-| Build | Use Approve & build after sign-off | Dated human-readable folder, verified manifest, direct CV/letter links | Build gate errors remain visible; no silent force path is exposed |
-| Submit | Upload externally, select exact sent CV/letter, optionally attach portal answers | Submission receipt with hashes; screening evidence copied and hash-bound | Browser cannot invent paths; Joblooper never claims external submission |
+| Build | Use Approve & build after sign-off; use **Finish build** if rendering was interrupted after approval | Approval receipt first, then a dated human-readable folder, verified manifest and direct CV/letter links | A folder without a verified manifest is never treated as built or submit-ready; retry reuses the exact approval and never rewrites it |
+| Submit | Upload externally, select exact sent CV/letter, optionally attach portal answers | Submission receipt with hashes; screening evidence copied and hash-bound; application-ledger record written second | Browser cannot invent paths; Joblooper never claims external submission; a receipt/ledger interruption exposes **Finish record** and an exact retry completes only the missing write |
 | Correct record | Open **Update dates & portal evidence** from Attention or the job workspace | Submission date/channel and late portal evidence are appended to the existing receipt and ledger; exact sent-file hashes remain unchanged | Future dates, dates after the response, unverifiable submissions and silent evidence reconstruction are refused; permanently unavailable historical answers are labelled explicitly |
 | Outcome | Paste exact response or record observation/date/timing | Response hash and exact application correlation, or explicit direct outcome | Ambiguous job correlation stops; absent reason remains `none provided` |
 | Learn | Discuss competing explanations with Codex and save substantive revisions | Reasoning log with evidence, counterevidence, unknowns and status | Confidence means evidence support, never probability; no explanation becomes fact automatically |
@@ -69,7 +69,7 @@ must not make the work appear to vanish.
 Each active card must expose, without opening a folder:
 
 - exact company, role, reference, lifecycle state and last durable activity;
-- all seven gates and the current next action;
+- all eight touchpoints and the current next action;
 - whether evidence coverage and gaps are assessed, with an explicit statement
   that coverage is not an ATS score;
 - whether the CV and cover letter exist, plus direct artefact counts and links;
@@ -91,8 +91,8 @@ this operational surface.
 | Codex interrupted | `Thinking` ends; current governed files are re-read; registered artefacts and their absence remain visible and the failure is labelled without assuming completion | Resume safely from the next incomplete contextual task or open the application workspace |
 | Plan generated | Evidence coverage, requirement classes, hard gaps, risk record, clickable CV/letter records and draft availability | Open complete CV-and-letter review |
 | User reviews | Exact complete bundle remains readable in the Review tab | Add a scoped comment or mark the complete bundle presented |
-| User comments | All open and resolved comments remain attached to the job; open items block approval | Resolve, regenerate if adopted, then re-present |
-| User approves/builds | Direct verified CV and cover-letter links appear in the same workspace | External upload and exact submission record |
+| User comments | All open and resolved comments remain attached to the job; open items block approval | Rejected feedback may close with rationale; adopted feedback cannot close until a different plan digest proves implementation, then re-present |
+| User approves/builds | Approval and build are shown separately; direct CV and cover-letter links appear only after manifest verification | **Finish build** after an interruption, otherwise external upload and exact submission record |
 | User submits | Exact sent files, date, channel and portal-answer evidence state remain visible | Await or record observed outcome |
 | User records outcome | Employer observation remains separate from hypotheses and learning | Discuss evidence only when a decision is still useful |
 
@@ -116,7 +116,9 @@ is visible in the application ledger but is not a task.
 | Review ready | Open complete review | Current CV and cover letter, then feedback or sign-off |
 | Blocking output gate | Inspect Evidence | Exact gate, summary and detail; approval remains unavailable until a new valid plan clears it |
 | Open feedback | Resolve feedback | Append-only adopted/rejected decision with rationale and validation |
+| Approval saved, build incomplete | Finish build | Existing exact-bundle approval reused; verified manifest and document links published without a second approval |
 | Approved bundle | Open submission desk | Hash-bound exact-submission receipt |
+| Submission receipt saved, ledger incomplete | Finish record | Existing exact receipt reconciled to one application-ledger row without duplicating the submission |
 | Missing submission metadata | Update record | Corrected date/channel, attached late portal evidence, or explicit `unavailable` state |
 | Missing outcome date | Update outcome | Existing status, timing and reason prefilled; corrected observation retained |
 | Integrity failure | Inspect artefacts | Exact failed control and artefact are visible; downstream correction remains blocked |
@@ -129,8 +131,8 @@ all been specified and covered by a regression test.
 
 ### Job workspace
 
-- Overview shows the seven gates: JD, preflight, plan, review, approval, build
-  and submission.
+- Overview shows eight touchpoints: Capture, Preflight, Prepare, Review,
+  Approve, Build, Submit and Outcome.
 - Artefacts resolve to allowlisted files inside the configured data root.
 - Review displays the exact complete CV and cover letter before sign-off.
 - Evidence labels coverage as a local heuristic, never an ATS score.
@@ -241,9 +243,13 @@ This is a deliberate authority boundary, not an unfinished dashboard feature.
 - Saving proceed decisions refreshes the durable job state and either opens the
   generated complete review or reports the exact planning failure. It cannot
   remain labelled `awaiting review` after a valid current preflight record.
+- A changed preflight answer/reviewer digest makes the existing plan stale;
+  Prepare must refresh it before presentation or approval can continue.
 - Every application exposes Capture, Preflight, Prepare, Review, Approve, Build,
   Submit and Outcome with expected-versus-observed output; an executable journey
-  test verifies each state transition and its required artefacts.
+  test verifies each state transition and its required artefacts. When Chrome or
+  Edge plus Node are available, a real-browser smoke also answers Preflight,
+  generates the bundle and verifies that the complete Review opens in the UI.
 - A failed stream cannot remain labelled `Thinking`; retry inputs and any
   durable partial artefact survive, and three failed task polls stop rather than
   creating an infinite reconnect loop.
@@ -264,6 +270,10 @@ This is a deliberate authority boundary, not an unfinished dashboard feature.
   exact cause and become a blocking system-level Attention item; evidence is
   never silently re-hashed or re-trusted.
 - Approval cannot precede complete presentation or bypass open feedback.
+- Repeating Prepare, approval or build against the same durable state is an
+  idempotent reopen/no-op; it cannot create a new version or corrupt a receipt.
+- An approval/build interruption and a submission-receipt/ledger interruption
+  each project one explicit recovery action and never a false completed state.
 - A blocking output gate appears in Review, Evidence, Attention and the
   touchpoint proof, and withholds the approval control.
 - Submission accepts only verified package artefacts and preserves optional

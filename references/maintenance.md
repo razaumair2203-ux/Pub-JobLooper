@@ -30,6 +30,24 @@ improves that journey. Keep these module boundaries:
 Do not add a second database or bypass the CLI gates. Add or extend the module
 that owns the behavior, its invariant test, and the relevant user-facing copy.
 
+Manage each applicant interaction as a receipt-backed touchpoint, not as a
+button or conversational turn:
+
+1. Define the expected durable output and the exact predicate that proves it.
+2. Project `complete` only from that predicate; an attempted command, directory
+   or chat response is not completion.
+3. Keep only the first incomplete touchpoint `current`; waiting is visible but
+   never added to Attention as work.
+4. Define the interrupted state and one idempotent recovery action before adding
+   the control to the browser.
+5. Re-read the backend projection after every mutation and test success,
+   refusal, repeat and interruption from that refreshed state.
+
+The authoritative journey is Capture, Preflight, Prepare, Review, Approve,
+Build, Submit and Outcome. Browser copy, active cards, job drawers, Attention
+and KPIs must derive from the same backend touchpoint projection rather than
+reimplementing lifecycle booleans independently.
+
 `python jl.py dashboard` is the canonical launch command. On its fixed loopback
 port it authenticates and gracefully stops the previously registered Joblooper
 instance, starts the current code, and opens the same address. It must refuse to

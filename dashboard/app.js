@@ -19,6 +19,7 @@ const state = {
   actionJob: null,
   intakeBaseline: null,
   preflightState: null,
+  mutatingJobs: new Set(),
 };
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -216,14 +217,15 @@ function activeJobs() {
 }
 
 function workflowProgress(job) {
-  const workflow = job.workflow || {};
-  const steps = [
-    ['Captured', workflow.captured], ['Preflight', workflow.preflight],
-    ['Drafted', workflow.plan], ['Reviewed', workflow.presentation],
-    ['Approved', workflow.approval], ['Built', workflow.package],
-    ['Submitted', workflow.submission],
-  ];
-  return {steps, completed: steps.filter(([, done]) => done).length};
+  const labels = {
+    capture: 'Captured', preflight: 'Preflight', prepare: 'Drafted',
+    review: 'Reviewed', approve: 'Approved', build: 'Built',
+    submit: 'Submitted', outcome: 'Outcome',
+  };
+  const steps = (job.touchpoints || []).map(item => ({
+    id: item.id, label: labels[item.id] || item.label, status: item.status,
+  }));
+  return {steps, completed: steps.filter(item => item.status === 'complete').length};
 }
 
 function activePrimary(job) {
@@ -232,12 +234,17 @@ function activePrimary(job) {
     return ['View active Codex turn', 'active-turn'];
   }
   if (task?.status === 'failed') return ['Recover interrupted turn', 'active-turn'];
-  if (job.phase === 'captured' && !job.workflow?.preflight) {
+  const workflow = job.workflow || {};
+  if (job.integrity_state === 'attention') return ['Inspect integrity', 'artifacts'];
+  if (workflow.open_feedback) return ['Resolve application feedback', 'feedback'];
+  if (!workflow.preflight) {
     return ['Review preflight decisions', 'preflight'];
   }
-  if (job.phase === 'captured') return ['Generate CV & letter', 'prepare'];
+  if (!workflow.plan) return [workflow.plan_available ? 'Refresh CV & letter' : 'Generate CV & letter', 'prepare'];
+  if (workflow.gate_blockers?.length) return ['Resolve blocking gate', 'evidence'];
+  if (workflow.can_build) return ['Finish building documents', 'build'];
   if (job.phase === 'review') return ['Review CV & letter', 'review'];
-  if (job.phase === 'approved') return ['Open submission desk', 'submit'];
+  if (workflow.can_submit) return ['Open submission desk', 'submit'];
   return ['Open application record', 'overview'];
 }
 
@@ -258,7 +265,9 @@ function renderActiveWorkspace() {
     const gaps = assessed
       ? `${job.spread.gap} gaps · ${job.hard_gaps.length} hard-gate gaps`
       : 'Gaps not assessed';
-    const documents = job.outputs.cv || job.outputs.letter
+    const documents = job.workflow?.plan_errors?.length
+      ? 'CV and letter need refresh'
+      : job.outputs.cv || job.outputs.letter
       ? `${job.outputs.cv ? 'CV ready' : 'CV missing'} · ${job.outputs.letter ? 'letter ready' : 'letter missing'}`
       : 'CV and letter not created';
     const feedbackCount = (job.feedback_items || []).length;
@@ -278,7 +287,7 @@ function renderActiveWorkspace() {
         <span class="status-badge" data-phase="${h(job.phase)}">${h(phaseLabel(job.phase))}</span>
       </header>
       <div class="active-stage" aria-label="${completed} of ${steps.length} application gates complete">
-        ${steps.map(([label, done], index) => `<span class="active-stage-step ${done ? 'done' : ''} ${index === completed ? 'current' : ''}"><i></i>${h(label)}</span>`).join('')}
+        ${steps.map(item => `<span class="active-stage-step ${h(item.status)}"><i></i>${h(item.label)}</span>`).join('')}
       </div>
       <div class="active-job-body">
         <div class="active-next"><span class="micro-label">${taskRunning ? 'Work in progress' : taskFailed ? 'Interruption detected' : 'Next required action'}</span><strong>${h(nextAction)}</strong></div>
@@ -468,6 +477,7 @@ function handleAttention(item, source) {
     openPreflight(job); return;
   }
   if (item.route === 'prepare') { prepareApplication(job, source); return; }
+  if (item.route === 'build') { buildApplication(job, source); return; }
   if (item.route === 'codex_outcome') {
     if (state.session?.agent?.available) openAgent(job, 'Review this observed state and help me with the next evidence-backed decision. Keep facts, hypotheses and unknowns separate.');
     else { openDrawer(job, source); state.tab = 'reasoning'; renderDrawer(); }
@@ -532,11 +542,12 @@ function renderDrawer() {
   $('#drawer-actions').innerHTML = [
     official ? `<a class="action-link primary" href="${h(official)}" target="_blank" rel="noreferrer">Official advert ${icons.external}</a>` : '',
     job.phase === 'captured' && !job.workflow?.preflight ? `<button class="action-link primary" type="button" data-drawer-action="preflight">Review preflight decisions</button>` : '',
-    job.workflow?.preflight && !job.workflow?.plan ? `<button class="action-link primary" type="button" data-drawer-action="prepare">Generate CV & letter</button>` : '',
+    job.workflow?.preflight && !job.workflow?.plan ? `<button class="action-link primary" type="button" data-drawer-action="prepare">${job.workflow?.plan_available ? 'Refresh CV & letter' : 'Generate CV & letter'}</button>` : '',
     `<button class="action-link" type="button" data-drawer-action="codex"><span class="agent-orb"></span>Work with Codex</button>`,
     job.workflow?.can_review ? `<button class="action-link" type="button" data-drawer-action="review">Review complete bundle</button>` : '',
     `<button class="action-link" type="button" data-drawer-action="feedback">Add feedback</button>`,
     job.workflow?.can_approve ? `<button class="action-link" type="button" data-drawer-action="approve">Approve & build</button>` : '',
+    job.workflow?.can_build ? `<button class="action-link primary" type="button" data-drawer-action="build">Finish building documents</button>` : '',
     job.workflow?.can_submit ? `<button class="action-link" type="button" data-drawer-action="submit">Submission desk</button>` : '',
     job.exact_submission ? `<button class="action-link" type="button" data-drawer-action="update-submission">Update dates & portal evidence</button>` : '',
     job.workflow?.can_record_outcome ? `<button class="action-link" type="button" data-drawer-action="outcome">Record / update outcome</button>` : '',
@@ -565,16 +576,10 @@ function renderDrawerContent() {
 
 function drawerOverview(job) {
   const outputNames = Object.entries(job.outputs).map(([key, value]) => `${value ? '✓' : '—'} ${titleCase(key)}`).join(' · ');
-  const workflow = job.workflow || {};
-  const workflowSteps = [
-    ['JD', workflow.captured], ['Preflight', workflow.preflight], ['Plan', workflow.plan],
-    ['Review', workflow.presentation], ['Approved', workflow.approval],
-    ['Built', workflow.package], ['Submitted', workflow.submission],
-  ];
   const touchpoints = job.touchpoints || [];
   return `<section class="drawer-section">
     <div class="drawer-section-title"><h3>Application journey</h3><span class="subtle">One gate at a time</span></div>
-    <div class="workflow-track">${workflowSteps.map(([label, done]) => `<div class="workflow-step ${done ? 'done' : ''}">${h(label)}</div>`).join('')}</div>
+    <div class="workflow-track">${touchpoints.map(item => `<div class="workflow-step ${h(item.status)}">${h(item.label)}</div>`).join('')}</div>
     <div class="touchpoint-proof">${touchpoints.map(item => `<article data-status="${h(item.status)}"><i></i><div><strong>${h(item.label)}</strong><span>${h(item.actual_output)}</span><small>Expected: ${h(item.expected_output)}</small></div><b>${h(item.status)}</b></article>`).join('')}</div>
   </section>
   <section class="drawer-section">
@@ -621,7 +626,12 @@ async function loadReview(job) {
 function drawerArtifacts(job) {
   if (!job.artifacts.length) return '<div class="empty-state"><strong>No generated artefacts yet.</strong><span>The exact JD remains in the working record when captured.</span></div>';
   const groups = [...new Set(job.artifacts.map(x => x.group))];
-  return groups.map(group => `<section class="artifact-group"><h3>${h(group)}</h3><div class="artifact-list">
+  const reviewControl = job.workflow?.can_review
+    ? `<section class="drawer-section"><div class="drawer-section-title"><h3>Current CV and cover letter</h3><button class="secondary-button" type="button" data-artifact-action="review">Open complete review</button></div><div class="disclaimer">Review both documents here before employer-facing DOCX/PDF files are built.</div></section>`
+    : job.workflow?.plan_errors?.length
+      ? `<section class="drawer-section"><div class="gate-block-notice"><strong>Existing review records are stale.</strong><span>${job.workflow.plan_errors.map(h).join('<br>')}</span><button class="secondary-button" type="button" data-artifact-action="prepare">Refresh CV & letter</button></div></section>`
+      : '';
+  return reviewControl + groups.map(group => `<section class="artifact-group"><h3>${h(group)}</h3><div class="artifact-list">
     ${job.artifacts.filter(x => x.group === group).map(item => `<a class="artifact-row" href="${h(item.href || '#')}" ${item.href ? 'target="_blank"' : 'aria-disabled="true"'}>
       <span class="file-icon">${icons.file}</span><span><strong>${h(item.label)}${item.sent ? '<span class="sent-tag">SENT</span>' : ''}</strong><small>${h(item.filename)}${item.bytes ? ` · ${bytesLabel(item.bytes)}` : ''}</small></span>
       <span class="file-state ${item.state === 'digest_mismatch' ? 'mismatch' : ''}">${h(item.state.replaceAll('_', ' '))}</span>
@@ -640,7 +650,7 @@ function drawerEvidence(job) {
   });
   const assessed = job.requirements.length > 0;
   const blockers = job.workflow?.gate_blockers || [];
-  return `${blockers.length ? `<section class="drawer-section"><div class="drawer-section-title"><h3>Release blockers</h3><span class="subtle">Approval remains unavailable</span></div><div class="gate-block-list">${blockers.map(item => `<article><strong>${h(item.id)} · ${h(item.name)}</strong><span>${h(item.summary)}</span>${item.details?.length ? `<small>${item.details.map(h).join('<br>')}</small>` : ''}</article>`).join('')}</div></section>` : ''}<section class="drawer-section"><div class="drawer-section-title"><h3>Requirement coverage</h3></div>
+  return `${blockers.length ? `<section class="drawer-section"><div class="drawer-section-title"><h3>Release blockers</h3><span class="subtle">Approval remains unavailable</span></div><div class="gate-block-list">${blockers.map(item => `<article><strong>${h(item.id)} · ${h(item.name)}</strong><span>${h(item.summary)}</span>${item.details?.length ? `<small>${item.details.map(h).join('<br>')}</small>` : ''}</article>`).join('')}</div><div class="disclaimer">A blocker completes only after a verified evidence or content change and a clean regenerated plan. If no truthful fix exists, leave this application blocked.</div><button class="secondary-button" type="button" data-evidence-action="codex">Discuss a verified resolution</button></section>` : ''}<section class="drawer-section"><div class="drawer-section-title"><h3>Requirement coverage</h3></div>
     <div class="coverage-hero"><div class="coverage-ring" style="--value:${coverage}"><strong>${job.coverage === null || job.coverage === undefined ? '—' : `${coverage}%`}</strong></div>
       <div class="coverage-bars">${bars.map(([kind, value]) => `<div class="coverage-bar" data-kind="${kind}"><span>${titleCase(kind)}</span><span class="bar"><span style="width:${(value / total) * 100}%"></span></span><b>${value}</b></div>`).join('')}</div></div>
     <div class="disclaimer">${h(job.coverage_note)}</div>
@@ -701,7 +711,7 @@ function drawerTimeline(job) {
 
 async function openPreflight(job) {
   if (!job) return;
-  state.actionJob = job;
+  state.actionJob = jobById(job.id) || job;
   state.preflightState = null;
   $('#preflight-summary').innerHTML = '<span class="loader"></span> Checking the exact JD against approved ground truth…';
   $('#preflight-decisions').innerHTML = '';
@@ -751,6 +761,9 @@ function renderPreflight(value) {
     $('#preflight-status').classList.add('good');
     $('#preflight-save').hidden = true;
     $('#preflight-prepare').hidden = false;
+    $('#preflight-prepare').textContent = state.actionJob?.workflow?.plan
+      ? 'Open current CV & letter' : state.actionJob?.workflow?.plan_available
+        ? 'Refresh CV & letter' : 'Generate CV & letter';
   } else {
     $('#preflight-prepare').hidden = true;
     $('#preflight-save').textContent = decisions.length
@@ -781,17 +794,35 @@ async function submitPreflight(event) {
     status.textContent = 'Preflight complete. Generating the CV and cover-letter review bundle…';
     status.classList.add('good');
     await prepareApplication(state.actionJob, $('#preflight-save'));
-  } catch (error) { status.textContent = error.message; }
+  } catch (error) {
+    await loadData();
+    status.textContent = error.message;
+  }
   finally { setFormBusy(form, false); }
 }
 
 async function prepareApplication(job, source = null) {
   if (!job) return false;
+  job = jobById(job.id) || job;
   const justCompleted = state.actionJob?.id === job.id && state.preflightState?.complete;
   if (!job.workflow?.preflight && !justCompleted) {
     await openPreflight(job);
     return false;
   }
+  if (job.workflow?.plan) {
+    if ($('#preflight-dialog').open) $('#preflight-dialog').close();
+    if (!$('#agent-workspace').hidden) closeAgent();
+    openDrawer(job, source);
+    state.tab = 'review';
+    renderDrawer();
+    toast('The current CV and cover letter are already available; no files were regenerated.');
+    return true;
+  }
+  if (state.mutatingJobs.has(job.id)) {
+    toast('This application action is already running.');
+    return false;
+  }
+  state.mutatingJobs.add(job.id);
   const control = source?.closest?.('button') || source;
   if (control) control.disabled = true;
   const preflightStatus = $('#preflight-dialog').open ? $('#preflight-status') : null;
@@ -817,6 +848,12 @@ async function prepareApplication(job, source = null) {
     toast('CV and cover letter created. Review the complete bundle now.');
     return true;
   } catch (error) {
+    await loadData();
+    const refreshed = jobById(job.id);
+    if (refreshed && state.selectedJob?.id === job.id) {
+      state.selectedJob = refreshed;
+      renderDrawer();
+    }
     if (preflightStatus) {
       preflightStatus.textContent = `Preflight is saved. Generation stopped: ${error.message}`;
       preflightStatus.classList.remove('good');
@@ -825,6 +862,54 @@ async function prepareApplication(job, source = null) {
     toast(error.message);
     return false;
   } finally {
+    state.mutatingJobs.delete(job.id);
+    if (control) control.disabled = false;
+  }
+}
+
+async function buildApplication(job, source = null) {
+  if (!job) return false;
+  job = jobById(job.id) || job;
+  if (job.workflow?.package) {
+    toast('The verified document package already exists.');
+    return true;
+  }
+  if (state.mutatingJobs.has(job.id)) {
+    toast('This application action is already running.');
+    return false;
+  }
+  state.mutatingJobs.add(job.id);
+  const control = source?.closest?.('button') || source;
+  if (control) control.disabled = true;
+  try {
+    await apiPost('/api/actions/build', {job_id: job.id, no_pdf: false});
+    await loadData();
+    const refreshed = jobById(job.id);
+    if (!refreshed?.workflow?.package || !refreshed?.manifest_sha256) {
+      throw new Error('Build returned without a verified package manifest.');
+    }
+    if (state.selectedJob?.id === job.id) {
+      state.selectedJob = refreshed;
+      state.tab = 'artifacts';
+      renderDrawer();
+    } else {
+      openDrawer(refreshed, control);
+      state.tab = 'artifacts';
+      renderDrawer();
+    }
+    toast('Approved CV and cover letter were built and verified.');
+    return true;
+  } catch (error) {
+    await loadData();
+    const refreshed = jobById(job.id);
+    if (refreshed && state.selectedJob?.id === job.id) {
+      state.selectedJob = refreshed;
+      renderDrawer();
+    }
+    toast(`Build is still incomplete: ${error.message}`);
+    return false;
+  } finally {
+    state.mutatingJobs.delete(job.id);
     if (control) control.disabled = false;
   }
 }
@@ -915,8 +1000,10 @@ function renderAgentQuickActions() {
   const job = state.agentJob;
   const actions = job ? [
     ['workspace', 'Open application workspace'],
-    job.workflow?.preflight
-      ? ['prepare', job.workflow?.plan ? 'Regenerate review bundle' : 'Generate CV & letter']
+    job.workflow?.can_build
+      ? ['build', 'Finish building documents']
+      : job.workflow?.preflight
+      ? [job.workflow?.plan ? 'review' : 'prepare', job.workflow?.plan ? 'Open current CV & letter' : job.workflow?.plan_available ? 'Refresh CV & letter' : 'Generate CV & letter']
       : ['preflight', 'Continue pre-generation review'],
     ['feedback', 'Discuss an improvement'],
     ['submission', 'Submission help'],
@@ -1191,10 +1278,15 @@ function agentQuickAction(action) {
     openPreflight(job);
     return;
   }
+  if (action === 'review' && job) {
+    closeAgent(); openDrawer(job); state.tab = 'review'; renderDrawer(); return;
+  }
   if (action === 'portfolio') {
     startAgentTurn('Audit the current portfolio attention items. Tell me only what needs a decision now, what can wait, and which observations must remain unknown.', 'ask');
   } else if (action === 'prepare') {
     prepareApplication(job);
+  } else if (action === 'build') {
+    buildApplication(job);
   } else if (action === 'feedback') {
     $('#agent-message').value = 'I want to improve this application. Assess this feedback against the JD and ground truth before anything is changed: ';
     $('#agent-message').focus();
@@ -1403,7 +1495,13 @@ async function submitApproval(event) {
     status.classList.add('good');
     await loadData();
     setTimeout(() => { form.reset(); $('#approval-dialog').close(); }, 900);
-  } catch (error) { status.textContent = error.message; }
+  } catch (error) {
+    await loadData();
+    const refreshed = state.actionJob && jobById(state.actionJob.id);
+    status.textContent = refreshed?.workflow?.can_build
+      ? `Approval is saved, but build stopped: ${error.message}. Close this dialog and use Finish building documents.`
+      : error.message;
+  }
   finally { setFormBusy(form, false); }
 }
 
@@ -1538,6 +1636,7 @@ function handleActiveAction(event) {
     prepareApplication(job, control);
     return;
   }
+  if (action === 'build') { buildApplication(job, control); return; }
   if (action === 'submit') { populateSubmission(job); openDialog('#submission-dialog', job); return; }
   openDrawer(job, control);
   if (['artifacts', 'review', 'evidence', 'feedback'].includes(action)) state.tab = action;
@@ -1576,6 +1675,7 @@ function wireEvents() {
     const job = state.selectedJob;
     if (button.dataset.drawerAction === 'preflight') { closeDrawer(); openPreflight(job); }
     if (button.dataset.drawerAction === 'prepare') prepareApplication(job, button);
+    if (button.dataset.drawerAction === 'build') buildApplication(job, button);
     if (button.dataset.drawerAction === 'codex') openAgent(job);
     if (button.dataset.drawerAction === 'review') { state.tab = 'review'; renderDrawer(); }
     if (button.dataset.drawerAction === 'feedback') openDialog('#feedback-dialog', job);
@@ -1586,7 +1686,20 @@ function wireEvents() {
   });
   $('#drawer-content').addEventListener('click', event => {
     if (event.target.closest('[aria-disabled="true"]')) event.preventDefault();
-    const action = event.target.closest('[data-review-action]')?.dataset.reviewAction;
+    const reviewAction = event.target.closest('[data-review-action]')?.dataset.reviewAction;
+    const artifactAction = event.target.closest('[data-artifact-action]')?.dataset.artifactAction;
+    const evidenceAction = event.target.closest('[data-evidence-action]')?.dataset.evidenceAction;
+    if (artifactAction === 'review' && state.selectedJob) {
+      state.tab = 'review'; renderDrawer(); return;
+    }
+    if (artifactAction === 'prepare' && state.selectedJob) {
+      prepareApplication(state.selectedJob, event.target); return;
+    }
+    if (evidenceAction === 'codex' && state.selectedJob) {
+      openAgent(state.selectedJob, 'Assess the visible deterministic gate blocker. Identify only a verified, non-redundant evidence or content change that would clear it; if none exists, say the application must remain blocked.', 'improvement');
+      return;
+    }
+    const action = reviewAction;
     if (!action || !state.selectedJob) return;
     if (action === 'codex') openAgent(state.selectedJob);
     if (action === 'prepare') prepareApplication(state.selectedJob, event.target);

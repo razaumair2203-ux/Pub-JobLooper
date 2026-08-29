@@ -26,6 +26,7 @@ def _plan(slug):
         note='Fictional mandatory gap reviewed for lifecycle testing.')
     mapping['_preflight'] = {
         'subject_sha256': preflight_record['subject_sha256'],
+        'binding_sha256': preflight.binding_digest(preflight_record),
         'decision': preflight_record['decision'], 'reviewer': preflight_record['reviewer']}
     mapping['_inputs'] = store.generation_fingerprint(jd)
     cv = build.assemble(jd, mapping, target_pages=2)
@@ -90,9 +91,23 @@ def main():
         except ValueError:
             feedback_refused = True
         checks.append(('open feedback blocks approval', feedback_refused))
-        feedback.resolve(slug, item['id'], 'ADOPTED',
-                         'Added an enforced chat-presentation gate.',
-                         'Release regression verifies freshness.')
+        try:
+            jl.cmd_feedback(SimpleNamespace(
+                job=slug, feedback_id=item['id'], status='ADOPTED',
+                implementation='Added an enforced chat-presentation gate.',
+                validation='Release regression verifies freshness.',
+                scope=None, note=None, author='user'))
+            unchanged_adoption_refused = False
+        except SystemExit:
+            unchanged_adoption_refused = True
+        checks.append(('adopted feedback cannot be closed without a changed plan',
+                       unchanged_adoption_refused
+                       and feedback.open_items(slug)[0]['id'] == item['id']))
+        jl.cmd_feedback(SimpleNamespace(
+            job=slug, feedback_id=item['id'], status='REJECTED',
+            implementation='The complete presentation gate is already enforced.',
+            validation='Release presentation tests verify the existing control.',
+            scope=None, note=None, author='user'))
         release.present(slug)
 
         approval = release.approve(
@@ -128,6 +143,7 @@ def main():
         artefacts = {
             'jd': os.path.join(directory, 'jd.json'),
             'jd_raw': os.path.join(directory, 'jd.raw.md'),
+            'preflight': os.path.join(directory, 'preflight.json'),
             'match': os.path.join(directory, 'match.json'),
             'cv': os.path.join(directory, 'cv.json'),
             'letter': os.path.join(directory, 'cover-letter.json'),

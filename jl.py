@@ -419,6 +419,7 @@ def cmd_plan(args):
             + f"; run `jl preflight {slug}` and review its questions with the user")
     m['_preflight'] = {
         'subject_sha256': preflight_record['subject_sha256'],
+        'binding_sha256': preflight.binding_digest(preflight_record),
         'decision': preflight_record['decision'],
         'reviewer': preflight_record['reviewer'],
     }
@@ -452,10 +453,18 @@ def cmd_plan(args):
     store.write_text(os.path.join(d, 'EMPLOYER-RISK.md'),
                      employer_review.to_markdown(risk, employer_context))
     store.write_text(os.path.join(d, 'PREVIEW.md'), preview.render(jd, m, cv, slug))
+    plan_sha256 = release.plan_digest(slug)
+    store.write_json(os.path.join(d, release.PLAN_RECEIPT_NAME), {
+        '_schema': 'joblooper.plan-receipt.v1',
+        'app_id': slug, 'created_at': store.now(),
+        'plan_sha256': plan_sha256,
+        'inputs_sha256': m['_inputs']['sha256'],
+        'preflight_binding_sha256': m['_preflight']['binding_sha256'],
+    })
     release.write_status(slug, 'PLAN')
     store.append_application_event({
         'event': 'PLAN_CREATED', 'app_id': slug,
-        'plan_sha256': release.plan_digest(slug), 'inputs_sha256': m['_inputs']['sha256'],
+        'plan_sha256': plan_sha256, 'inputs_sha256': m['_inputs']['sha256'],
         'truth_context_sha256': context['truth_sha256'], 'identity': ident['primary'],
         'coverage': cv['coverage'],
     })
@@ -546,9 +555,15 @@ def cmd_feedback(args):
         # Validate first. A typo or incomplete resolution must never remove a
         # valid approved-but-unsubmitted package.
         if args.feedback_id:
-            feedback.validate_resolution(
+            item, decision, _, _ = feedback.validate_resolution(
                 slug, args.feedback_id, args.status,
                 args.implementation, args.validation)
+            if (decision == 'ADOPTED'
+                    and (not item.get('plan_sha256')
+                         or item.get('plan_sha256') == release.plan_digest(slug))):
+                raise ValueError(
+                    'adopted feedback has no provably changed plan; implement and '
+                    'regenerate the governed bundle before resolving it')
         else:
             feedback.validate_record(args.scope, args.note)
         retired = release.invalidate_unsubmitted_package(
@@ -725,6 +740,7 @@ def _finish_build(args, slug, d, jd, cv, m, letter, risk, approval, results,
 
     artefacts = {
         'jd': os.path.join(d, 'jd.json'), 'jd_raw': os.path.join(d, 'jd.raw.md'),
+        'preflight': os.path.join(d, 'preflight.json'),
         'match': os.path.join(d, 'match.json'),
         'cv': os.path.join(d, 'cv.json'), 'preview': review_path,
         'letter': os.path.join(d, 'cover-letter.json'),
@@ -771,8 +787,20 @@ def cmd_apply(args):
     slug = store.resolve_job(args.job)
     d = store.job_dir(slug)
     prior = next((a for a in store.applications() if a['app_id'] == slug), None)
+    package, existing_manifest = release.load_release(slug)
+    existing_receipt = (store.read_json(
+        release.record_path(package, release.SUBMISSION_NAME), {})
+        if package else {}) or {}
     if prior:
-        raise SystemExit('APPLY REFUSED - this application is already recorded as submitted')
+        if (existing_receipt and learning._exact_submission(prior)
+                and prior.get('release_manifest_sha256')
+                == existing_receipt.get('manifest_sha256')
+                and prior.get('cv_sha256') == existing_receipt.get('sent_sha256')):
+            say(f"already submitted {slug} · exact receipt and ledger record agree")
+            return 0
+        raise SystemExit(
+            'APPLY REFUSED - an application ledger record already exists but does not '
+            'match one exact submission receipt')
 
     sent_file = getattr(args, 'sent_file', None)
     if not sent_file:
@@ -792,13 +820,43 @@ def cmd_apply(args):
     channel = getattr(args, 'channel', None)
 
     try:
-        recorder = (release.record_confirmed_external_submission
-                    if getattr(args, 'confirm_external', False)
-                    else release.record_submission)
-        release_dir, manifest, submission = recorder(
-            slug, sent_file, cover_letter_file=getattr(args, 'cover_letter_file', None),
-            channel=channel, applied_date=applied_date,
-            screening_file=getattr(args, 'screening_file', None))
+        if existing_receipt:
+            submission, receipt_errors = release.verify_submission(slug)
+            if receipt_errors:
+                raise ValueError('existing submission receipt is invalid: '
+                                 + '; '.join(receipt_errors))
+            release_dir, manifest = package, existing_manifest
+            supplied_cv = os.path.abspath(sent_file)
+            if (not os.path.isfile(supplied_cv)
+                    or os.path.basename(supplied_cv) != submission.get('sent_file')
+                    or store.sha256_file(supplied_cv) != submission.get('sent_sha256')):
+                raise ValueError(
+                    'selected CV does not match the existing exact submission receipt')
+            supplied_letter = getattr(args, 'cover_letter_file', None)
+            if supplied_letter:
+                supplied_letter = os.path.abspath(supplied_letter)
+                if (not os.path.isfile(supplied_letter)
+                        or os.path.basename(supplied_letter)
+                        != submission.get('sent_cover_letter')
+                        or store.sha256_file(supplied_letter)
+                        != submission.get('sent_cover_letter_sha256')):
+                    raise ValueError(
+                        'selected cover letter does not match the existing submission receipt')
+            if (applied_date != submission.get('applied')
+                    or channel != submission.get('channel')
+                    or getattr(args, 'screening_file', None)):
+                _, _, submission, _ = release.update_submission_metadata(
+                    slug, applied_date=applied_date, channel=channel,
+                    screening_file=getattr(args, 'screening_file', None))
+        else:
+            recorder = (release.record_confirmed_external_submission
+                        if getattr(args, 'confirm_external', False)
+                        else release.record_submission)
+            release_dir, manifest, submission = recorder(
+                slug, sent_file,
+                cover_letter_file=getattr(args, 'cover_letter_file', None),
+                channel=channel, applied_date=applied_date,
+                screening_file=getattr(args, 'screening_file', None))
     except ValueError as error:
         raise SystemExit(f'APPLY REFUSED - {error}')
 
@@ -1063,7 +1121,8 @@ def cmd_response(args):
     try:
         selected, response, duplicate = employer_response.ingest(
             raw, explicit_job=args.job, explicit_status=args.status,
-            received=args.date)
+            received=args.date, latency=getattr(args, 'latency', None),
+            employer_reason=getattr(args, 'reason', None))
     except ValueError as error:
         raise SystemExit(f'RESPONSE REFUSED — {error}')
 
@@ -1786,6 +1845,9 @@ def main():
     s.add_argument('--job', help='explicit application key when the email omits identifiers')
     s.add_argument('--status', choices=['rejected', 'interview', 'offer', 'progressed'])
     s.add_argument('--date', help='response date in YYYY-MM-DD')
+    s.add_argument('--latency', choices=['under_24h', '1_3d', '4_7d', '8_30d',
+                                        'over_30d', 'unknown'])
+    s.add_argument('--reason', help='employer-stated reason, only when explicitly provided')
     s.set_defaults(fn=cmd_response)
 
     s = sub.add_parser('reason'); s.add_argument('job')
@@ -1833,7 +1895,7 @@ def main():
         vec.reset_caches()
     mutating = {
         'ingest', 'preflight', 'plan', 'present', 'approve', 'feedback', 'build', 'truth',
-        'pdf', 'submit', 'apply', 'outcome', 'response', 'reason',
+        'pdf', 'submit', 'apply', 'update-submission', 'outcome', 'response', 'reason',
     }
     needs_lock = args.cmd in mutating or (
         args.cmd == 'onboard' and getattr(args, 'action', None) == 'finalize')
