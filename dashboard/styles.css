@@ -751,6 +751,16 @@ h1 em { color: var(--text-soft); font-style: normal; font-weight: 420; }
 .touchpoint-proof article[data-status="current"] { background: var(--cyan-soft); }
 .touchpoint-proof article[data-status="current"] i { border-color: var(--cyan); }
 .touchpoint-proof article[data-status="current"] b { color: var(--cyan); }
+.touchpoint-proof article[data-status="blocked"] { background: var(--red-soft); }
+.touchpoint-proof article[data-status="blocked"] i { border-color: var(--red); }
+.touchpoint-proof article[data-status="blocked"] b { color: var(--red); }
+.gate-block-notice { display: grid; gap: 4px; margin: 0 0 14px; padding: 11px 13px; border-left: 3px solid var(--red); color: var(--text-soft); background: var(--red-soft); font-size: .64rem; }
+.gate-block-notice strong { color: var(--red); }
+.gate-block-list { display: grid; gap: 8px; }
+.gate-block-list article { display: grid; gap: 4px; padding: 11px 13px; border: 1px solid color-mix(in srgb, var(--red) 30%, transparent); border-radius: 10px; background: var(--red-soft); }
+.gate-block-list strong { color: var(--red); font-size: .67rem; }
+.gate-block-list span { color: var(--text-soft); font-size: .63rem; }
+.gate-block-list small { color: var(--muted); font-size: .57rem; }
 .review-sheet { padding: 22px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
 .review-sheet pre { margin: 0; color: var(--text-soft); white-space: pre-wrap; overflow-wrap: anywhere; font: 400 .74rem/1.65 Aptos, "Segoe UI", sans-serif; }
 .review-toolbar { position: sticky; top: 49px; z-index: 1; display: flex; justify-content: space-between; gap: 12px; align-items: center; margin: -24px -30px 18px; padding: 11px 30px; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--surface-solid) 94%, transparent); backdrop-filter: blur(14px); }

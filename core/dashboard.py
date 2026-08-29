@@ -16,7 +16,7 @@ import webbrowser
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import (codex_bridge, dashboard_actions, dashboard_runtime, feedback,
+from . import (codex_bridge, dashboard_actions, dashboard_runtime, feedback, gates,
                integrity, learning, match, preflight, release, store, truth_review)
 
 
@@ -34,7 +34,7 @@ CAUSE_LABELS = {
     'NO_SIGNAL': 'No reliable signal',
 }
 ATTENTION_ROUTES = frozenset({
-    'artifacts', 'codex_outcome', 'feedback', 'outcome', 'prepare',
+    'artifacts', 'codex_outcome', 'evidence', 'feedback', 'outcome', 'prepare',
     'preflight', 'review_bundle', 'submission', 'submission_metadata',
     'truth_integrity',
 })
@@ -337,6 +337,20 @@ def _job_snapshot(slug, applications, events):
                      if row.get('status') == 'OPEN']
     plan_available = all(os.path.isfile(os.path.join(directory, name)) for name in (
         'match.json', 'cv.json', 'cover-letter.json', 'employer-risk.json'))
+    gate_blockers = []
+    if plan_available:
+        try:
+            cv_record = store.read_json(os.path.join(directory, 'cv.json'), {}) or {}
+            _, blocked_gates = gates.run_all(cv_record, match_record)
+            gate_blockers = [{
+                'id': row[0], 'name': row[1], 'summary': row[3],
+                'details': list(row[4] or []),
+            } for row in blocked_gates]
+        except (OSError, ValueError, TypeError) as error:
+            gate_blockers = [{
+                'id': 'AUDIT', 'name': 'Gate audit', 'summary': str(error),
+                'details': [],
+            }]
     preflight_record = store.read_json(os.path.join(directory, 'preflight.json'), {}) or {}
     preflight_questions_available = os.path.isfile(os.path.join(
         directory, 'PRE-GENERATION-QUESTIONS.md'))
@@ -409,13 +423,14 @@ def _job_snapshot(slug, applications, events):
         'approval': bool(exact_submitted_history
                          or (approval_record and not approval_errors)),
         'approval_errors': approval_errors,
+        'gate_blockers': gate_blockers,
         'package': bool(package),
         'submission': bool(app),
         'outcome': phase in {'progressed', 'rejected', 'closed'},
         'open_feedback': len(open_feedback),
         'can_review': plan_available,
         'can_approve': bool(presentation_record and not presentation_errors
-                            and not open_feedback),
+                            and not open_feedback and not gate_blockers),
         'can_submit': bool(package and not app and not submission),
         'can_record_outcome': bool(
             app and exact_submission and submission_receipt
@@ -441,7 +456,9 @@ def _job_snapshot(slug, applications, events):
            else 'No complete bundle is available'))),
         ('approve', 'Approve exact bundle', workflow['approval'],
          'Explicit user sign-off bound to the current presentation',
-         ('Approval is recorded' if workflow['approval'] else 'User sign-off is not recorded')),
+         ('Approval is recorded' if workflow['approval'] else
+          (f"Approval is blocked by {len(gate_blockers)} deterministic gate failure(s)"
+           if gate_blockers else 'User sign-off is not recorded'))),
         ('build', 'Build sendable files', workflow['package'],
          'Dated verified CV/letter package and manifest',
          ('Verified package is available' if workflow['package']
@@ -460,6 +477,7 @@ def _job_snapshot(slug, applications, events):
         'id': identifier,
         'label': label,
         'status': ('complete' if complete else
+                   'blocked' if identifier == 'approve' and gate_blockers else
                    'current' if identifier == first_open else 'pending'),
         'expected_output': expected,
         'actual_output': actual,
@@ -681,7 +699,13 @@ def build_snapshot(include_private=False):
                     'Preflight is complete. Generate the review bundle from the exact JD and approved truth.',
                     'Generate review bundle', 'prepare')
         elif job['phase'] == 'review':
-            if workflow.get('can_approve'):
+            if workflow.get('gate_blockers'):
+                blocker = workflow['gate_blockers'][0]
+                add_attention(
+                    job, 'gate_blocked', 'Resolve blocking application gates',
+                    f"{blocker['id']} {blocker['name']}: {blocker['summary']}",
+                    'Inspect gate', 'evidence', 'critical')
+            elif workflow.get('can_approve'):
                 add_attention(
                     job, 'approve', 'Sign off the complete current bundle',
                     'Approval binds the exact CV and cover letter shown in Review.',

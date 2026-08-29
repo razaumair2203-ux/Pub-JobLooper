@@ -120,6 +120,9 @@ must be discoverable; copying only `SKILL.md` is not a functional installation.
    dashboard projection; never keep a pre-action snapshot as the visible gate.
    If generation returns without both CV and cover-letter records, fail the
    action visibly instead of reporting preparation complete.
+   Project deterministic output-gate blockers into Review, Evidence and
+   Attention before sign-off; never expose approval for a bundle the CLI would
+   already refuse to build.
 
 Treat the dashboard as a living product: turn user feedback into a specific
 journey problem and acceptance check, improve the authoritative private source,

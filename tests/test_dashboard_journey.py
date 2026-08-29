@@ -1,4 +1,5 @@
 """One observable dashboard journey from captured JD to recorded outcome."""
+import copy
 import os
 import shutil
 import sys
@@ -64,6 +65,20 @@ def main():
               and planned['touchpoints'][3]['status'] == 'current'
               and any(row['event'] == 'PLAN_CREATED'
                       for row in planned['timeline']), results)
+
+        cv_path = os.path.join(store.job_dir(job_id), 'cv.json')
+        original_cv = store.read_json(cv_path)
+        tampered_cv = copy.deepcopy(original_cv)
+        tampered_cv['header']['headline'] += ' · Part-66'
+        store.write_json(cv_path, tampered_cv)
+        blocked = dashboard.build_snapshot()['jobs'][0]
+        check('blocking gates are visible before an approval control is offered',
+              bool(blocked['workflow']['gate_blockers'])
+              and blocked['workflow']['can_approve'] is False
+              and blocked['touchpoints'][4]['status'] == 'blocked'
+              and next(item for item in dashboard.build_snapshot()['attention']
+                       if item['job_id'] == job_id)['route'] == 'evidence', results)
+        store.write_json(cv_path, original_cv)
 
         dashboard_actions.mark_presented(job_id)
         presented = dashboard.build_snapshot()['jobs'][0]

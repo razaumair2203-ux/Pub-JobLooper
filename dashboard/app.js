@@ -476,6 +476,7 @@ function handleAttention(item, source) {
   openDrawer(job, source);
   if (item.route === 'review_bundle') state.tab = 'review';
   if (item.route === 'artifacts') state.tab = 'artifacts';
+  if (item.route === 'evidence') state.tab = 'evidence';
   renderDrawer();
 }
 
@@ -607,7 +608,11 @@ async function loadReview(job) {
       $('#drawer-content').innerHTML = `<div class="empty-state"><strong>No complete bundle is available yet.</strong><span>${h((review.errors || []).join(' · ') || 'Generate the governed review bundle first.')}</span><button class="primary-button" type="button" data-review-action="prepare">Generate CV & letter</button></div>`;
       return;
     }
-    $('#drawer-content').innerHTML = `<div class="review-toolbar"><span>${review.valid ? 'Presentation is current and review-bound' : 'Read the complete bundle, then mark it presented'}</span>${review.valid ? '<button class="secondary-button" type="button" data-review-action="feedback">Add feedback</button>' : '<button class="primary-button" type="button" data-review-action="present">Mark complete bundle presented</button>'}</div><div class="review-sheet"><pre>${h(review.content)}</pre></div>`;
+    const blockers = job.workflow?.gate_blockers || [];
+    const gateNotice = blockers.length
+      ? `<div class="gate-block-notice"><strong>Approval blocked by ${blockers.length} deterministic gate failure${blockers.length === 1 ? '' : 's'}.</strong><span>${blockers.map(item => `${h(item.id)} ${h(item.name)}: ${h(item.summary)}`).join('<br>')}</span></div>`
+      : '';
+    $('#drawer-content').innerHTML = `<div class="review-toolbar"><span>${review.valid ? 'Presentation is current and review-bound' : 'Read the complete bundle, then mark it presented'}</span>${review.valid ? '<button class="secondary-button" type="button" data-review-action="feedback">Add feedback</button>' : '<button class="primary-button" type="button" data-review-action="present">Mark complete bundle presented</button>'}</div>${gateNotice}<div class="review-sheet"><pre>${h(review.content)}</pre></div>`;
   } catch (error) {
     $('#drawer-content').innerHTML = `<div class="empty-state"><strong>Review could not be loaded.</strong><span>${h(error.message)}</span></div>`;
   }
@@ -634,7 +639,8 @@ function drawerEvidence(job) {
     return (rank[a.match] ?? 9) - (rank[b.match] ?? 9);
   });
   const assessed = job.requirements.length > 0;
-  return `<section class="drawer-section"><div class="drawer-section-title"><h3>Requirement coverage</h3></div>
+  const blockers = job.workflow?.gate_blockers || [];
+  return `${blockers.length ? `<section class="drawer-section"><div class="drawer-section-title"><h3>Release blockers</h3><span class="subtle">Approval remains unavailable</span></div><div class="gate-block-list">${blockers.map(item => `<article><strong>${h(item.id)} · ${h(item.name)}</strong><span>${h(item.summary)}</span>${item.details?.length ? `<small>${item.details.map(h).join('<br>')}</small>` : ''}</article>`).join('')}</div></section>` : ''}<section class="drawer-section"><div class="drawer-section-title"><h3>Requirement coverage</h3></div>
     <div class="coverage-hero"><div class="coverage-ring" style="--value:${coverage}"><strong>${job.coverage === null || job.coverage === undefined ? '—' : `${coverage}%`}</strong></div>
       <div class="coverage-bars">${bars.map(([kind, value]) => `<div class="coverage-bar" data-kind="${kind}"><span>${titleCase(kind)}</span><span class="bar"><span style="width:${(value / total) * 100}%"></span></span><b>${value}</b></div>`).join('')}</div></div>
     <div class="disclaimer">${h(job.coverage_note)}</div>

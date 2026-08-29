@@ -48,7 +48,7 @@ records used by the CLI.
 |---|---|---|---|
 | Capture | Paste the official job URL; use manual fields only after both access routes fail | Bounded URL extractor, then scoped Codex URL fallback, then deterministic `ingest`; when both access routes fail, the manual-paste panel reopens automatically with the URL preserved and the first missing field focused | Private-network URLs, blocked pages, incomplete content and search-snippet reconstruction are refused; advert prose is never candidate truth |
 | Preflight | Review only unresolved fit decisions; use Codex only when a gap needs explanation | Deterministic JD/truth match plus per-item governed `preflight` answers; **Save & generate** durably records these before invoking preparation | Resolved facts are not re-asked; new evidence stops for truth review; chat cannot complete the gate |
-| Prepare | Select **Generate CV & letter**, or type an unambiguous generation request in the job panel | One allowlisted `plan` action revalidates truth/JD/preflight/feedback and must produce `match`, `cv`, `cover-letter` and risk records | The action does not rely on a Codex stream; missing CV or letter records are a visible failure; stale or unapproved truth, hard gates or unanswered questions stop generation |
+| Prepare | Select **Generate CV & letter**, or type an unambiguous generation request in the job panel | One allowlisted `plan` action revalidates truth/JD/preflight/feedback and must produce `match`, `cv`, `cover-letter` and risk records | The action does not rely on a Codex stream; missing CV or letter records are a visible failure; stale or unapproved truth and unanswered preflight decisions stop generation; output-gate failures remain visible and block approval/build |
 | Review | Read the full CV and cover letter in the Review tab; add scoped comments | Exact presentation digest and append-only feedback | Open feedback or any content change makes presentation/sign-off stale |
 | Approve | Tick exact-bundle confirmation and name the reviewer | Approval digest bound to the current presentation | Chat approval, partial review or stale content is refused |
 | Build | Use Approve & build after sign-off | Dated human-readable folder, verified manifest, direct CV/letter links | Build gate errors remain visible; no silent force path is exposed |
@@ -114,6 +114,7 @@ is visible in the application ledger but is not a task.
 |---|---|---|
 | Captured JD | Review preflight decisions | Per-gap proceed/stop decisions or a verified no-decision preflight |
 | Review ready | Open complete review | Current CV and cover letter, then feedback or sign-off |
+| Blocking output gate | Inspect Evidence | Exact gate, summary and detail; approval remains unavailable until a new valid plan clears it |
 | Open feedback | Resolve feedback | Append-only adopted/rejected decision with rationale and validation |
 | Approved bundle | Open submission desk | Hash-bound exact-submission receipt |
 | Missing submission metadata | Update record | Corrected date/channel, attached late portal evidence, or explicit `unavailable` state |
@@ -139,6 +140,8 @@ all been specified and covered by a regression test.
   validation, so chat suggestions do not disappear into conversation history.
 - Overview shows each touchpoint's expected output beside the durable output
   actually observed. Only the first incomplete touchpoint is labelled current.
+- Review and Evidence show deterministic output-gate blockers before sign-off;
+  a blocked bundle never exposes **Approve & build** only to fail afterwards.
 
 ### Codex panel
 
@@ -261,6 +264,8 @@ This is a deliberate authority boundary, not an unfinished dashboard feature.
   exact cause and become a blocking system-level Attention item; evidence is
   never silently re-hashed or re-trusted.
 - Approval cannot precede complete presentation or bypass open feedback.
+- A blocking output gate appears in Review, Evidence, Attention and the
+  touchpoint proof, and withholds the approval control.
 - Submission accepts only verified package artefacts and preserves optional
   screening evidence with a digest.
 - Outcome capture preserves exact employer text when supplied and never invents
