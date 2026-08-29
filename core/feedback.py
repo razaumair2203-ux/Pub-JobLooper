@@ -2,7 +2,7 @@
 
 Feedback is neither career truth nor an automatic prompt mutation.  It becomes
 an actionable review gate: an open item blocks sign-off, and every feedback
-event invalidates an earlier chat presentation so the user sees the result of
+event invalidates an earlier complete-review presentation so the user sees the result of
 the decision before documents can be rendered.
 """
 from . import store

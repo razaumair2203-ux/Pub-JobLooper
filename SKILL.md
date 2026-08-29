@@ -40,6 +40,11 @@ must be discoverable; copying only `SKILL.md` is not a functional installation.
    Retained risks or exact positive outcomes from sufficiently similar
    applications remain context, never causal proof.
    Then run `python jl.py plan <key>` once per unchanged truth/JD/feedback state.
+   In the dashboard, **Save & generate CV + letter** performs these two governed
+   transitions in sequence, and **Generate CV & letter** runs the same
+   deterministic plan after a completed preflight. Routine generation must not
+   depend on a conversational stream completing; use Codex for contextual
+   review and material improvement decisions.
    Treat registered atomic truth records as
    candidate ground truth; archives are provenance inputs, not a runtime search
    corpus. Do not turn employer research into candidate truth.
@@ -50,8 +55,9 @@ must be discoverable; copying only `SKILL.md` is not a functional installation.
    Apply the per-section rules in
    [section contracts](references/section-contracts.md).
 5. Run `python jl.py present <key>` and place its complete output—CV first,
-   cover letter second—in chat. Obtain explicit user sign-off on that exact
-   bundle. Any change requires a new complete presentation.
+   cover letter second—in chat, or expose the same complete content in the
+   dashboard Review tab. Obtain explicit user sign-off on that exact bundle.
+   Any change requires a new complete presentation.
 6. Only after sign-off, run `approve`, then `build`. Report the absolute dated
    application-folder path and direct CV and cover-letter paths. Use `show` or
    `open`, so the user never has to hunt through internal folders. Do not call
@@ -109,6 +115,11 @@ must be discoverable; copying only `SKILL.md` is not a functional installation.
    expose any durable partial output (including prepared preflight decisions),
    and offer safe resume plus direct workspace access. Resume must re-read the
    current gate and repeat no completed mutation; it never implies approval.
+   Every lifecycle touchpoint must publish its expected output and observed
+   durable state in the job workspace. After any mutation, re-read the
+   dashboard projection; never keep a pre-action snapshot as the visible gate.
+   If generation returns without both CV and cover-letter records, fail the
+   action visibly instead of reporting preparation complete.
 
 Treat the dashboard as a living product: turn user feedback into a specific
 journey problem and acceptance check, improve the authoritative private source,

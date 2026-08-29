@@ -162,7 +162,7 @@ def write_status(slug, state, manifest=None):
                   '- Structured JD: [jd.json](jd.json)']
         if os.path.isfile(os.path.join(work, 'PREVIEW.md')):
             lines.append('- Internal evidence plan: [PREVIEW.md](PREVIEW.md)')
-        lines += ['', ('The complete CV and cover letter were presented in chat. Await explicit approval; '
+        lines += ['', ('The complete CV and cover letter were presented for user review. Await explicit approval; '
                        'no job artefact folder or employer-facing document exists yet.'
                        if state == 'PRESENTED' else
                        'Run `jl present <job>` and show the complete CV and cover letter in chat.'), '']
@@ -370,15 +370,15 @@ def validate_presentation(slug):
     d = store.job_dir(slug)
     record = store.read_json(os.path.join(d, PRESENTATION_NAME))
     if not record or record.get('channel') != 'CHAT':
-        return None, ['complete CV and cover letter have not been presented in chat']
+        return None, ['complete CV and cover letter have not been bound to a user review']
     errors = []
     if record.get('plan_sha256') != plan_digest(slug):
-        errors.append('chat presentation is stale: plan artefacts changed')
+        errors.append('complete-review presentation is stale: plan artefacts changed')
     content = presentation_content(slug)
     if record.get('content_sha256') != store.sha256_text(content):
-        errors.append('chat presentation is stale: presented CV content changed')
+        errors.append('complete-review presentation is stale: presented CV content changed')
     if record.get('feedback_sha256') != feedback.digest(slug):
-        errors.append('chat presentation is stale: user feedback changed')
+        errors.append('complete-review presentation is stale: user feedback changed')
     return record, errors
 
 
@@ -401,7 +401,7 @@ def approve(slug, reviewer, judgments, note='', user_signoff=False):
     if absent:
         raise ValueError('every judgment gate must be explicitly PASS: ' + ', '.join(absent))
     if user_signoff is not True:
-        raise ValueError('explicit user sign-off is required after the complete chat presentation')
+        raise ValueError('explicit user sign-off is required after the complete user review')
     presentation, presentation_errors = validate_presentation(slug)
     if presentation_errors:
         raise ValueError('; '.join(presentation_errors))
@@ -456,7 +456,7 @@ def validate_approval(slug):
     if approval.get('user_signoff') is not True:
         errors.append('approval has no explicit user sign-off')
     if presentation and approval.get('presentation_sha256') != presentation.get('content_sha256'):
-        errors.append('approval is not bound to the current chat presentation')
+        errors.append('approval is not bound to the current complete-review presentation')
     if approval.get('feedback_sha256') != feedback.digest(slug):
         errors.append('approval is stale: user feedback changed')
     pending_feedback = feedback.open_items(slug)

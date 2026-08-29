@@ -38,6 +38,7 @@ if [ "$SCOPE" = "full" ]; then
 fi
 if [ "$SCOPE" != "mirror" ]; then
   check "local dashboard" python -B tests/test_dashboard.py
+  check "dashboard journey" python -B tests/test_dashboard_journey.py
 fi
 check "standalone skill installation" python -B tests/test_installability.py
 if [ "$SCOPE" != "dashboard" ]; then

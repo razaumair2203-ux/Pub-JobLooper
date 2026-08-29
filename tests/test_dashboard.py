@@ -95,6 +95,9 @@ def main():
         checks.append(('active job projection preserves durable workspace state',
                        bool(active_job['updated_at'])
                        and isinstance(active_job['feedback_items'], list)
+                       and len(active_job['touchpoints']) == 8
+                       and active_job['touchpoints'][0]['status'] == 'complete'
+                       and active_job['touchpoints'][1]['status'] == 'current'
                        and active_job['workflow']['captured'] is True
                        and active_job['workflow']['preflight'] is False
                        and active_job['workflow']['preflight_questions'] is False
@@ -134,7 +137,9 @@ def main():
                        and "$('#primary-action').addEventListener('click'" in app_script
                        and "if (action === 'preflight')" in app_script
                        and 'function openPreflight(job)' in app_script
-                       and "'/api/actions/preflight'" in app_script))
+                       and "'/api/actions/preflight'" in app_script
+                       and 'function prepareApplication(job, source = null)' in app_script
+                       and "'/api/actions/prepare'" in app_script))
         checks.append(('URL fallback binds the captured job to deterministic preflight',
                        'state.agentJob = captured[0]' in app_script
                        and 'await openPreflight(captured[0])' in app_script
@@ -152,8 +157,10 @@ def main():
                        and 'function resumeInterruptedTurn()' in app_script
                        and 'repeat no completed mutation' in app_script
                        and 'state.taskPollFailures >= 3' in app_script))
-        checks.append(('job-scoped CV requests receive the application-work profile',
+        checks.append(('job-scoped generation requests use the durable prepare action',
                        'function composerIntent(message)' in app_script
+                       and 'function isPreparationRequest(message)' in app_script
+                       and 'prepareApplication(state.agentJob)' in app_script
                        and "state.agentJob ? 'auto' : 'ask'" in app_script
                        and 'composerIntent(message)' in app_script
                        and codex_bridge.resolve_intent(
@@ -361,6 +368,7 @@ def main():
                            and session['capabilities']['intake'] is True
                            and session['capabilities']['url_intake'] is True
                            and session['capabilities']['structured_preflight'] is True
+                           and session['capabilities']['deterministic_prepare'] is True
                            and session['capabilities']['feedback_resolution'] is True
                            and session['capabilities']['submission_update'] is True
                            and session['capabilities']['record_outcome'] is True

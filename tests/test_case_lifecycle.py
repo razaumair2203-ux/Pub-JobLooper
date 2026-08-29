@@ -158,7 +158,8 @@ def main():
                            'RESPONSES.jsonl', 'OUTCOME.json', 'REASONING.jsonl'))))
         event_names = [event['event'] for event in case['events']]
         checks.append(('timeline connects package, submission, outcome and reasoning',
-                       event_names == ['APPLICATION_BUNDLE_PRESENTED_IN_CHAT',
+                       event_names == ['PREFLIGHT_RECORDED',
+                                       'APPLICATION_BUNDLE_PRESENTED_IN_CHAT',
                                        'APPROVED_ARTEFACTS_BUILT',
                                        'SUBMITTED', 'APPLICATION_RECORDED',
                                        'EMPLOYER_RESPONSE_INGESTED', 'OUTCOME',

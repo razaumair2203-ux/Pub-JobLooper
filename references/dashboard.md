@@ -23,11 +23,12 @@ The dashboard is a governed front door over the existing Joblooper store and
 CLI. It is not a second application engine.
 
 - **Deterministic controller:** intake identity, truth readiness, preflight,
-  presentation freshness, feedback invalidation, sign-off, document build,
+  baseline CV/letter planning from approved variants, presentation freshness,
+  feedback invalidation, sign-off, document build,
   manifest verification, exact submission binding, response correlation and
   KPI calculation.
-- **Codex:** contextual questioning, JD/profile reasoning, application planning,
-  drafting through the governed pipeline, feedback discussion and hypothesis
+- **Codex:** contextual questioning, JD/profile reasoning, positioning review,
+  feedback discussion and hypothesis
   challenge. Codex cannot turn a chat statement into candidate truth, approval,
   external submission or an employer-stated cause.
 - **User:** supplies missing facts, reviews the complete CV and cover letter,
@@ -46,8 +47,8 @@ records used by the CLI.
 | Journey step | Applicant interaction | Controller and proof of completion | Fail-closed behaviour |
 |---|---|---|---|
 | Capture | Paste the official job URL; use manual fields only after both access routes fail | Bounded URL extractor, then scoped Codex URL fallback, then deterministic `ingest`; when both access routes fail, the manual-paste panel reopens automatically with the URL preserved and the first missing field focused | Private-network URLs, blocked pages, incomplete content and search-snippet reconstruction are refused; advert prose is never candidate truth |
-| Preflight | Review only unresolved fit decisions; use Codex only when a gap needs explanation | Deterministic JD/truth match plus per-item governed `preflight` answers | Resolved facts are not re-asked; new evidence stops for truth review; chat cannot complete the gate |
-| Prepare | Discuss positioning and generate through the existing pipeline | Truth/JD/feedback fingerprints plus `match`, `cv`, `cover-letter` and risk records | Stale or unapproved truth, hard gates or unanswered questions stop generation |
+| Preflight | Review only unresolved fit decisions; use Codex only when a gap needs explanation | Deterministic JD/truth match plus per-item governed `preflight` answers; **Save & generate** durably records these before invoking preparation | Resolved facts are not re-asked; new evidence stops for truth review; chat cannot complete the gate |
+| Prepare | Select **Generate CV & letter**, or type an unambiguous generation request in the job panel | One allowlisted `plan` action revalidates truth/JD/preflight/feedback and must produce `match`, `cv`, `cover-letter` and risk records | The action does not rely on a Codex stream; missing CV or letter records are a visible failure; stale or unapproved truth, hard gates or unanswered questions stop generation |
 | Review | Read the full CV and cover letter in the Review tab; add scoped comments | Exact presentation digest and append-only feedback | Open feedback or any content change makes presentation/sign-off stale |
 | Approve | Tick exact-bundle confirmation and name the reviewer | Approval digest bound to the current presentation | Chat approval, partial review or stale content is refused |
 | Build | Use Approve & build after sign-off | Dated human-readable folder, verified manifest, direct CV/letter links | Build gate errors remain visible; no silent force path is exposed |
@@ -88,7 +89,7 @@ this operational surface.
 | Direct extraction blocked | Codex tries only the same official URL; if capture succeeds it binds the job and opens the same deterministic control used by direct intake | Preflight decisions; otherwise the automatically reopened manual form |
 | Preflight incomplete | `Preflight` gate open; resolved facts omitted; remaining known gaps and their consequences visible | Save proceed/stop decisions in Preflight; chat is optional clarification |
 | Codex interrupted | `Thinking` ends; current governed files are re-read; registered artefacts and their absence remain visible and the failure is labelled without assuming completion | Resume safely from the next incomplete contextual task or open the application workspace |
-| Plan generated | Evidence coverage, requirement classes, hard gaps, risk record and draft availability | Open complete CV-and-letter review |
+| Plan generated | Evidence coverage, requirement classes, hard gaps, risk record, clickable CV/letter records and draft availability | Open complete CV-and-letter review |
 | User reviews | Exact complete bundle remains readable in the Review tab | Add a scoped comment or mark the complete bundle presented |
 | User comments | All open and resolved comments remain attached to the job; open items block approval | Resolve, regenerate if adopted, then re-present |
 | User approves/builds | Direct verified CV and cover-letter links appear in the same workspace | External upload and exact submission record |
@@ -136,6 +137,8 @@ all been specified and covered by a regression test.
 - Timeline shows immutable lifecycle events.
 - Comments shows both open and resolved review feedback with implementation and
   validation, so chat suggestions do not disappear into conversation history.
+- Overview shows each touchpoint's expected output beside the durable output
+  actually observed. Only the first incomplete touchpoint is labelled current.
 
 ### Codex panel
 
@@ -162,9 +165,10 @@ all been specified and covered by a regression test.
   and offers a deliberate safe resume that first re-reads the job and repeats no
   completed mutation. A prepared preflight-decision file is a visible partial
   artefact, not proof that preflight was reviewed.
-- A free-form job-scoped request to prepare, generate or tailor a CV/application
-  receives the application-work execution profile; ordinary questions remain
-  proportional. This routing changes reasoning effort, never factual authority.
+- A free-form, unambiguous job-scoped request to prepare, generate or tailor a
+  CV/application calls the same deterministic prepare action as the visible
+  button. Ordinary questions and improvement discussions remain Codex turns.
+  This routing changes execution, never factual authority or approval state.
 
 ### Live-version continuity
 
@@ -231,6 +235,12 @@ This is a deliberate authority boundary, not an unfinished dashboard feature.
   Codex URL fallback binds the new job and opens the same deterministic preflight.
 - Reopening Preflight returns the existing decision state and never starts a
   duplicate Codex turn; every legitimate decision is answerable in the dialog.
+- Saving proceed decisions refreshes the durable job state and either opens the
+  generated complete review or reports the exact planning failure. It cannot
+  remain labelled `awaiting review` after a valid current preflight record.
+- Every application exposes Capture, Preflight, Prepare, Review, Approve, Build,
+  Submit and Outcome with expected-versus-observed output; an executable journey
+  test verifies each state transition and its required artefacts.
 - A failed stream cannot remain labelled `Thinking`; retry inputs and any
   durable partial artefact survive, and three failed task polls stop rather than
   creating an infinite reconnect loop.

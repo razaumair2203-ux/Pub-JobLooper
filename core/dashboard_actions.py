@@ -174,6 +174,29 @@ def review_preflight(job_id, answers, reviewer='dashboard-user'):
     return result
 
 
+def prepare_application(job_id):
+    """Create the governed review records without relying on a Codex turn.
+
+    Planning is already deterministic: the CLI revalidates truth, the exact JD,
+    preflight decisions and open feedback before writing any output.  Keeping
+    this as one allowlisted dashboard action means a dropped conversation can
+    never leave the user wondering whether the CV was actually created.
+    """
+    current = preflight_state(job_id)
+    if not current['complete']:
+        raise ValueError(
+            'Preflight decisions are not complete for the current JD and approved truth')
+    result = _run_cli(['plan', current['job_id']], timeout=180)
+    if not result['ok']:
+        raise ValueError(result['output'] or 'CV and cover-letter preparation failed')
+    review = presentation(current['job_id'])
+    if not review['available']:
+        raise RuntimeError(
+            'Planning completed but the complete CV-and-cover-letter review is unavailable')
+    result['review'] = review
+    return result
+
+
 def record_feedback(job_id, scope, note, author='dashboard-user'):
     scope = str(scope or '').strip().lower()
     note = str(note or '').strip()

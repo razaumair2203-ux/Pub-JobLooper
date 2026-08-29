@@ -34,7 +34,7 @@ CAUSE_LABELS = {
     'NO_SIGNAL': 'No reliable signal',
 }
 ATTENTION_ROUTES = frozenset({
-    'artifacts', 'codex_outcome', 'codex_prepare', 'feedback', 'outcome',
+    'artifacts', 'codex_outcome', 'feedback', 'outcome', 'prepare',
     'preflight', 'review_bundle', 'submission', 'submission_metadata',
     'truth_integrity',
 })
@@ -56,7 +56,7 @@ ARTIFACT_LABELS = {
     'employer_context': ('Employer context', 'Evidence'),
     'audit': ('Gate audit', 'Governance'),
     'approval': ('Approval record', 'Governance'),
-    'presentation': ('Chat presentation receipt', 'Governance'),
+    'presentation': ('Complete-review receipt', 'Governance'),
     'feedback': ('Feedback snapshot', 'Governance'),
     'oversight': ('Oversight review', 'Governance'),
     'source_manifest': ('Source manifest', 'Governance'),
@@ -79,8 +79,15 @@ WORK_ARTIFACTS = {
         'PRE-GENERATION-QUESTIONS.md',
         'Preflight decisions · awaiting review', 'Review'),
     'match_record': ('match.json', 'Requirement evidence map', 'Evidence'),
+    'cv_record': ('cv.json', 'CV · review record', 'Review'),
+    'letter_record': (
+        'cover-letter.json', 'Cover letter · review record', 'Review'),
+    'risk_record': ('employer-risk.json', 'Employer-risk record', 'Evidence'),
     'preview': ('PREVIEW.md', 'Evidence review', 'Evidence'),
     'risk_review': ('EMPLOYER-RISK.md', 'Employer-risk review', 'Evidence'),
+    'presentation_record': (
+        'presentation.json', 'Complete-review receipt', 'Governance'),
+    'approval_record': ('approval.json', 'Approval record', 'Governance'),
     'oversight': ('OVERSIGHT.md', 'Oversight review', 'Governance'),
     'case': ('CASE.md', 'Decision case', 'Outcome'),
     'outcome': ('outcome.json', 'Outcome record', 'Outcome'),
@@ -113,7 +120,7 @@ def _phase(slug, app, package, work_state):
         return 'applied'
     if package:
         return 'approved'
-    if work_state in {'presented', 'planned', 'review', 'reviewed'}:
+    if work_state in {'plan', 'presented', 'planned', 'review', 'reviewed'}:
         return 'review'
     return 'captured'
 
@@ -141,8 +148,8 @@ def _next_action(phase, app, work_state):
         return 'Submit the exact approved bundle and capture portal answers'
     if phase == 'review':
         if work_state == 'presented':
-            return 'Review the complete CV and cover letter in chat, then sign off'
-        return 'Present the complete CV and cover letter in chat'
+            return 'Review the complete CV and cover letter, then sign off'
+        return 'Read the complete CV and cover letter, then bind the review'
     return 'Run preflight and create the evidence plan'
 
 
@@ -381,12 +388,82 @@ def _job_snapshot(slug, applications, events):
             next_action = 'Review the prepared fit decisions before CV planning'
         elif preflight_errors:
             next_action = 'Complete or refresh deterministic preflight'
+        elif not plan_available:
+            next_action = 'Generate the CV and cover-letter review bundle'
         elif open_feedback:
             next_action = 'Resolve governed feedback before approval'
         elif plan_available and presentation_errors:
             next_action = 'Review and bind the complete current CV and cover letter'
         elif presentation_record and not presentation_errors and approval_errors:
             next_action = 'Resolve the approval gate against the current presentation'
+    workflow = {
+        'captured': bool(jd),
+        'preflight': bool(exact_submitted_history
+                          or (preflight_record and not preflight_errors)),
+        'preflight_questions': preflight_questions_available,
+        'preflight_errors': preflight_errors,
+        'plan': plan_available,
+        'presentation': bool(exact_submitted_history
+                             or (presentation_record and not presentation_errors)),
+        'presentation_errors': presentation_errors,
+        'approval': bool(exact_submitted_history
+                         or (approval_record and not approval_errors)),
+        'approval_errors': approval_errors,
+        'package': bool(package),
+        'submission': bool(app),
+        'outcome': phase in {'progressed', 'rejected', 'closed'},
+        'open_feedback': len(open_feedback),
+        'can_review': plan_available,
+        'can_approve': bool(presentation_record and not presentation_errors
+                            and not open_feedback),
+        'can_submit': bool(package and not app and not submission),
+        'can_record_outcome': bool(
+            app and exact_submission and submission_receipt
+            and not submission_errors),
+    }
+    touchpoint_specs = [
+        ('capture', 'Capture exact JD', workflow['captured'],
+         'Exact source advert and structured JD record',
+         'Exact JD is captured' if workflow['captured'] else 'No JD is captured'),
+        ('preflight', 'Resolve preflight', workflow['preflight'],
+         'Digest-bound decision record for every material fit question',
+         ('Decisions are saved for the current JD and truth'
+          if workflow['preflight'] else 'Material decisions still require review')),
+        ('prepare', 'Generate review bundle', workflow['plan'],
+         'CV, cover-letter, evidence-map and employer-risk records',
+         ('CV and cover-letter review records are available'
+          if workflow['plan'] else 'CV and cover letter have not been created')),
+        ('review', 'Review complete bundle', workflow['presentation'],
+         'Full CV and letter plus a current presentation receipt',
+         ('Complete bundle is bound to the current review'
+          if workflow['presentation'] else
+          ('Complete bundle is ready to read' if workflow['plan']
+           else 'No complete bundle is available'))),
+        ('approve', 'Approve exact bundle', workflow['approval'],
+         'Explicit user sign-off bound to the current presentation',
+         ('Approval is recorded' if workflow['approval'] else 'User sign-off is not recorded')),
+        ('build', 'Build sendable files', workflow['package'],
+         'Dated verified CV/letter package and manifest',
+         ('Verified package is available' if workflow['package']
+          else 'No sendable documents have been built')),
+        ('submit', 'Record exact submission', workflow['submission'],
+         'Hash-bound sent-file receipt and portal-evidence state',
+         ('Exact submission record exists' if workflow['submission']
+          else 'External submission is not recorded')),
+        ('outcome', 'Record observed outcome', workflow['outcome'],
+         'Employer observation kept separate from hypotheses',
+         ('Observed outcome is recorded' if workflow['outcome']
+          else 'No employer outcome is recorded')),
+    ]
+    first_open = next((row[0] for row in touchpoint_specs if not row[2]), None)
+    touchpoints = [{
+        'id': identifier,
+        'label': label,
+        'status': ('complete' if complete else
+                   'current' if identifier == first_open else 'pending'),
+        'expected_output': expected,
+        'actual_output': actual,
+    } for identifier, label, complete, expected, actual in touchpoint_specs]
     activity_dates = [str(jd.get('ingested') or '')]
     activity_dates.extend(str(row.get('at') or '') for row in timeline)
     activity_dates.extend(str(row.get('modified_at') or '') for row in artifacts)
@@ -447,30 +524,8 @@ def _job_snapshot(slug, applications, events):
             + list((app or {}).get('submission_integrity_exceptions') or []))),
         'outputs': key_outputs,
         'output_count': output_count,
-        'workflow': {
-            'captured': bool(jd),
-            'preflight': bool(exact_submitted_history
-                              or (preflight_record and not preflight_errors)),
-            'preflight_questions': preflight_questions_available,
-            'preflight_errors': preflight_errors,
-            'plan': plan_available,
-            'presentation': bool(exact_submitted_history
-                                 or (presentation_record and not presentation_errors)),
-            'presentation_errors': presentation_errors,
-            'approval': bool(exact_submitted_history
-                             or (approval_record and not approval_errors)),
-            'approval_errors': approval_errors,
-            'package': bool(package),
-            'submission': bool(app),
-            'open_feedback': len(open_feedback),
-            'can_review': plan_available,
-            'can_approve': bool(presentation_record and not presentation_errors
-                                and not open_feedback),
-            'can_submit': bool(package and not app and not submission),
-            'can_record_outcome': bool(
-                app and exact_submission and submission_receipt
-                and not submission_errors),
-        },
+        'workflow': workflow,
+        'touchpoints': touchpoints,
         'open_feedback': [{
             'id': row.get('id'), 'scope': row.get('scope'),
             'note': row.get('note'), 'opened_at': row.get('opened_at'),
@@ -623,8 +678,8 @@ def build_snapshot(include_private=False):
             else:
                 add_attention(
                     job, 'prepare', 'Prepare the CV and cover letter',
-                    'Preflight is complete. Codex can now tailor the bundle from approved truth.',
-                    'Prepare application', 'codex_prepare')
+                    'Preflight is complete. Generate the review bundle from the exact JD and approved truth.',
+                    'Generate review bundle', 'prepare')
         elif job['phase'] == 'review':
             if workflow.get('can_approve'):
                 add_attention(
@@ -806,6 +861,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 'capabilities': {
                     'intake': True, 'url_intake': True, 'feedback': True, 'review': True,
                     'structured_preflight': True,
+                    'deterministic_prepare': True,
                     'feedback_resolution': True, 'submission_update': True,
                     'approve_build': True, 'record_submission': True,
                     'record_outcome': True, 'outcome_update': True,
@@ -918,6 +974,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 result = dashboard_actions.review_preflight(
                     body.get('job_id'), body.get('answers') or {},
                     body.get('reviewer') or 'dashboard-user')
+                return self._json({'ok': True, 'result': result})
+            if parsed.path == '/api/actions/prepare':
+                result = dashboard_actions.prepare_application(body.get('job_id'))
                 return self._json({'ok': True, 'result': result})
             if parsed.path == '/api/actions/present':
                 result = dashboard_actions.mark_presented(body.get('job_id'))

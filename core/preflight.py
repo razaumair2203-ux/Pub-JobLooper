@@ -211,7 +211,26 @@ def create(slug, jd, mapping, identity, reviewer=None, note=None, answers=None):
     }
     if structured_answers is not None:
         record['answers'] = structured_answers
+    existing = store.read_json(path(slug), {}) or {}
+    comparable = ('_schema', 'app_id', 'subject_sha256', 'questions', 'decision',
+                  'reviewer', 'note', 'answers')
+    event = {
+        'event': 'PREFLIGHT_RECORDED', 'app_id': slug,
+        'subject_sha256': record['subject_sha256'],
+        'decision': record['decision'], 'reviewer': record['reviewer'],
+        'decision_count': len(rows),
+    }
+    event_exists = any(
+        row.get('event') == 'PREFLIGHT_RECORDED'
+        and row.get('app_id') == slug
+        and row.get('subject_sha256') == record['subject_sha256']
+        for row in store.application_events())
+    if all(existing.get(key) == record.get(key) for key in comparable):
+        if not event_exists:
+            store.append_application_event(event)
+        return existing
     store.write_json(path(slug), record)
+    store.append_application_event(event)
     return record
 
 

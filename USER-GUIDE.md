@@ -86,8 +86,8 @@ The local workspace answers what is in progress, what needs attention, which
 exact files belong to each job, which outcomes were observed, and which
 rejection lessons survived challenge. It is also the simplest front door:
 paste the official job URL, let Joblooper extract the employer, title and full
-advert, resolve the deterministic preflight decisions, ask Codex to prepare the
-application, and review the
+advert, resolve the deterministic preflight decisions, select **Generate CV &
+letter**, and review the
 complete CV and letter, add comments, approve and build, record the exact sent
 files and portal answers, and paste the employer response. The same CLI gates
 control every action; the dashboard does not maintain a second database.

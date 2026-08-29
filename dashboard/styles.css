@@ -737,6 +737,20 @@ h1 em { color: var(--text-soft); font-style: normal; font-weight: 420; }
 .workflow-step::before { content: ""; display: block; width: 8px; height: 8px; margin: 0 auto 7px; border: 2px solid currentColor; border-radius: 50%; }
 .workflow-step.done { color: var(--green); background: var(--green-soft); }
 .workflow-step.current { color: var(--cyan); border-color: color-mix(in srgb, var(--cyan) 45%, transparent); background: var(--cyan-soft); }
+.touchpoint-proof { margin-top: 12px; border: 1px solid var(--line); border-radius: 11px; overflow: hidden; }
+.touchpoint-proof article { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: start; padding: 10px 12px; border-bottom: 1px solid var(--line); background: var(--surface); }
+.touchpoint-proof article:last-child { border-bottom: 0; }
+.touchpoint-proof i { width: 8px; height: 8px; margin-top: 4px; border: 2px solid var(--muted); border-radius: 50%; }
+.touchpoint-proof div { display: grid; gap: 2px; }
+.touchpoint-proof strong { font-size: .67rem; font-weight: 620; }
+.touchpoint-proof span { color: var(--text-soft); font-size: .62rem; }
+.touchpoint-proof small { color: var(--muted); font-size: .56rem; }
+.touchpoint-proof b { color: var(--muted); font-size: .55rem; letter-spacing: .06em; text-transform: uppercase; }
+.touchpoint-proof article[data-status="complete"] i { border-color: var(--green); background: var(--green); }
+.touchpoint-proof article[data-status="complete"] b { color: var(--green); }
+.touchpoint-proof article[data-status="current"] { background: var(--cyan-soft); }
+.touchpoint-proof article[data-status="current"] i { border-color: var(--cyan); }
+.touchpoint-proof article[data-status="current"] b { color: var(--cyan); }
 .review-sheet { padding: 22px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
 .review-sheet pre { margin: 0; color: var(--text-soft); white-space: pre-wrap; overflow-wrap: anywhere; font: 400 .74rem/1.65 Aptos, "Segoe UI", sans-serif; }
 .review-toolbar { position: sticky; top: 49px; z-index: 1; display: flex; justify-content: space-between; gap: 12px; align-items: center; margin: -24px -30px 18px; padding: 11px 30px; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--surface-solid) 94%, transparent); backdrop-filter: blur(14px); }
