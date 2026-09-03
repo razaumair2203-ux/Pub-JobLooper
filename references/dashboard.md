@@ -1,5 +1,12 @@
 # Dashboard product and control contract
 
+> This file documents the currently implemented application dashboard. The
+> dashboard-first ground-truth journey, complete control audit, and prioritized
+> remediation plan are defined in
+> [`user-journey-control-audit.md`](user-journey-control-audit.md). Where this
+> contract begins with job capture, the target first-run journey establishes and
+> signs candidate truth before job intake.
+
 ## Applicant persona
 
 The primary user is an experienced applicant pursuing a small number of
