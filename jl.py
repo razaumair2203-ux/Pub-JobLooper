@@ -346,6 +346,88 @@ def cmd_ingest(args):
     say(f"  next: jl plan {slug}")
 
 
+def _requirement_signature(jd):
+    """Return the parser-owned part of a JD record for stable comparisons."""
+    return [{
+        'n': row.get('n'),
+        'text': row.get('text'),
+        'kind': row.get('kind'),
+        'hard_gate': bool(row.get('hard_gate')),
+        'gate_type': row.get('gate_type'),
+    } for row in jd.get('requirements') or []]
+
+
+def cmd_refresh_jd(args):
+    """Reparse the exact captured source after deterministic parser changes."""
+    require_truth_integrity('JD ANALYSIS REFRESH')
+    slug = store.resolve_job(args.job)
+    d = store.job_dir(slug)
+    raw_path = os.path.join(d, 'jd.raw.md')
+    jd_path = os.path.join(d, 'jd.json')
+    raw = store.read_text(raw_path)
+    previous = store.read_json(jd_path, {}) or {}
+    if not raw.strip() or not previous:
+        raise SystemExit(
+            'JD ANALYSIS REFRESH REFUSED â€” exact captured source and structured JD are required')
+    if any(row.get('app_id') == slug for row in store.applications()):
+        raise SystemExit(
+            'JD ANALYSIS REFRESH REFUSED â€” submitted application history is immutable')
+
+    refreshed = match.parse_jd(
+        raw, title=previous.get('title'), company=previous.get('company'),
+        url=previous.get('url'), job_reference=previous.get('job_reference'))
+    refreshed['_slug'] = slug
+    refreshed['ingested'] = previous.get('ingested') or refreshed.get('ingested')
+    refreshed['raw_sha256'] = store.sha256_text(raw)
+    old_signature = _requirement_signature(previous)
+    new_signature = _requirement_signature(refreshed)
+    if (old_signature == new_signature
+            and previous.get('raw_sha256') == refreshed.get('raw_sha256')):
+        say(f"analysis current  {slug}")
+        say(f"  {len(new_signature)} structured requirements; nothing changed")
+        return 0
+
+    # Complete every fallible read-only derivation before invalidating an
+    # approved generated package or writing the refreshed source analysis.
+    try:
+        identity = match.pick_identity(refreshed)
+        mapping = match.match_jd(refreshed, identity)
+        questions = preflight.questions(refreshed, mapping, identity)
+        question_report = preflight.to_markdown(
+            refreshed, identity, questions)
+    except (OSError, TypeError, ValueError) as error:
+        raise SystemExit(
+            'JD ANALYSIS REFRESH REFUSED — preflight discovery failed before '
+            f'any records changed: {error}')
+
+    try:
+        retired = release.invalidate_unsubmitted_package(
+            slug, 'refreshed JD analysis changed governed planning inputs')
+    except ValueError as error:
+        raise SystemExit(f'JD ANALYSIS REFRESH REFUSED â€” {error}')
+    old_sha = store.sha256_text(store.canonical_json(old_signature))
+    new_sha = store.sha256_text(store.canonical_json(new_signature))
+    store.write_json(jd_path, refreshed)
+    store.write_text(
+        os.path.join(d, 'PRE-GENERATION-QUESTIONS.md'), question_report)
+
+    release.write_status(slug, 'CAPTURED')
+    store.append_application_event({
+        'event': 'JD_ANALYSIS_REFRESHED', 'app_id': slug,
+        'jd_raw_sha256': refreshed['raw_sha256'],
+        'old_analysis_sha256': old_sha, 'new_analysis_sha256': new_sha,
+        'old_requirements': len(old_signature),
+        'new_requirements': len(new_signature),
+    })
+    release.write_dashboard()
+    say(f"analysis refreshed  {slug}")
+    say(f"  requirements  {len(old_signature)} -> {len(new_signature)}")
+    if retired:
+        say('  removed       stale approved unsubmitted folder')
+    say(f"  next: review `jl preflight {slug}` decisions against the complete analysis")
+    return 0
+
+
 # ---------------------------------------------------------------- plan
 
 def cmd_preflight(args):
@@ -1753,6 +1835,9 @@ def main():
     s.add_argument('--company', required=True); s.add_argument('--title', required=True)
     s.add_argument('--url'); s.set_defaults(fn=cmd_ingest)
 
+    s = sub.add_parser('refresh-jd'); s.add_argument('job')
+    s.set_defaults(fn=cmd_refresh_jd)
+
     s = sub.add_parser('preflight'); s.add_argument('job'); s.add_argument('--identity')
     s.add_argument('--user-reviewed', action='store_true')
     s.add_argument('--reviewer'); s.add_argument('--note'); s.add_argument('--answers-file')
@@ -1894,7 +1979,7 @@ def main():
         store.configure(args.data_dir)
         vec.reset_caches()
     mutating = {
-        'ingest', 'preflight', 'plan', 'present', 'approve', 'feedback', 'build', 'truth',
+        'ingest', 'refresh-jd', 'preflight', 'plan', 'present', 'approve', 'feedback', 'build', 'truth',
         'pdf', 'submit', 'apply', 'update-submission', 'outcome', 'response', 'reason',
     }
     needs_lock = args.cmd in mutating or (

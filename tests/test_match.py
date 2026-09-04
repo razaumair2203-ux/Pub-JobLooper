@@ -36,6 +36,21 @@ def main():
     mentor_class = match._exact_classification(
         'Professionally mentor an engineer against a learning and development plan.',
         [{'id': 'MENTOR-001', 'score': 0.5}], {'MENTOR-001': mentor_record})
+    unbulleted = match.parse_jd('''Key Responsibilities
+Engineering Management & Project Integration
+Accountability for the end-to-end engineering lifecycle, ensuring Quality, Cost, and Time targets.
+Integrating engineering activities with Procurement, Construction, and Commissioning to prevent functional silos.
+Required Qualifications
+Bachelor's degree in Electrical Engineering or related field
+Professional fluency in English for international stakeholders.
+Understanding of project execution risks and financial processes.
+Desired Characteristics
+Conducting detailed design reviews for substation steel structures, electrical safety clearances, and cable routing.
+Professional fluency in Arabic for effective communication with local clients.
+Demonstrated understanding of High Voltage equipment design review, supplemented by Factory Acceptance Tests.
+Additional Information
+Relocation Assistance Provided: No''')
+    parsed = unbulleted['requirements']
     checks = [
         ('degree is matched only to education evidence',
          rows[1]['match'] == 'DIRECT' and rows[1]['anchors'][0]['id'] == 'EDU-001'),
@@ -50,6 +65,16 @@ def main():
          invisible['covered'] == 0 and invisible['coverage'] == 0),
         ('professional mentoring resolves to direct mentoring evidence',
          mentor_class[0] == 'DIRECT' and mentor_class[2] == 'MENTOR-001'),
+        ('mandatory language and location eligibility are hard gates',
+         match._is_hard_gate('Professional fluency in English.', 'mandatory')
+         and match._is_hard_gate('Ability to live and work in Riyadh.', 'mandatory')),
+        ('unbulleted section items survive normalized job-page extraction',
+         len(parsed) == 8
+         and [row['kind'] for row in parsed] == [
+             'responsibility', 'responsibility', 'mandatory', 'mandatory',
+             'mandatory', 'preferred', 'preferred', 'preferred']
+         and any('fluency in English' in row['text'] for row in parsed)
+         and all('Relocation Assistance' not in row['text'] for row in parsed)),
     ]
     for name, ok in checks:
         print(f"  {'ok  ' if ok else 'FAIL'} {name}")

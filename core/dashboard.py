@@ -16,8 +16,9 @@ import webbrowser
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import (codex_bridge, dashboard_actions, dashboard_runtime, feedback, gates,
-               integrity, learning, match, preflight, release, store, truth_review)
+from . import (codex_bridge, dashboard_actions, dashboard_runtime, employer_review,
+               feedback, gates, integrity, learning, match, preflight, release,
+               store, truth_review)
 
 
 STATIC_ROOT = store.code_p('dashboard')
@@ -34,7 +35,7 @@ CAUSE_LABELS = {
     'NO_SIGNAL': 'No reliable signal',
 }
 ATTENTION_ROUTES = frozenset({
-    'artifacts', 'build', 'codex_outcome', 'evidence', 'feedback', 'outcome', 'prepare',
+    'artifacts', 'build', 'cautions', 'codex_outcome', 'evidence', 'feedback', 'outcome', 'prepare',
     'preflight', 'review_bundle', 'submission', 'submission_metadata',
     'truth_integrity',
 })
@@ -261,10 +262,139 @@ def _hypotheses(app):
         order.get(row.get('status'), 9), -(row.get('confidence') or 0)))
 
 
+def _requirement_signature(jd):
+    return [{
+        'n': row.get('n'), 'text': row.get('text'), 'kind': row.get('kind'),
+        'hard_gate': bool(row.get('hard_gate')),
+        'gate_type': row.get('gate_type'),
+    } for row in jd.get('requirements') or []]
+
+
+def _analysis_state(slug, jd, raw):
+    """Compare stored parser output with a read-only parse of the exact source."""
+    if not jd or not raw.strip():
+        return {
+            'current': False, 'stored_count': len(jd.get('requirements') or []),
+            'detected_count': 0, 'raw_current': False,
+            'message': 'Exact captured source or structured analysis is missing.',
+        }, jd
+    candidate = match.parse_jd(
+        raw, title=jd.get('title'), company=jd.get('company'), url=jd.get('url'),
+        job_reference=jd.get('job_reference'))
+    candidate['_slug'] = slug
+    candidate['ingested'] = jd.get('ingested') or candidate.get('ingested')
+    candidate['raw_sha256'] = store.sha256_text(raw)
+    stored = _requirement_signature(jd)
+    detected = _requirement_signature(candidate)
+    # Legacy records predate raw_sha256 but can still be proven structurally
+    # current by an exact parser-owned requirement signature.
+    raw_current = (not jd.get('raw_sha256')
+                   or jd.get('raw_sha256') == candidate.get('raw_sha256'))
+    current = bool(raw_current and stored == detected)
+    message = ('Structured analysis matches the exact captured advert.' if current else
+               f'The saved analysis has {len(stored)} items; the current parser detects '
+               f'{len(detected)} from the same captured advert.')
+    return {
+        'current': current, 'stored_count': len(stored),
+        'detected_count': len(detected), 'raw_current': raw_current,
+        'message': message,
+    }, candidate
+
+
+def _risk_label(row):
+    if row.get('hard_gate') and row.get('kind') == 'mandatory':
+        return 'HARD GATE'
+    return {
+        'mandatory': 'REQUIRED', 'responsibility': 'RESPONSIBILITY',
+        'preferred': 'PREFERRED',
+    }.get(row.get('kind'), 'REVIEW')
+
+
+def _cautions_projection(slug, analysis, mapping, plan_current, historical=False):
+    """Keep internal decision support separate from employer-facing documents."""
+    directory = store.job_dir(slug)
+    jd = store.read_json(os.path.join(directory, 'jd.json'), {}) or {}
+    cv = store.read_json(os.path.join(directory, 'cv.json'), {}) or {}
+    report = store.read_json(os.path.join(directory, 'employer-risk.json'), {}) or {}
+    context = store.read_json(os.path.join(directory, 'EMPLOYER-CONTEXT.json'), {}) or None
+    report_errors = []
+    report_current = False
+    if plan_current and report and cv:
+        report_errors = employer_review.validate(report, jd, cv, context)
+        report_current = not report_errors and report.get('_schema') == employer_review.RISK_SCHEMA
+
+    if report_current:
+        risks = [{
+            'requirement_number': row.get('requirement_number'),
+            'requirement_label': row.get('requirement_label') or 'REVIEW',
+            'classification': row.get('classification'),
+            'text': row.get('text'), 'note': row.get('note') or '',
+            'closest_evidence_ids': row.get('closest_visible_anchor_ids') or [],
+            'cv_improvement_available': bool(row.get('cv_improvement_available')),
+        } for row in report.get('risks') or []]
+    else:
+        risks = []
+        for row in mapping.get('requirements') or []:
+            if row.get('match') not in {'GAP', 'PARTIAL', 'TRANSFERABLE'}:
+                continue
+            risks.append({
+                'requirement_number': row.get('n'),
+                'requirement_label': _risk_label(row),
+                'classification': row.get('match'), 'text': row.get('text'),
+                'note': row.get('note') or (
+                    'Approved truth does not directly evidence the full requirement.'),
+                'closest_evidence_ids': [
+                    item.get('id') for item in (row.get('anchors') or [])[:4]
+                    if item.get('id')],
+                'cv_improvement_available': False,
+            })
+
+    omissions = (cv.get('_selection') or {}).get('omitted') or [] if report_current else []
+    reviewable = [{
+        'id': row.get('id'),
+        'label': 'PROTECTED' if row.get('protected') else 'REVIEWABLE',
+        'reason': row.get('reason'),
+    } for row in omissions if row.get('significant') or row.get('protected')]
+    if historical:
+        status = 'HISTORICAL'
+        decision = report.get('decision') or 'HISTORICAL_RECORD'
+        reason = ('This submitted application retains the analysis and decision bound '
+                  'at submission time. Later parser changes do not rewrite history.')
+    elif not analysis['current']:
+        status = 'NEEDS_REFRESH'
+        decision = 'WITHDRAWN_PENDING_COMPLETE_ANALYSIS'
+        reason = ('The previous CV decision is not valid against the complete advert. '
+                  'Refresh the structured analysis, then review every new preflight item.')
+    elif report_current:
+        status = 'CURRENT'
+        decision = report.get('decision') or 'PENDING_REVIEW'
+        reason = report.get('decision_reason') or ''
+    else:
+        status = 'PRELIMINARY'
+        decision = 'PENDING_REVIEW'
+        reason = ('These are current JD-to-truth classifications. A final CV decision '
+                  'requires completed preflight and a current generated plan.')
+    return {
+        'status': status, 'analysis_current': analysis['current'],
+        'stored_requirement_count': analysis['stored_count'],
+        'detected_requirement_count': analysis['detected_count'],
+        'analysis_message': analysis['message'],
+        'decision': decision, 'decision_reason': reason,
+        'risk_count': len(risks), 'risks': risks,
+        'reviewable_omissions': reviewable,
+        'other_selection_omissions': max(0, len(omissions) - len(reviewable)),
+        'report_current': report_current, 'report_errors': report_errors,
+        'nonprediction': ('Requirement labels and evidence classifications do not predict '
+                          'rejection or reveal employer weighting or competition.'),
+    }
+
+
 def _job_snapshot(slug, applications, events):
     directory = store.job_dir(slug)
     jd = store.read_json(os.path.join(directory, 'jd.json'), {}) or {}
     match_record = store.read_json(os.path.join(directory, 'match.json'), {}) or {}
+    raw_jd = store.read_text(os.path.join(directory, 'jd.raw.md'))
+    analysis, analysed_jd = _analysis_state(slug, jd, raw_jd)
     approval = store.read_json(os.path.join(directory, 'approval.json'), {}) or {}
     app = applications.get(slug)
     package, manifest = release.load_release(slug)
@@ -305,12 +435,22 @@ def _job_snapshot(slug, applications, events):
 
     live_identity = match_record.get('identity') or None
     live_mapping = match_record
-    if jd and not match_record:
+    analysis_jd = analysed_jd if not analysis['current'] else {**jd, '_slug': slug}
+    mapping_stale = False
+    if analysis_jd and match_record:
         try:
-            candidate_jd = dict(jd)
-            candidate_jd['_slug'] = slug
-            live_identity = match.pick_identity(candidate_jd)
-            live_mapping = match.match_jd(candidate_jd, live_identity)
+            mapping_stale = ((match_record.get('_inputs') or {}).get('sha256')
+                             != store.generation_fingerprint(analysis_jd).get('sha256'))
+        except (OSError, ValueError, TypeError):
+            mapping_stale = True
+    if (analysed_jd and not app
+            and (not match_record or not analysis['current'] or mapping_stale)):
+        try:
+            identity_override = ((match_record.get('identity') or {}).get('primary')
+                                 if match_record else None)
+            live_identity = match.pick_identity(
+                analysis_jd, override=identity_override)
+            live_mapping = match.match_jd(analysis_jd, live_identity)
         except (OSError, ValueError, TypeError):
             live_identity = None
             live_mapping = {}
@@ -344,8 +484,12 @@ def _job_snapshot(slug, applications, events):
                      if row.get('status') == 'OPEN']
     plan_projection = dashboard_actions.plan_state(slug)
     plan_available = plan_projection['available']
-    plan_current = plan_projection['current']
+    plan_current = bool(plan_projection['current'] and analysis['current'])
     plan_errors = plan_projection['errors']
+    if not analysis['current']:
+        plan_errors = list(dict.fromkeys([
+            analysis['message'], *plan_errors,
+        ]))
     gate_blockers = []
     if plan_current:
         try:
@@ -364,14 +508,14 @@ def _job_snapshot(slug, applications, events):
     preflight_questions_available = os.path.isfile(os.path.join(
         directory, 'PRE-GENERATION-QUESTIONS.md'))
     preflight_errors = []
-    if jd and evidence_map:
+    if jd and evidence_map and analysis['current']:
         try:
             preflight_record, preflight_errors, _ = preflight.validate(
                 slug, {**jd, '_slug': slug}, evidence_map,
                 match_record.get('identity') or live_identity or {})
         except (OSError, ValueError, TypeError) as error:
             preflight_errors = [str(error)]
-    elif not preflight_record:
+    elif not preflight_record or not analysis['current']:
         preflight_errors = ['pre-generation review has not been completed']
     if preflight_record and not preflight_errors:
         for artifact in artifacts:
@@ -407,7 +551,9 @@ def _job_snapshot(slug, applications, events):
                             else 'not_captured'))
     next_action = _next_action(phase, app, work_state)
     if not app:
-        if preflight_errors and preflight_questions_available:
+        if not analysis['current']:
+            next_action = 'Refresh incomplete JD analysis before preflight'
+        elif preflight_errors and preflight_questions_available:
             next_action = 'Review the prepared fit decisions before CV planning'
         elif preflight_errors:
             next_action = 'Complete or refresh deterministic preflight'
@@ -427,8 +573,20 @@ def _job_snapshot(slug, applications, events):
         elif presentation_record and not presentation_errors and approval_errors:
             next_action = 'Resolve the approval gate against the current presentation'
     historical_complete = bool(package_ready or exact_submitted_history)
+    caution_analysis = analysis
+    if app:
+        caution_analysis = {
+            **analysis, 'current': True,
+            'message': ('Historical analysis retained from the exact submitted '
+                        'application; later parser changes do not rewrite it.'),
+        }
+    cautions = _cautions_projection(
+        slug, caution_analysis, evidence_map, plan_current,
+        historical=bool(app))
     workflow = {
         'captured': bool(jd),
+        'analysis_current': bool(app or analysis['current']),
+        'analysis_message': analysis['message'],
         'preflight': bool(historical_complete
                           or (preflight_record and not preflight_errors)),
         'preflight_questions': preflight_questions_available,
@@ -550,6 +708,7 @@ def _job_snapshot(slug, applications, events):
             'gap': spread.get('GAP', 0),
         },
         'requirements': reqs,
+        'cautions': cautions,
         'hard_gaps': [row.get('text') for row in
                       evidence_map.get('hard_gate_gaps') or [] if row.get('text')],
         'mandatory_risks': [row.get('text') for row in
@@ -715,6 +874,13 @@ def build_snapshot(include_private=False):
                 job, 'integrity', 'Resolve package integrity errors',
                 'Inspect the exact artefact and digest exceptions before doing anything else.',
                 'Inspect', 'artifacts', 'critical')
+            continue
+        if not workflow.get('analysis_current') and not job.get('exact_submission'):
+            add_attention(
+                job, 'jd_analysis', 'Refresh incomplete job analysis',
+                job.get('cautions', {}).get('analysis_message')
+                or 'The structured JD no longer matches the exact captured advert.',
+                'Review cautions', 'cautions', 'critical')
             continue
         if workflow.get('open_feedback'):
             add_attention(
@@ -937,6 +1103,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 'agent': self.server.codex_bridge.status(),
                 'capabilities': {
                     'intake': True, 'url_intake': True, 'feedback': True, 'review': True,
+                    'jd_analysis_refresh': True,
                     'structured_preflight': True,
                     'deterministic_prepare': True,
                     'deterministic_build_recovery': True,
@@ -1037,6 +1204,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return self._json({'ok': True, 'result': result})
             if parsed.path == '/api/actions/ingest-url':
                 result = dashboard_actions.ingest_url(body.get('url'))
+                return self._json({'ok': True, 'result': result})
+            if parsed.path == '/api/actions/refresh-analysis':
+                result = dashboard_actions.refresh_job_analysis(body.get('job_id'))
                 return self._json({'ok': True, 'result': result})
             if parsed.path == '/api/actions/feedback':
                 result = dashboard_actions.record_feedback(

@@ -61,6 +61,7 @@ Python 3.10+ is required; the engine has no third-party runtime dependency.
 python jl.py doctor
 python jl.py check
 python jl.py ingest job.txt --company "Acme" --title "Systems Manager" --url "https://example/job/123"
+python jl.py refresh-jd <exact-job-key>  # only when Cautions reports stale analysis
 python jl.py preflight <exact-job-key>
 python jl.py plan <exact-job-key>
 python jl.py present <exact-job-key>
@@ -74,9 +75,16 @@ decision is saved only by the Preflight control. Headless use passes the shown
 decision IDs as JSON with `preflight --user-reviewed --reviewer "Name"
 --answers-file decisions.json`.
 
-`present` prints every CV section, the full cover letter, the employer-risk
-decision and material-omission disclosure. It creates no DOCX or PDF. After the
-user signs off that exact presentation:
+The dashboard shows internal JD-to-evidence cautions in a dedicated, upfront
+**Cautions** view before employer-facing document review. It labels nearest
+text matches as candidates, never counterevidence, and withdraws any prior CV
+decision when the structured JD no longer matches the exact captured advert.
+The governed refresh reparses that saved source and returns the application to
+preflight without changing candidate truth.
+
+`present` prints the internal caution packet first, followed by every CV
+section and the full cover letter. It creates no DOCX or PDF. After the user
+signs off that exact presentation:
 
 ```powershell
 python jl.py approve <exact-job-key> --reviewer "Name" --all-pass --user-signoff

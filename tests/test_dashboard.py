@@ -129,11 +129,19 @@ def main():
                        and 'status: item.status' in app_script
                        and 'function workflowProgress(job)' in app_script
                        and 'data-active-action="evidence"' in app_script
+                       and 'data-active-action="cautions"' in app_script
                        and 'data-active-action="artifacts"' in app_script
                        and 'data-active-action="feedback"' in app_script
                        and 'Open captured JD' in app_script
                        and 'CV and letter not created' in app_script
                        and 'not an ATS score' in app_script))
+        checks.append(('internal cautions are visible before employer document review',
+                       'data-tab="cautions"' in page_source
+                       and page_source.index('data-tab="cautions"')
+                       < page_source.index('data-tab="review"')
+                       and 'function drawerCautions(job)' in app_script
+                       and 'Previous CV decision withdrawn' in app_script
+                       and "'/api/actions/refresh-analysis'" in app_script))
         checks.append(('priority and continue controls execute their displayed action',
                        '<button class="hero-action" id="primary-action"' in page_source
                        and "$('#primary-action').addEventListener('click'" in app_script
@@ -331,6 +339,14 @@ def main():
                        and applied['kpis']['submitted'] == 1
                        and applied['kpis']['in_progress'] == 1
                        and not applied['attention']))
+        try:
+            dashboard_actions.refresh_job_analysis(snapshot['jobs'][0]['id'])
+            submitted_refresh_refused = False
+        except ValueError as error:
+            submitted_refresh_refused = 'submitted application history is immutable' in str(error)
+        checks.append(('submitted history refuses JD refresh at the governed CLI boundary',
+                       submitted_refresh_refused))
+        store.write_jsonl(store.data_p('index', 'applications.jsonl'), [])
 
         bridge = FakeBridge()
         server = dashboard.create_server(0, quiet=True, bridge=bridge)
@@ -369,6 +385,7 @@ def main():
                            and session['dashboard_version']
                            and session['capabilities']['intake'] is True
                            and session['capabilities']['url_intake'] is True
+                           and session['capabilities']['jd_analysis_refresh'] is True
                            and session['capabilities']['structured_preflight'] is True
                            and session['capabilities']['deterministic_prepare'] is True
                            and session['capabilities']['deterministic_build_recovery'] is True
@@ -409,6 +426,28 @@ def main():
                            and preflight_saved['result']['preflight']['complete'] is True
                            and set(preflight_saved['result']['preflight']['answers'])
                            == set(accepted_answers)))
+
+            jd_path = os.path.join(store.job_dir(api['jobs'][0]['id']), 'jd.json')
+            incomplete_jd = store.read_json(jd_path)
+            incomplete_jd['requirements'] = incomplete_jd['requirements'][:-1]
+            store.write_json(jd_path, incomplete_jd)
+            incomplete = dashboard.build_snapshot()['jobs'][0]
+            status, headers, refreshed_analysis = post(
+                base + '/api/actions/refresh-analysis', session['csrf_token'], {
+                    'job_id': api['jobs'][0]['id'],
+                })
+            current = next(job for job in dashboard.build_snapshot()['jobs']
+                           if job['id'] == api['jobs'][0]['id'])
+            checks.append(('stale JD analysis is surfaced and refresh returns to preflight',
+                           incomplete['cautions']['status'] == 'NEEDS_REFRESH'
+                           and incomplete['cautions']['stored_requirement_count'] == 5
+                           and incomplete['cautions']['detected_requirement_count'] == 6
+                           and status == 200
+                           and 'requirements  5 -> 6' in refreshed_analysis['result']['output']
+                           and current['workflow']['analysis_current'] is True
+                           and current['workflow']['preflight'] is False
+                           and any(row.get('event') == 'JD_ANALYSIS_REFRESHED'
+                                   for row in store.application_events())))
 
             status, headers, body = fetch(base + '/api/health')
             health = json.loads(body.decode('utf-8'))

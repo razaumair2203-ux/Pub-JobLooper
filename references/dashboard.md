@@ -54,9 +54,10 @@ records used by the CLI.
 | Journey step | Applicant interaction | Controller and proof of completion | Fail-closed behaviour |
 |---|---|---|---|
 | Capture | Paste the official job URL; use manual fields only after both access routes fail | Bounded URL extractor, then scoped Codex URL fallback, then deterministic `ingest`; when both access routes fail, the manual-paste panel reopens automatically with the URL preserved and the first missing field focused | Private-network URLs, blocked pages, incomplete content and search-snippet reconstruction are refused; advert prose is never candidate truth |
+| Cautions | Open the warning control on the active card before drafting or review | A read-only reparse compares the exact captured advert with stored parser output; the dedicated Cautions view shows every non-direct classification, exact JD text, unresolved element, and nearest evidence IDs explicitly labelled as non-proof | A mismatch withdraws the old CV decision and exposes one governed `refresh-jd` action; refresh invalidates downstream bindings and returns the job to preflight without changing candidate truth |
 | Preflight | Review only unresolved fit decisions; use Codex only when a gap needs explanation | Deterministic JD/truth match plus per-item governed `preflight` answers; **Save & generate** durably records these before invoking preparation | Resolved facts are not re-asked; new evidence stops for truth review; chat cannot complete the gate |
 | Prepare | Select **Generate CV & letter**, or type an unambiguous generation request in the job panel | One allowlisted `plan` action revalidates truth/JD/preflight/feedback and publishes `match`, `cv`, `cover-letter` and risk records followed by one plan receipt bound to the exact preflight decision digest | The action does not rely on a Codex stream; an incomplete or stale receipt is not a current plan; repeating Prepare reopens an unchanged current review without regenerating it |
-| Review | Read the full CV and cover letter in the Review tab; add scoped comments | Exact presentation digest and append-only feedback | Open feedback or any content change makes presentation/sign-off stale |
+| Review | Read only the employer-facing CV and cover letter in the Review tab; use the adjacent Cautions control for internal analysis; add scoped comments | One presentation digest binds the upfront internal packet and both exact documents; feedback remains append-only | Internal analysis is never rendered as employer prose; open feedback or any bound-content change makes presentation/sign-off stale |
 | Approve | Tick exact-bundle confirmation and name the reviewer | Approval digest bound to the current presentation | Chat approval, partial review or stale content is refused |
 | Build | Use Approve & build after sign-off; use **Finish build** if rendering was interrupted after approval | Approval receipt first, then a dated human-readable folder, verified manifest and direct CV/letter links | A folder without a verified manifest is never treated as built or submit-ready; retry reuses the exact approval and never rewrites it |
 | Submit | Upload externally, select exact sent CV/letter, optionally attach portal answers | Submission receipt with hashes; screening evidence copied and hash-bound; application-ledger record written second | Browser cannot invent paths; Joblooper never claims external submission; a receipt/ledger interruption exposes **Finish record** and an exact retry completes only the missing write |
@@ -79,6 +80,8 @@ Each active card must expose, without opening a folder:
 - all eight touchpoints and the current next action;
 - whether evidence coverage and gaps are assessed, with an explicit statement
   that coverage is not an ATS score;
+- a persistent warning control with the current internal-caution count, CV
+  decision state, and analysis-freshness state;
 - whether the CV and cover letter exist, plus direct artefact counts and links;
 - recorded and unresolved user comments;
 - direct controls for the next gate, the job workspace and captured JD.
@@ -93,10 +96,11 @@ this operational surface.
 | User touchpoint | What remains visible afterwards | Required next control |
 |---|---|---|
 | Paste URL | Active card, exact source-JD links, evidence/gap assessment and captured timestamp | Review deterministic preflight decisions |
+| JD analysis stale or incomplete | Critical Attention item plus warning control showing stored and currently detected requirement counts | Open Cautions, run the governed refresh, then review the regenerated preflight decisions |
 | Direct extraction blocked | Codex tries only the same official URL; if capture succeeds it binds the job and opens the same deterministic control used by direct intake | Preflight decisions; otherwise the automatically reopened manual form |
 | Preflight incomplete | `Preflight` gate open; resolved facts omitted; remaining known gaps and their consequences visible | Save proceed/stop decisions in Preflight; chat is optional clarification |
 | Codex interrupted | `Thinking` ends; current governed files are re-read; registered artefacts and their absence remain visible and the failure is labelled without assuming completion | Resume safely from the next incomplete contextual task or open the application workspace |
-| Plan generated | Evidence coverage, requirement classes, hard gaps, risk record, clickable CV/letter records and draft availability | Open complete CV-and-letter review |
+| Plan generated | Evidence coverage, requirement classes, hard gaps, dedicated internal Cautions, clickable CV/letter records and draft availability | Review Cautions, then open the separate CV-and-letter review |
 | User reviews | Exact complete bundle remains readable in the Review tab | Add a scoped comment or mark the complete bundle presented |
 | User comments | All open and resolved comments remain attached to the job; open items block approval | Rejected feedback may close with rationale; adopted feedback cannot close until a different plan digest proves implementation, then re-present |
 | User approves/builds | Approval and build are shown separately; direct CV and cover-letter links appear only after manifest verification | **Finish build** after an interruption, otherwise external upload and exact submission record |

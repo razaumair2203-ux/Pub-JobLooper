@@ -246,9 +246,10 @@ shell behavior; they do not replace domain controls.
 | URL intake | Bounded fetch then structured ingestion and preflight preparation | Partial | Preview/confirm extracted company, title, reference, location, and advert completeness |
 | Manual advert intake | Requires company, title, and complete text, then uses the same ingest path | Sound | Add confirmation; retain exact source provenance |
 | Official-advert and captured-JD links | Open registered artefacts or original public URL | Sound | Keep |
+| Cautions | Dedicated warning control and tab show internal, non-predictive JD-to-evidence risks before the separate document review; stale parser output exposes a governed refresh | Sound | Keep requirement-category labels distinct from match class and never call similarity candidates counterevidence |
 | Preflight review | Records structured per-question decisions bound to JD and truth | Partial | Replace evidence/context dead end with resumable truth update |
 | Generate/refresh CV and letter | Calls deterministic plan, validates preflight, and verifies complete review records | Sound | Incorporate typed accepted feedback and expose affected inputs |
-| Review tab | Loads the complete current CV and letter | Sound | Add stable anchors, selection, diff, and comment placement |
+| Review tab | Loads only the employer-facing CV and letter; internal analysis remains in Cautions while the presentation digest binds both | Sound | Add stable anchors, selection, diff, and comment placement |
 | Mark complete bundle presented | Writes presentation receipt bound to exact content | Sound | Keep |
 | Evidence tab and gate blockers | Displays match classes and deterministic gate failures | Partial | Route each resolvable blocker to evidence/content proposal; explicitly close unfixable applications |
 | Add feedback | Appends scoped feedback and invalidates stale presentation/approval | Partial | Require artefact/version/section anchor where applicable and choose typed disposition |
@@ -301,6 +302,22 @@ shell behavior; they do not replace domain controls.
 | JF-10 | P1 | Truth audit due state and truth comments have no completing dashboard journey | Ground truth can be correctly blocked but operationally unmaintainable |
 | JF-11 | P2 | Public release fingerprint changes across otherwise equivalent checkouts | Mirror checks can report false drift, likely from byte/line-ending sensitivity |
 | JF-12 | P3 | No packaged launcher icon, Start Menu/Desktop shortcut, favicon, or app manifest | Discoverability is weaker, but core job functionality is unaffected |
+
+### Post-audit correction — JD completeness and caution authenticity
+
+The follow-up evidence review found that normalized job-page text could lose
+list markers, that unbulleted lines inside recognized sections were skipped,
+and that `Desired Characteristics` was not recognized as a preferred heading.
+That combination could make an internally consistent risk packet incomplete.
+
+The correction preserves HTML list markers, reparses sentence-like lines only
+inside recognized requirement sections, recognizes the missing heading, and
+compares every stored JD analysis with a read-only parse of its exact captured
+source. A mismatch is now a critical, completing dashboard task. The prior CV
+decision is withdrawn until `refresh-jd`, renewed preflight, planning, and
+presentation succeed. Risk semantics now use JD category (`HARD GATE`,
+`REQUIRED`, `RESPONSIBILITY`, `PREFERRED`) separately from evidence class, and
+nearest anchors are labelled non-proof similarity candidates.
 
 ## Prioritized implementation plan
 
@@ -410,4 +427,3 @@ Each phase must satisfy these gates before private/public release:
 - fixtures are fictional and public export contains no personal data;
 - the private repository remains authoritative and the public repository is
   updated only through the sanitized export workflow with separate history.
-

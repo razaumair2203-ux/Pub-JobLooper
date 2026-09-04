@@ -25,6 +25,10 @@ chronology fact. Remove or shorten a line only when the same argument remains
 visible elsewhere. A richer variant must provide a measurable relevance gain;
 stylistic churn alone is not an improvement.
 
-Before sign-off, `present` prints the complete CV, complete letter, employer-risk
-assessment and material-omission disclosure. Any edit makes that presentation
-stale and requires the whole bundle to be shown again.
+Before sign-off, `present` prints an upfront internal caution packet followed by
+the complete CV and complete letter. The dashboard presents the same bound
+content as two distinct views: internal **Cautions** and employer-facing **Review
+CV & letter**. Selection omissions are called protected, reviewable, or other
+controlled omissions; similarity candidates are never described as
+counterevidence. Any edit makes that presentation stale and requires the whole
+bundle to be shown again.

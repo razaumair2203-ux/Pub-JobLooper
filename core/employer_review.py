@@ -11,6 +11,7 @@ from . import store
 
 
 CONTEXT_SCHEMA = 'joblooper.employer-context.v1'
+RISK_SCHEMA = 'joblooper.employer-risk.v2'
 DECISIONS = {'LEAVE_AS_IS', 'REPLAN'}
 CONFIDENCE = {'HIGH', 'MEDIUM', 'LOW'}
 BASES = {'OBSERVED', 'INFERRED'}
@@ -78,17 +79,24 @@ def assess(jd, m, cv, context=None, raw_text=''):
         classification = rendered.get('match') or requirement.get('match')
         if classification not in {'GAP', 'PARTIAL', 'TRANSFERABLE'}:
             continue
-        confidence = 'HIGH' if requirement.get('hard_gate') else (
-            'MEDIUM' if classification in {'GAP', 'PARTIAL'} else 'LOW')
+        requirement_label = ('HARD GATE' if (
+            requirement.get('hard_gate') and requirement.get('kind') == 'mandatory') else {
+            'mandatory': 'REQUIRED',
+            'responsibility': 'RESPONSIBILITY',
+            'preferred': 'PREFERRED',
+        }.get(requirement.get('kind'), 'REVIEW'))
         risks.append({
             'requirement_number': requirement.get('n'),
             'classification': classification,
-            'confidence': confidence,
+            'requirement_kind': requirement.get('kind'),
+            'requirement_label': requirement_label,
             'text': requirement.get('text'),
-            'note': requirement.get('note') or '',
-            'visible_anchors': rendered.get('visible_anchors') or [],
-            'cv_addressable': classification != 'GAP' and bool(
-                rendered.get('visible_anchors')),
+            'note': (requirement.get('note')
+                     or 'Approved truth does not directly evidence the full requirement.'),
+            # Similarity candidates are not counterevidence. In particular,
+            # adjacent coursework must not look as if it rebuts missing domain
+            # or employer experience.
+            'closest_visible_anchor_ids': rendered.get('visible_anchors') or [],
         })
 
     raw = ' '.join(str(value or '') for value in (
@@ -126,17 +134,27 @@ def assess(jd, m, cv, context=None, raw_text=''):
                 'reason': 'verified matched evidence was lost during CV selection',
             })
 
+    improvement_numbers = {
+        item.get('requirement_number') for item in improvements}
+    for risk in risks:
+        risk['cv_improvement_available'] = (
+            risk.get('requirement_number') in improvement_numbers)
+
     leading_objections = []
     for risk in sorted(risks, key=lambda row: (
-            {'HIGH': 0, 'MEDIUM': 1, 'LOW': 2}.get(row['confidence'], 3),
+            {'HARD GATE': 0, 'REQUIRED': 1, 'RESPONSIBILITY': 2,
+             'PREFERRED': 3}.get(row['requirement_label'], 4),
             {'GAP': 0, 'PARTIAL': 1, 'TRANSFERABLE': 2}.get(
                 row['classification'], 3), row['requirement_number']))[:5]:
         leading_objections.append({
             'requirement_number': risk['requirement_number'],
-            'objection': risk['text'], 'support': risk['confidence'],
+            'objection': risk['text'],
+            'requirement_label': risk['requirement_label'],
             'classification': risk['classification'],
-            'counterevidence_anchor_ids': risk.get('visible_anchors') or [],
-            'cv_addressable': risk.get('cv_addressable', False),
+            'closest_visible_anchor_ids': (
+                risk.get('closest_visible_anchor_ids') or []),
+            'cv_improvement_available': risk.get(
+                'cv_improvement_available', False),
             'unknown': ('The employer’s screening weight and applicant competition are '
                         'not observable from the advert.'),
         })
@@ -150,11 +168,12 @@ def assess(jd, m, cv, context=None, raw_text=''):
         reason = str(context.get('decision_reason') or '').strip()
     else:
         decision = 'LEAVE_AS_IS'
-        reason = ('No verified omitted evidence would improve the current requirement '
-                  'classification; remaining risks require new truth or external eligibility.')
+        reason = ('No omitted approved evidence would improve a current requirement '
+                  'classification. Remaining gaps cannot be repaired by rewording; '
+                  'proceeding requires accepting them or adding and reviewing new evidence.')
 
     return {
-        '_schema': 'joblooper.employer-risk.v1',
+        '_schema': RISK_SCHEMA,
         'job': jd.get('_slug'), 'company': jd.get('company'), 'role': jd.get('title'),
         'generated': store.now(), 'decision': decision, 'decision_reason': reason,
         'risks': risks, 'external_constraints': constraints,
@@ -167,14 +186,16 @@ def assess(jd, m, cv, context=None, raw_text=''):
             'decision': contextual_decision,
         },
         'confidence_boundary': (
-            'Confidence describes support for a screening factor, not the probability '
-            'that this employer will reject the application.'),
+            'Labels describe the JD category and current evidence classification, not '
+            'rejection likelihood, employer weighting or applicant competition.'),
         'cv_sha256': store.sha256_text(store.canonical_json(cv)),
     }
 
 
 def validate(report, jd, cv, context=None):
     problems = []
+    if report.get('_schema') != RISK_SCHEMA:
+        problems.append('risk review uses an outdated analysis schema')
     if report.get('company') != jd.get('company') or report.get('role') != jd.get('title'):
         problems.append('risk review belongs to a different JD')
     if report.get('cv_sha256') != store.sha256_text(store.canonical_json(cv)):
@@ -188,7 +209,8 @@ def validate(report, jd, cv, context=None):
 
 
 def to_markdown(report, context=None):
-    out = [f"# EMPLOYER RISK & VALUE DECISION — {report.get('company')} · {report.get('role')}", '',
+    out = [f"# PRE-APPLICATION CAUTIONS & CV DECISION — {report.get('company')} · {report.get('role')}", '',
+           '> Internal decision support — never employer-facing.', '',
            f"**CV decision:** `{report.get('decision')}`", '',
            report.get('decision_reason', ''), '',
            '> This is a screening-risk assessment, not a prediction of rejection.', '']
@@ -196,7 +218,8 @@ def to_markdown(report, context=None):
         out += ['## JD-EVIDENCED RISKS', '']
         for risk in report['risks']:
             note = f" — {risk['note']}" if risk.get('note') else ''
-            out.append(f"- **{risk['confidence']} · {risk['classification']}** · "
+            label = risk.get('requirement_label') or risk.get('confidence') or 'REVIEW'
+            out.append(f"- **{label} · {risk['classification']}** · "
                        f"#{risk['requirement_number']} {risk['text']}{note}")
         out.append('')
     if report.get('external_constraints'):
@@ -204,19 +227,25 @@ def to_markdown(report, context=None):
         for item in report['external_constraints']:
             out.append(f"- **{item['confidence']}** · {item['code']} — {item['basis']}")
         out.append('')
-    out += ['## WHY THIS APPLICATION COULD STILL BE SCREENED OUT', '']
+    out += ['## UNRESOLVED JD-TO-EVIDENCE CAUTIONS', '']
     if report.get('leading_objections'):
         for item in report['leading_objections']:
-            anchors = ', '.join(item.get('counterevidence_anchor_ids') or []) or 'none visible'
-            action = ('CV-addressable' if item.get('cv_addressable') else
-                      'requires new truth or is externally constrained')
-            out.append(f"- **{item['support']} · {item['classification']}** · "
+            anchor_ids = (item.get('closest_visible_anchor_ids')
+                          or item.get('counterevidence_anchor_ids') or [])
+            anchors = ', '.join(anchor_ids) or 'none visible'
+            action = ('verified CV-selection improvement available'
+                      if item.get('cv_improvement_available') else
+                      'not repairable from current approved truth')
+            label = (item.get('requirement_label') or item.get('support')
+                     or 'REVIEW')
+            out.append(f"- **{label} · {item['classification']}** · "
                        f"#{item['requirement_number']} {item['objection']} — {action}; "
-                       f"counterevidence: {anchors}")
+                       f"closest visible evidence candidates: {anchors}")
     else:
         out.append('- No adverse JD-to-evidence classification is visible. Competition, '
                    'screening preferences and internal candidates remain unknowable.')
-    out += ['', '> These are evidence-bounded objections, not predicted rejection causes.', '']
+    out += ['', '> Similarity candidates may provide adjacent support; they do not prove '
+            'the missing elements or reveal an employer decision.', '']
     if context:
         out += ['## OFFICIAL EMPLOYER CONTEXT', '']
         for finding in context.get('findings') or []:

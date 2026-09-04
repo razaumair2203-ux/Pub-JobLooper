@@ -73,12 +73,21 @@ def main():
                        unpresented_refused))
 
         content, presentation = release.present(slug)
+        documents_only = release.document_presentation_content(slug)
+        internal_only = release.internal_signoff_content(slug)
         checks.append(('chat presentation contains every rendered section',
                        all(section['name'] in content for section in cv['sections'])
                        and '# DOCUMENT 2 — COVER LETTER' in content
                        and presentation['section_count'] == len(cv['sections'])
                        and presentation['document_count'] == 2
                        and not store.approved_dir(slug)))
+        checks.append(('employer documents and internal cautions have separate views',
+                       '# DOCUMENT 1' in documents_only
+                       and '# DOCUMENT 2' in documents_only
+                       and 'INTERNAL SIGN-OFF PACKET' not in documents_only
+                       and 'PRE-APPLICATION CAUTIONS' in internal_only
+                       and 'SELECTION DISCLOSURE' in internal_only
+                       and '# INTERNAL SIGN-OFF PACKET' in content))
 
         item = feedback.record(slug, 'WORKFLOW',
                                'Show the complete CV before rendering.', 'user',

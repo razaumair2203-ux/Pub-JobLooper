@@ -19,7 +19,7 @@ _MANDATORY_HDR = re.compile(
     r'\b(requirements?|qualifications?|must have|essential|minimum|what you.{0,5}ll need'
     r'|who you are|about you|skills? (and|&) experience)\b', re.I)
 _PREFERRED_HDR = re.compile(
-    r'\b(preferred|desirable|nice to have|bonus|advantage|plus|additional)\b', re.I)
+    r'\b(preferred|desirable|desired characteristics?|nice to have|bonus|advantage|plus)\b', re.I)
 # JOB ACCOUNTABILITIES are duties the postholder will perform, not evidence
 # demanded of the applicant. Scoring them as requirements is a category error:
 # in one advert it filled the coverage denominator with duties that
@@ -32,13 +32,14 @@ _RESP_HDR = re.compile(
     re.I)
 _NOISE_HDR = re.compile(
     r'\b(benefit|we offer|perks|equal opportunit|diversity|about (us|the company)'
-    r'|our (mission|values)|how to apply|salary|compensation package)\b', re.I)
+    r'|our (mission|values)|how to apply|salary|compensation package'
+    r'|additional information)\b', re.I)
 
 
 _GATE_SUBJECT = re.compile(
     r'(licen[cs]e|certif\w*|accredit\w*|degree|diploma|clearance|citizen\w*|nationalit\w*'
     r'|visa|permit|authoris\w*|authoriz\w*|eligib\w*|sponsor\w*|iqama|residenc\w*'
-    r'|right to work|\d+\s*\+?\s*years?|fluent|native|bilingual|type rat\w*)', re.I)
+    r'|right to work|live and work|\d+\s*\+?\s*years?|fluen\w*|native|bilingual|type rat\w*)', re.I)
 
 _GATE_FORCE = re.compile(
     r'\b(must|mandatory|essential|minimum|required|requires|non[- ]negotiable'
@@ -187,7 +188,17 @@ def parse_jd(raw, title=None, company=None, url=None, job_reference=None):
         body = _BULLET.sub('', line).strip()
         if len(body) < 12:
             continue
-        if not (is_bullet or _REQ_HINT.search(body)):
+        # URL extractors and manual copy/paste frequently preserve one list
+        # item per line but lose the visual bullet marker. Once a recognised
+        # duties/qualifications section has started, treat sentence-like lines
+        # as requirements even when they do not contain a narrow hint word.
+        # Short unpunctuated sub-headings still fail this condition unless they
+        # carry an explicit requirement hint.
+        in_requirement_section = section in {
+            'responsibility', 'mandatory', 'preferred'}
+        sentence_like = (len(s) >= 80 or s.endswith(('.', ';', ':')))
+        if not (is_bullet or _REQ_HINT.search(body)
+                or (in_requirement_section and sentence_like)):
             continue
 
         seq += 1

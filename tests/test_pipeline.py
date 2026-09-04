@@ -300,6 +300,15 @@ def main():
     check('risk review leaves a fully selected evidence plan unchanged',
           risk['decision'] == 'LEAVE_AS_IS'
           and not risk['improvement_candidates'])
+    check('risk semantics separate JD priority from prediction confidence',
+          risk['_schema'] == employer_review.RISK_SCHEMA
+          and all(row.get('requirement_label') in {
+              'HARD GATE', 'REQUIRED', 'RESPONSIBILITY', 'PREFERRED'}
+                  for row in risk['risks'])
+          and all('confidence' not in row and 'cv_addressable' not in row
+                  for row in risk['risks'])
+          and all('counterevidence_anchor_ids' not in row
+                  for row in risk['leading_objections']))
     invalid_context = {
         '_schema': employer_review.CONTEXT_SCHEMA,
         'job_url': jd.get('url'), 'researched_at': '2026-01-01',

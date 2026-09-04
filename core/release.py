@@ -295,32 +295,45 @@ def plan_digest(slug):
     return store.sha256_text(store.canonical_json(files))
 
 
-def presentation_content(slug):
-    """Return both documents and the exact internal decision packet."""
+def document_presentation_content(slug):
+    """Return only the two employer-facing documents for the review surface."""
     _, files = _job_files(slug)
     if not files.get('cv') or not files.get('letter'):
         raise ValueError('no current CV and cover-letter plan; run `jl plan` first')
+    return ('# DOCUMENT 1 — CV\n\n' + render.to_markdown(files['cv']).strip()
+            + '\n\n---\n\n# DOCUMENT 2 — COVER LETTER\n\n'
+            + cover_letter.to_markdown(files['letter']).strip())
+
+
+def internal_signoff_content(slug):
+    """Return internal cautions and selection disclosure, never employer prose."""
+    _, files = _job_files(slug)
+    if not files.get('risk') or not files.get('cv'):
+        raise ValueError('no current internal sign-off packet; run `jl plan` first')
     omissions = (files['cv'].get('_selection') or {}).get('omitted') or []
     material = [row for row in omissions if row.get('significant') or row.get('protected')]
-    omission_lines = ['## MATERIAL OMISSION DISCLOSURE', '']
+    omission_lines = ['## SELECTION DISCLOSURE', '']
     if not material:
         omission_lines.append('- None. All protected inventory is visible.')
     else:
         for row in material:
-            label = 'PROTECTED' if row.get('protected') else 'MATERIAL'
+            label = 'PROTECTED' if row.get('protected') else 'REVIEWABLE'
             omission_lines.append(
                 f"- **{label}** · `{row.get('id')}` · {row.get('reason')}")
     other = len(omissions) - len(material)
-    omission_lines += ['', f'- Other controlled, non-material omissions: {other}',
+    omission_lines += ['', f'- Other controlled selection omissions: {other}',
                        '- Any factual change requires governed truth review; employer research '
                        'cannot fill a candidate-evidence gap.', '']
-    return ('# DOCUMENT 1 — CV\n\n' + render.to_markdown(files['cv']).strip()
-            + '\n\n---\n\n# DOCUMENT 2 — COVER LETTER\n\n'
-            + cover_letter.to_markdown(files['letter']).strip()
-            + '\n\n---\n\n# INTERNAL SIGN-OFF PACKET — NOT EMPLOYER-FACING\n\n'
-            + employer_review.to_markdown(
-                files['risk'], files.get('employer_context')).strip()
-            + '\n\n' + '\n'.join(omission_lines).strip())
+    return (employer_review.to_markdown(
+        files['risk'], files.get('employer_context')).strip()
+        + '\n\n' + '\n'.join(omission_lines).strip())
+
+
+def presentation_content(slug):
+    """Bind upfront internal cautions and both employer-facing documents."""
+    return ('# INTERNAL SIGN-OFF PACKET — NOT EMPLOYER-FACING\n\n'
+            + internal_signoff_content(slug)
+            + '\n\n---\n\n' + document_presentation_content(slug))
 
 
 def present(slug):

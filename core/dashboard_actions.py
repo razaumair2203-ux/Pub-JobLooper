@@ -101,6 +101,14 @@ def ingest_url(url):
     return result
 
 
+def refresh_job_analysis(job_id):
+    """Refresh parser-owned JD structure through the governed CLI transition."""
+    result = _run_cli(['refresh-jd', job_id], timeout=90)
+    if not result['ok']:
+        raise ValueError(result['output'] or 'Job analysis could not be refreshed')
+    return result
+
+
 def preflight_state(job_id):
     """Read the exact current decision set without changing application state."""
     slug = store.resolve_job(job_id)
@@ -326,7 +334,9 @@ def presentation(job_id):
     """Return exact review content without manufacturing a new plan."""
     slug = store.resolve_job(job_id)
     try:
-        content = release.presentation_content(slug)
+        content = release.document_presentation_content(slug)
+        internal_content = release.internal_signoff_content(slug)
+        bound_content = release.presentation_content(slug)
         record, errors = release.validate_presentation(slug)
     except ValueError as error:
         return {'available': False, 'content': None, 'valid': False,
@@ -334,9 +344,11 @@ def presentation(job_id):
     return {
         'available': True,
         'content': content,
+        'internal_content': internal_content,
         'valid': bool(record and not errors),
         'errors': errors,
-        'content_sha256': store.sha256_text(content),
+        'content_sha256': store.sha256_text(bound_content),
+        'document_content_sha256': store.sha256_text(content),
     }
 
 

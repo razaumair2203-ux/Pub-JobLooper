@@ -236,6 +236,7 @@ function activePrimary(job) {
   if (task?.status === 'failed') return ['Recover interrupted turn', 'active-turn'];
   const workflow = job.workflow || {};
   if (job.integrity_state === 'attention') return ['Inspect integrity', 'artifacts'];
+  if (!workflow.analysis_current) return ['Review application cautions', 'cautions'];
   if (workflow.open_feedback) return ['Resolve application feedback', 'feedback'];
   if (!workflow.preflight) {
     return ['Review preflight decisions', 'preflight'];
@@ -272,6 +273,10 @@ function renderActiveWorkspace() {
       : 'CV and letter not created';
     const feedbackCount = (job.feedback_items || []).length;
     const openFeedback = job.workflow?.open_feedback || 0;
+    const cautions = job.cautions || {};
+    const cautionState = cautions.analysis_current
+      ? `${cautions.risk_count || 0} evidence caution${cautions.risk_count === 1 ? '' : 's'}`
+      : 'Analysis refresh required';
     const source = job.artifacts.find(item => item.group === 'Source' && item.href);
     const {steps, completed} = workflowProgress(job);
     const [primaryLabel, primaryAction] = activePrimary(job);
@@ -292,6 +297,7 @@ function renderActiveWorkspace() {
       <div class="active-job-body">
         <div class="active-next"><span class="micro-label">${taskRunning ? 'Work in progress' : taskFailed ? 'Interruption detected' : 'Next required action'}</span><strong>${h(nextAction)}</strong></div>
         <div class="active-facts">
+          <button type="button" class="caution-fact" data-active-action="cautions" data-job="${h(job.id)}"><span>Cautions ${icons.warning}</span><strong>${h(cautionState)}</strong><small>${h(cautions.decision || 'PENDING_REVIEW')} / internal only</small></button>
           <button type="button" data-active-action="evidence" data-job="${h(job.id)}"><span>Evidence & gaps</span><strong>${h(coverage)}</strong><small>${h(gaps)} · not an ATS score</small></button>
           <button type="button" data-active-action="artifacts" data-job="${h(job.id)}"><span>Documents</span><strong>${h(documents)}</strong><small>${job.artifacts.length} accessible artefacts</small></button>
           <button type="button" data-active-action="feedback" data-job="${h(job.id)}"><span>Comments</span><strong>${feedbackCount ? `${feedbackCount} recorded` : 'No comments yet'}</strong><small>${openFeedback ? `${openFeedback} awaiting resolution` : 'Add or review feedback'}</small></button>
@@ -476,6 +482,9 @@ function handleAttention(item, source) {
   if (item.route === 'preflight') {
     openPreflight(job); return;
   }
+  if (item.route === 'cautions') {
+    openDrawer(job, source); state.tab = 'cautions'; renderDrawer(); return;
+  }
   if (item.route === 'prepare') { prepareApplication(job, source); return; }
   if (item.route === 'build') { buildApplication(job, source); return; }
   if (item.route === 'codex_outcome') {
@@ -522,6 +531,25 @@ function closeDrawer() {
   state.lastFocus?.focus?.();
 }
 
+async function refreshJobAnalysis(job, source = null) {
+  if (!job || state.mutatingJobs.has(job.id)) return;
+  state.mutatingJobs.add(job.id);
+  if (source) source.disabled = true;
+  try {
+    await apiPost('/api/actions/refresh-analysis', {job_id: job.id});
+    await loadData();
+    state.selectedJob = jobById(job.id);
+    state.tab = 'cautions';
+    renderDrawer();
+    toast('Job analysis refreshed. Review the complete caution set and preflight decisions.');
+  } catch (error) {
+    toast(error.message);
+    if (source) source.disabled = false;
+  } finally {
+    state.mutatingJobs.delete(job.id);
+  }
+}
+
 function artifactBy(job, predicate) {
   return job.artifacts.find(predicate);
 }
@@ -541,6 +569,7 @@ function renderDrawer() {
   const official = safeUrl(job.official_url);
   $('#drawer-actions').innerHTML = [
     official ? `<a class="action-link primary" href="${h(official)}" target="_blank" rel="noreferrer">Official advert ${icons.external}</a>` : '',
+    `<button class="action-link caution-link" type="button" data-drawer-action="cautions">${icons.warning} Cautions / ${job.cautions?.risk_count || 0}</button>`,
     job.phase === 'captured' && !job.workflow?.preflight ? `<button class="action-link primary" type="button" data-drawer-action="preflight">Review preflight decisions</button>` : '',
     job.workflow?.preflight && !job.workflow?.plan ? `<button class="action-link primary" type="button" data-drawer-action="prepare">${job.workflow?.plan_available ? 'Refresh CV & letter' : 'Generate CV & letter'}</button>` : '',
     `<button class="action-link" type="button" data-drawer-action="codex"><span class="agent-orb"></span>Work with Codex</button>`,
@@ -570,7 +599,7 @@ function renderDrawerContent() {
     loadReview(job);
     return;
   }
-  const renderers = {overview: drawerOverview, artifacts: drawerArtifacts, evidence: drawerEvidence, feedback: drawerFeedback, reasoning: drawerReasoning, timeline: drawerTimeline};
+  const renderers = {overview: drawerOverview, cautions: drawerCautions, artifacts: drawerArtifacts, evidence: drawerEvidence, feedback: drawerFeedback, reasoning: drawerReasoning, timeline: drawerTimeline};
   $('#drawer-content').innerHTML = renderers[state.tab](job);
 }
 
@@ -605,6 +634,49 @@ function drawerOverview(job) {
   </section>`;
 }
 
+function drawerCautions(job) {
+  const caution = job.cautions || {};
+  const risks = caution.risks || [];
+  const refresh = !caution.analysis_current
+    ? `<div class="caution-alert critical"><span class="caution-icon">${icons.warning}</span><div><strong>Previous CV decision withdrawn pending complete analysis</strong><p>${h(caution.analysis_message)}</p><small>The exact captured advert is retained. Refreshing reparses that source and returns this application to preflight; it does not add facts to your career record.</small></div><button class="primary-button" type="button" data-caution-action="refresh">Refresh job analysis</button></div>`
+    : `<div class="caution-alert"><span class="caution-icon">${icons.check}</span><div><strong>Captured advert analysis is current</strong><p>${h(caution.analysis_message)}</p></div></div>`;
+  const riskCards = risks.length ? risks.map(item => {
+    const closest = (item.closest_evidence_ids || []).length
+      ? item.closest_evidence_ids.map(id => `<code>${h(id)}</code>`).join(' ')
+      : 'None visible';
+    const action = item.cv_improvement_available
+      ? 'A verified document-selection improvement is available.'
+      : 'No verified CV wording or selection change currently repairs this gap.';
+    return `<details class="caution-card" ${['HARD GATE', 'REQUIRED'].includes(item.requirement_label) ? 'open' : ''}>
+      <summary><span><b>${h(item.requirement_label)}</b> / #${h(item.requirement_number || '-') }</span><span class="match-chip ${String(item.classification || '').toLowerCase()}">${h(item.classification || 'UNASSESSED')}</span></summary>
+      <p>${h(item.text)}</p>
+      <div class="caution-explanation"><strong>What remains unresolved</strong><span>${h(item.note || 'Approved truth does not directly evidence the full requirement.')}</span></div>
+      <div class="caution-explanation"><strong>Nearest text matches / not proof</strong><span class="anchor-list">${closest}</span></div>
+      <small>${h(action)}</small>
+    </details>`;
+  }).join('') : '<div class="empty-state"><strong>No adverse JD-to-evidence classifications are visible.</strong><span>This does not predict an employer decision.</span></div>';
+  const omissions = caution.reviewable_omissions || [];
+  const nextControl = caution.analysis_current && !caution.report_current && !job.exact_submission
+    ? '<button class="secondary-button caution-next" type="button" data-caution-action="preflight">Review preflight decisions</button>'
+    : '';
+  return `${refresh}
+  <section class="drawer-section">
+    <div class="drawer-section-title"><h3>Pre-application decision</h3><span class="caution-status" data-status="${h(caution.status)}">${h(titleCase(caution.status))}</span></div>
+    <div class="decision-panel"><span>CV decision</span><strong>${h(caution.decision || 'PENDING_REVIEW')}</strong><p>${h(caution.decision_reason || '')}</p></div>
+    ${nextControl}
+    <div class="disclaimer">${h(caution.nonprediction || 'This is internal decision support, not a prediction of rejection.')} It is never included in the employer-facing CV or cover letter.</div>
+  </section>
+  <section class="drawer-section">
+    <div class="drawer-section-title"><h3>JD-to-evidence cautions</h3><span class="subtle">${risks.length} of ${caution.detected_requirement_count || 0} items need attention</span></div>
+    <div class="caution-list">${riskCards}</div>
+  </section>
+  <section class="drawer-section">
+    <div class="drawer-section-title"><h3>CV selection disclosure</h3><span class="subtle">Internal only</span></div>
+    ${omissions.length ? `<div class="selection-list">${omissions.map(item => `<article><strong>${h(item.label)} / ${h(item.id)}</strong><span>${h(item.reason)}</span></article>`).join('')}</div>` : '<div class="disclaimer">No protected or reviewable selection omission is current.</div>'}
+    ${caution.other_selection_omissions ? `<details class="selection-other"><summary>${caution.other_selection_omissions} other controlled selection omissions</summary><p>Collapsed because they are lower-ranked and non-protected. Open the structured CV record for the full list.</p></details>` : ''}
+  </section>`;
+}
+
 async function loadReview(job) {
   try {
     const response = await fetch(`/api/review?job=${encodeURIComponent(job.id)}`, {cache: 'no-store'});
@@ -617,7 +689,7 @@ async function loadReview(job) {
     const gateNotice = blockers.length
       ? `<div class="gate-block-notice"><strong>Approval blocked by ${blockers.length} deterministic gate failure${blockers.length === 1 ? '' : 's'}.</strong><span>${blockers.map(item => `${h(item.id)} ${h(item.name)}: ${h(item.summary)}`).join('<br>')}</span></div>`
       : '';
-    $('#drawer-content').innerHTML = `<div class="review-toolbar"><span>${review.valid ? 'Presentation is current and review-bound' : 'Read the complete bundle, then mark it presented'}</span>${review.valid ? '<button class="secondary-button" type="button" data-review-action="feedback">Add feedback</button>' : '<button class="primary-button" type="button" data-review-action="present">Mark complete bundle presented</button>'}</div>${gateNotice}<div class="review-sheet"><pre>${h(review.content)}</pre></div>`;
+    $('#drawer-content').innerHTML = `<div class="review-toolbar"><span>${review.valid ? 'Documents are current and review-bound' : 'Read both employer-facing documents, then mark them presented'}</span><button class="secondary-button" type="button" data-review-action="cautions">${icons.warning} Cautions</button>${review.valid ? '<button class="secondary-button" type="button" data-review-action="feedback">Add feedback</button>' : '<button class="primary-button" type="button" data-review-action="present">Mark documents presented</button>'}</div>${gateNotice}<div class="review-sheet"><pre>${h(review.content)}</pre></div>`;
   } catch (error) {
     $('#drawer-content').innerHTML = `<div class="empty-state"><strong>Review could not be loaded.</strong><span>${h(error.message)}</span></div>`;
   }
@@ -1639,7 +1711,7 @@ function handleActiveAction(event) {
   if (action === 'build') { buildApplication(job, control); return; }
   if (action === 'submit') { populateSubmission(job); openDialog('#submission-dialog', job); return; }
   openDrawer(job, control);
-  if (['artifacts', 'review', 'evidence', 'feedback'].includes(action)) state.tab = action;
+  if (['cautions', 'artifacts', 'review', 'evidence', 'feedback'].includes(action)) state.tab = action;
   renderDrawer();
 }
 
@@ -1674,6 +1746,7 @@ function wireEvents() {
     if (!button || !state.selectedJob) return;
     const job = state.selectedJob;
     if (button.dataset.drawerAction === 'preflight') { closeDrawer(); openPreflight(job); }
+    if (button.dataset.drawerAction === 'cautions') { state.tab = 'cautions'; renderDrawer(); }
     if (button.dataset.drawerAction === 'prepare') prepareApplication(job, button);
     if (button.dataset.drawerAction === 'build') buildApplication(job, button);
     if (button.dataset.drawerAction === 'codex') openAgent(job);
@@ -1689,6 +1762,13 @@ function wireEvents() {
     const reviewAction = event.target.closest('[data-review-action]')?.dataset.reviewAction;
     const artifactAction = event.target.closest('[data-artifact-action]')?.dataset.artifactAction;
     const evidenceAction = event.target.closest('[data-evidence-action]')?.dataset.evidenceAction;
+    const cautionAction = event.target.closest('[data-caution-action]')?.dataset.cautionAction;
+    if (cautionAction === 'refresh' && state.selectedJob) {
+      refreshJobAnalysis(state.selectedJob, event.target.closest('button')); return;
+    }
+    if (cautionAction === 'preflight' && state.selectedJob) {
+      closeDrawer(); openPreflight(state.selectedJob); return;
+    }
     if (artifactAction === 'review' && state.selectedJob) {
       state.tab = 'review'; renderDrawer(); return;
     }
@@ -1701,6 +1781,7 @@ function wireEvents() {
     }
     const action = reviewAction;
     if (!action || !state.selectedJob) return;
+    if (action === 'cautions') { state.tab = 'cautions'; renderDrawer(); return; }
     if (action === 'codex') openAgent(state.selectedJob);
     if (action === 'prepare') prepareApplication(state.selectedJob, event.target);
     if (action === 'feedback') openDialog('#feedback-dialog', state.selectedJob);

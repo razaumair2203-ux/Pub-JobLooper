@@ -87,7 +87,13 @@ class _TextParser(HTMLParser):
         self.parts = []
 
     def handle_starttag(self, tag, attrs):
-        if tag in BLOCK_TAGS:
+        if tag == 'li':
+            # JSON-LD JobPosting descriptions often encode each requirement as
+            # an HTML list item. Preserve that structure so the deterministic
+            # JD parser does not have to guess whether an unpunctuated line is
+            # a heading or a candidate requirement.
+            self.parts.append('\n- ')
+        elif tag in BLOCK_TAGS:
             self.parts.append('\n')
 
     def handle_endtag(self, tag):
