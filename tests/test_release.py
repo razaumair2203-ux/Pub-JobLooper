@@ -362,13 +362,18 @@ def main():
         original_sent_sha = external_receipt['sent_sha256']
         _, _, external_receipt, metadata_changes = release.update_submission_metadata(
             slug, applied_date='2026-08-20', channel='referral')
+        screening_second = os.path.join(directory, 'portal-confirmation.json')
+        store.write_text(screening_second, '{"fictional_test": true}')
+        _, _, external_receipt, evidence_changes = release.update_submission_metadata(
+            slug, screening_file=[screening_second])
         verified_receipt, external_errors = release.verify_submission(slug)
         screening_record = external_receipt.get('screening_evidence') or {}
         checks.append(('external confirmation binds only manifest-matching sent files',
                        external_receipt['mode'] == 'user_confirmed_external_submission'
                        and external_receipt['sent_file'] == 'CV.pdf'
                        and external_receipt['sent_sha256'] == original_sent_sha
-                       and metadata_changes == ['applied_date', 'channel']
+                        and metadata_changes == ['applied_date', 'channel']
+                        and evidence_changes == ['screening_evidence_files']
                        and external_receipt['applied'] == '2026-08-20'
                        and external_receipt['channel'] == 'referral'
                        and bool(external_receipt['unsent_package_integrity_exceptions'])
@@ -381,7 +386,24 @@ def main():
                        and store.sha256_file(
                            os.path.join(package, screening_record['file']))
                        == screening_record.get('sha256')
-                       and 'SCREENING-ANSWERS.txt' not in os.listdir(package)))
+                        and 'SCREENING-ANSWERS.txt' not in os.listdir(package)))
+        checks.append(('additional portal pages append without replacing prior evidence',
+                       len(external_receipt['screening_evidence_files']) == 2
+                       and external_receipt['screening_evidence_files'][0]
+                       == screening_record
+                       and external_receipt['screening_evidence_files'][1]['file']
+                       == 'APPLICATION-RECORD/SCREENING-ANSWERS-02.json'))
+        response_source = os.path.join(directory, 'fictional-response.eml')
+        store.write_text(response_source, 'Subject: Fictional test response\n\nNo causal claim.')
+        response_records = release.capture_response_evidence(
+            slug, [response_source], 'rejected', '2026-08-22')
+        _, response_errors = release.verify_submission(slug)
+        checks.append(('employer response files are privately renamed and hash-bound',
+                       len(response_records) == 1
+                       and response_records[0]['file']
+                       == 'APPLICATION-RECORD/EMPLOYER-RESPONSE-001.eml'
+                       and not response_errors
+                       and response_records[0]['basis'].endswith('not causal proof')))
         try:
             release.update_submission_metadata(slug, screening_unavailable=True)
             evidence_relabel_refused = False

@@ -1,0 +1,45 @@
+name: checks
+
+# CONTRIBUTING.md requires the check suite before every commit. This enforces it
+# rather than relying on developer discipline.
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.10 is the floor declared in README.md; 3.12 is the current dev target.
+        python-version: ['3.10', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # tools/check_repo.py inspects git attributes and ignore rules.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Show engine diagnosis
+        run: python jl.py doctor
+        # `doctor` reports missing PDF automation on Linux, which is expected in
+        # CI and must not fail the job.
+        continue-on-error: true
+
+      - name: Run the full check suite
+        run: python -B tools/run_checks.py full
+
+      - name: Run the same suite under pytest
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest
+          python -m pytest -q

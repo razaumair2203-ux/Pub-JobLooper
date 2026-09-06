@@ -94,6 +94,10 @@ only a failed replacement.
    suite when the exporter, installer, repository policy or check runner changed.
 6. Commit and push the public clone as a separate new-history repository. Never
    merge, force-push or copy Git history from `Pvt-JobLooper`.
+7. From the private source run `python tools/attest_public_release.py <clone>`.
+   It refuses a dirty clone or a local commit not present on the canonical
+   public origin. Commit and push the resulting private baseline so drift checks
+   identify the exact public commit, not merely a local export directory.
 
 The public working tree is replaceable; its Git history and runtime data are not.
 Publishing remains an explicit external action. The synchronizer prepares and

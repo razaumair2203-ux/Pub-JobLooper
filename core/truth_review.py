@@ -64,6 +64,15 @@ def resolve(item_id, status, implementation, validation):
         raise ValueError(f'unknown truth comment {item_id!r}')
     if item.get('status') != 'OPEN':
         raise ValueError(f'truth comment {item_id} is already {item.get("status")}')
+    if status == 'ADOPTED':
+        current = store.truth_approval_subject()['sha256']
+        if current == item.get('subject_sha256'):
+            raise ValueError(
+                'adopted truth feedback requires a changed career-truth digest first')
+        errors, _warnings, _stats = integrity.check_truth()
+        if errors:
+            raise ValueError('changed career truth still fails integrity: '
+                             + '; '.join(errors[:8]))
     item['status'] = status
     item['resolved_at'] = store.now()
     item['implementation'] = str(implementation).strip()
@@ -97,7 +106,7 @@ def readiness():
     }
 
 
-ENTRY_STATES = ('UNINITIALIZED', 'SOURCES_REQUIRED', 'TRUTH_REVIEW',
+ENTRY_STATES = ('UNINITIALIZED', 'SOURCES_REQUIRED', 'EXTRACTION_REVIEW', 'TRUTH_REVIEW',
                 'TRUTH_READY', 'TRUTH_BLOCKED')
 
 
@@ -113,6 +122,10 @@ def entry_state():
     reset, and never TRUTH_READY.
     """
     try:
+        # Import lazily to avoid making the truth-intake staging ledger part of
+        # generation authority. It only decides which dashboard step resumes.
+        from . import truth_intake
+        intake = truth_intake.summary()
         context = store.truth_context()
         state = readiness()
         errors, _warnings, _stats = integrity.check_truth()
@@ -126,6 +139,13 @@ def entry_state():
 
     stats = context.get('stats') or {}
     problems = list(dict.fromkeys(list(state.get('problems') or []) + list(errors)))
+    if intake.get('pending_count'):
+        return {
+            'state': 'EXTRACTION_REVIEW', 'can_capture': False,
+            'reason': f"{intake['pending_count']} extracted source claim(s) need a decision.",
+            'next_action': 'Review extracted career evidence',
+            'problems': problems,
+        }
     if errors:
         return {
             'state': 'TRUTH_BLOCKED', 'can_capture': False,

@@ -41,6 +41,21 @@ MILESTONE_ORDER = (
 POSITIVE_RANK = {'offer': 3, 'interview': 2, 'progressed': 1}
 
 
+def active_outcome_events(app_ids, events=None):
+    """Return outcome observations not superseded by a correction event."""
+    if isinstance(app_ids, str):
+        app_ids = {app_ids}
+    app_ids = {value for value in app_ids if value}
+    relevant = [event for event in (
+        store.application_events() if events is None else events)
+        if event.get('app_id') in app_ids
+        and event.get('event') in {'OUTCOME', 'OUTCOME_CORRECTED'}]
+    superseded = {event.get('supersedes_event_id') for event in relevant
+                  if event.get('supersedes_event_id')}
+    return [event for event in relevant
+            if event.get('event_id') not in superseded]
+
+
 def milestones_reached(app_ids, events=None, app=None):
     """Every stage this application has ever reached, in lifecycle order.
 
@@ -52,16 +67,17 @@ def milestones_reached(app_ids, events=None, app=None):
         app_ids = {app_ids}
     app_ids = {value for value in app_ids if value}
     reached = set()
-    for event in (store.application_events() if events is None else events):
+    all_events = store.application_events() if events is None else events
+    for event in all_events:
         if event.get('app_id') not in app_ids:
             continue
         stage = MILESTONE_EVENTS.get(event.get('event'))
         if stage:
             reached.add(stage)
-        if event.get('event') == 'OUTCOME':
-            status = str(event.get('status') or '').lower()
-            if status in MILESTONE_ORDER:
-                reached.add(status)
+    for event in active_outcome_events(app_ids, all_events):
+        status = str(event.get('status') or '').lower()
+        if status in MILESTONE_ORDER:
+            reached.add(status)
     if app:
         # Ledgers written before the event schema existed, and any outcome
         # recorded without a matching event, still count as reached.
@@ -265,6 +281,11 @@ def relevant_lessons(jd, exclude_slug=None, top=3, mapping=None):
         for hypothesis in _normalise_hypotheses(app):
             if hypothesis.get('status') not in {'CONFIRMED', 'RETAINED_PLAUSIBLE'}:
                 continue
+            # NO_SIGNAL is an explicit conclusion that no reusable explanation
+            # was learned. Employer or text similarity must not turn that
+            # absence of signal back into a lesson.
+            if str(hypothesis.get('cause') or '').upper() == 'NO_SIGNAL':
+                continue
             applies, reason = lesson_applies(hypothesis.get('cause'), context)
             # A near-identical advert, or the same employer, is itself a reason
             # the situation recurs even when no structural trigger fired.
@@ -318,23 +339,28 @@ def _trigger_named_platforms(context):
             + ', which no registered evidence covers')
 
 
+def _plural(count, singular, plural=None):
+    return f"{count} {singular if count == 1 else (plural or singular + 's')}"
+
+
 def _trigger_hard_gate(context):
     named = _trigger_named_platforms(context)
     if named:
         return named
     count = context.get('hard_gaps') or 0
-    return (f'this advert has {count} unresolved hard gate(s)') if count else None
+    return (f'this advert has {_plural(count, "requirement")} you cannot '
+            'currently evidence at all') if count else None
 
 
 def _trigger_bridging(context):
     count = context.get('bridging_count') or 0
-    return (f'{count} mandatory requirement(s) here are answered by transfer '
-            'rather than direct evidence') if count else None
+    return (f'{_plural(count, "mandatory requirement")} here are met by related '
+            'experience rather than direct evidence') if count else None
 
 
 def _trigger_profile(context):
     count = context.get('profile_gate_count') or 0
-    return (f'this advert has {count} eligibility or language requirement(s)'
+    return (f'this advert has {_plural(count, "eligibility or language requirement")}'
             ) if count else None
 
 
@@ -436,11 +462,11 @@ def relevant_positive_outcomes(jd, exclude_slug=None, top=3):
               if not a.get('exclude_from_analytics')}
     events = store.application_events()
     rows = []
-    for slug, similarity in bm.normed(query, top=12):
-        if slug == exclude_slug or similarity < MINIMUM_RELEVANT_SIMILARITY:
+    for slug, app in by_app.items():
+        if slug == exclude_slug or not app or not _exact_submission(app):
             continue
-        app = by_app.get(slug)
-        if not app or not _exact_submission(app):
+        similarity = _symmetric_similarity(bm, jd, slug, query)
+        if similarity < MINIMUM_RELEVANT_SIMILARITY:
             continue
         # Read the reached stage from the ledger: an application that was
         # interviewed and later rejected still evidences that it advanced.

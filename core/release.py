@@ -133,6 +133,7 @@ def write_status(slug, state, manifest=None):
                 ('Manifest', MANIFEST_NAME, False),
                 ('Submission', SUBMISSION_NAME, False),
                 ('Employer responses', 'RESPONSES.jsonl', False),
+                ('Employer response files', 'RESPONSE-EVIDENCE.jsonl', False),
                 ('Outcome', 'OUTCOME.json', False),
                 ('Case dossier', 'CASE.md', False),
                 ('Reasoning history', 'REASONING.jsonl', False)):
@@ -757,31 +758,119 @@ def attach_pdfs(slug, pdfs, layout=None):
     return package, manifest
 
 
-def _capture_screening_evidence(package, screening_file):
-    """Copy an optional portal-answer export into the private application record."""
-    if not screening_file:
-        return None
-    source = os.path.abspath(screening_file)
-    if not os.path.isfile(source):
-        raise ValueError('the screening-answer evidence file does not exist')
-    extension = os.path.splitext(source)[1].lower()
+def _screening_records(receipt):
+    records = receipt.get('screening_evidence_files') or []
+    if records:
+        return list(records)
+    legacy = receipt.get('screening_evidence')
+    return [legacy] if legacy else []
+
+
+def _capture_screening_evidence(package, screening_files, existing=None):
+    """Copy exact portal evidence into generic, collision-free record names."""
+    if not screening_files:
+        return []
+    sources = screening_files if isinstance(screening_files, (list, tuple)) \
+        else [screening_files]
     allowed = {'.pdf', '.txt', '.md', '.json', '.html', '.png', '.jpg', '.jpeg', '.webp'}
-    if extension not in allowed:
-        raise ValueError(
-            'screening-answer evidence must be PDF, text, JSON, HTML or an image')
-    target = record_path(package, 'SCREENING-ANSWERS' + extension, create=True)
-    if os.path.abspath(target) != source:
-        if os.path.exists(target):
-            if store.sha256_file(source) != store.sha256_file(target):
-                raise ValueError('different screening-answer evidence is already present')
-        else:
+    records = list(existing or [])
+    known_digests = {row.get('sha256') for row in records}
+    additions = []
+    for supplied in sources:
+        source = os.path.abspath(supplied)
+        if not os.path.isfile(source):
+            raise ValueError('a screening-answer evidence file does not exist')
+        extension = os.path.splitext(source)[1].lower()
+        if extension not in allowed:
+            raise ValueError(
+                'screening-answer evidence must be PDF, text, JSON, HTML or an image')
+        digest = store.sha256_file(source)
+        if digest in known_digests:
+            continue
+        number = len(records) + len(additions) + 1
+        filename = ('SCREENING-ANSWERS' + extension if number == 1 else
+                    f'SCREENING-ANSWERS-{number:02d}{extension}')
+        target = record_path(package, filename, create=True)
+        while os.path.exists(target) and store.sha256_file(target) != digest:
+            number += 1
+            filename = f'SCREENING-ANSWERS-{number:02d}{extension}'
+            target = record_path(package, filename, create=True)
+        if os.path.abspath(target) != source and not os.path.exists(target):
             shutil.copy2(source, target)
-    return {
-        'file': os.path.relpath(target, package).replace('\\', '/'),
-        'sha256': store.sha256_file(target),
-        'bytes': os.path.getsize(target),
-        'basis': 'user-supplied exact portal-answer evidence',
-    }
+        record = {
+            'file': os.path.relpath(target, package).replace('\\', '/'),
+            'sha256': store.sha256_file(target),
+            'bytes': os.path.getsize(target),
+            'basis': 'user-supplied exact portal-answer evidence',
+        }
+        additions.append(record)
+        known_digests.add(record['sha256'])
+    return additions
+
+
+def capture_response_evidence(slug, response_files, status, response_date=None):
+    """Preserve exact employer response files without interpreting their cause."""
+    package, _manifest = load_release(slug)
+    receipt, errors = verify_submission(slug)
+    if not package or not receipt or errors:
+        raise ValueError('response evidence requires a verifiable submitted package')
+    sources = response_files if isinstance(response_files, (list, tuple)) \
+        else ([response_files] if response_files else [])
+    allowed = {'.pdf', '.txt', '.md', '.json', '.html', '.eml', '.msg',
+               '.png', '.jpg', '.jpeg', '.webp'}
+    ledger_path = record_path(package, 'RESPONSE-EVIDENCE.jsonl', create=True)
+    existing = store.read_jsonl(ledger_path)
+    known = {row.get('sha256') for row in existing}
+    additions = []
+    for source in sources:
+        source = os.path.abspath(source)
+        if not os.path.isfile(source):
+            raise ValueError('an employer-response evidence file does not exist')
+        extension = os.path.splitext(source)[1].lower()
+        if extension not in allowed:
+            raise ValueError('employer response must be email, PDF, text, JSON, HTML or an image')
+        digest = store.sha256_file(source)
+        if digest in known:
+            continue
+        number = len(existing) + len(additions) + 1
+        filename = f'EMPLOYER-RESPONSE-{number:03d}{extension}'
+        target = record_path(package, filename, create=True)
+        shutil.copy2(source, target)
+        row = {
+            '_schema': 'joblooper.response-evidence.v1',
+            'response_evidence_id': f'RE{number:03d}', 'app_id': slug,
+            'file': os.path.relpath(target, package).replace('\\', '/'),
+            'sha256': store.sha256_file(target), 'bytes': os.path.getsize(target),
+            'status': status, 'received': response_date,
+            'captured_at': store.now(),
+            'basis': 'user-supplied exact employer-response evidence; not causal proof',
+        }
+        store.append_jsonl(ledger_path, row)
+        store.append_application_event({
+            'event': 'RESPONSE_EVIDENCE_CAPTURED', 'app_id': slug,
+            'response_evidence_id': row['response_evidence_id'],
+            'sha256': row['sha256'], 'status': status, 'received': response_date,
+        })
+        additions.append(row)
+        known.add(row['sha256'])
+    return additions
+
+
+def verify_response_evidence(package):
+    ledger = record_path(package, 'RESPONSE-EVIDENCE.jsonl')
+    problems = []
+    for row in store.read_jsonl(ledger):
+        path = os.path.abspath(os.path.join(package, row.get('file', '')))
+        try:
+            inside = os.path.commonpath([os.path.abspath(package), path]) \
+                == os.path.abspath(package)
+        except ValueError:
+            inside = False
+        if not inside or not os.path.isfile(path):
+            problems.append('employer-response evidence is missing')
+        elif store.sha256_file(path) != row.get('sha256'):
+            problems.append('employer-response evidence digest mismatch')
+    return problems
 
 
 def record_submission(slug, sent_file, cover_letter_file=None, channel=None,
@@ -827,7 +916,8 @@ def record_submission(slug, sent_file, cover_letter_file=None, channel=None,
             if info.get('file') == letter_name), None)
         if not letter_expected or letter_expected != letter_sha:
             raise ValueError('the exact sent cover letter is not manifest-verified')
-    screening = _capture_screening_evidence(package, screening_file)
+    screening_files = _capture_screening_evidence(package, screening_file)
+    screening = screening_files[0] if screening_files else None
     receipt = {
         '_schema': 'joblooper.submission.v2', 'app_id': slug,
         'package_id': verified['package_id'],
@@ -836,6 +926,7 @@ def record_submission(slug, sent_file, cover_letter_file=None, channel=None,
         'sent_cover_letter': letter_name,
         'sent_cover_letter_sha256': letter_sha,
         'screening_evidence': screening,
+        'screening_evidence_files': screening_files,
         'screening_evidence_status': 'captured' if screening else 'not_captured',
         'applied': applied_date, 'channel': channel, 'recorded_at': store.now(),
     }
@@ -908,7 +999,8 @@ def record_confirmed_external_submission(slug, sent_file, cover_letter_file=None
             'external confirmation refused; application evidence or a selected '
             'sent file is not intact: ' + '; '.join(critical))
 
-    screening = _capture_screening_evidence(package, screening_file)
+    screening_files = _capture_screening_evidence(package, screening_file)
+    screening = screening_files[0] if screening_files else None
     receipt = {
         '_schema': 'joblooper.submission.v3', 'app_id': slug,
         'mode': 'user_confirmed_external_submission',
@@ -918,6 +1010,7 @@ def record_confirmed_external_submission(slug, sent_file, cover_letter_file=None
         'sent_cover_letter': letter_name,
         'sent_cover_letter_sha256': letter_sha,
         'screening_evidence': screening,
+        'screening_evidence_files': screening_files,
         'screening_evidence_status': 'captured' if screening else 'not_captured',
         'applied': applied_date, 'channel': channel, 'recorded_at': store.now(),
         'confirmation_basis': 'selected sent files match the approved manifest',
@@ -954,14 +1047,17 @@ def update_submission_metadata(slug, applied_date=None, channel=None,
         receipt['channel'] = channel
         changed.append('channel')
     if screening_file:
-        if receipt.get('screening_evidence'):
-            raise ValueError('screening-answer evidence is already recorded')
-        receipt['screening_evidence'] = _capture_screening_evidence(
-            package, screening_file)
+        existing = _screening_records(receipt)
+        additions = _capture_screening_evidence(
+            package, screening_file, existing=existing)
+        if not additions:
+            raise ValueError('all supplied screening evidence is already recorded')
+        receipt['screening_evidence_files'] = existing + additions
+        receipt['screening_evidence'] = receipt['screening_evidence_files'][0]
         receipt['screening_evidence_status'] = 'captured'
-        changed.append('screening_evidence')
+        changed.append('screening_evidence_files')
     elif screening_unavailable:
-        if receipt.get('screening_evidence'):
+        if _screening_records(receipt):
             raise ValueError(
                 'exact screening evidence is already recorded and cannot be relabelled')
         if receipt.get('screening_evidence_status') != 'unavailable':
@@ -1073,13 +1169,13 @@ def verify_submission(slug):
                     problems.append('exact submitted cover letter digest mismatch')
             except ValueError as error:
                 problems.append(str(error))
-        screening = receipt.get('screening_evidence')
-        if screening:
+        for screening in _screening_records(receipt):
             screening_path = os.path.join(package, screening.get('file', ''))
             if not os.path.isfile(screening_path):
                 problems.append('screening-answer evidence is missing')
             elif store.sha256_file(screening_path) != screening.get('sha256'):
                 problems.append('screening-answer evidence digest mismatch')
+        problems.extend(verify_response_evidence(package))
         return receipt, problems
 
     manifest, package_errors = verify_release(slug)
@@ -1103,11 +1199,11 @@ def verify_submission(slug):
             problems.append('exact submitted cover letter is missing')
         elif store.sha256_file(sent_letter) != receipt.get('sent_cover_letter_sha256'):
             problems.append('exact submitted cover letter digest mismatch')
-    screening = receipt.get('screening_evidence')
-    if screening:
+    for screening in _screening_records(receipt):
         screening_path = os.path.join(package, screening.get('file', ''))
         if not os.path.isfile(screening_path):
             problems.append('screening-answer evidence is missing')
         elif store.sha256_file(screening_path) != screening.get('sha256'):
             problems.append('screening-answer evidence digest mismatch')
+    problems.extend(verify_response_evidence(package))
     return receipt, problems

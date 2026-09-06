@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark light">
   <title>Joblooper · Application Workspace</title>
+  <link rel="icon" href="/app-icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
@@ -15,14 +16,14 @@
   <header class="command-bar">
     <a class="brand" href="#overview" aria-label="Joblooper dashboard home">
       <span class="brand-mark" aria-hidden="true">
-        <svg viewBox="0 0 32 32"><path d="M6 9.5 16 4l10 5.5v13L16 28 6 22.5z"/><path d="m11 12 5-2.8 5 2.8v6.8L16 22l-5-3.2z"/></svg>
+        <img src="/app-icon.svg" alt="" width="34" height="34" decoding="async">
       </span>
       <span><strong>JOBLOOPER</strong><small>Application workspace</small></span>
     </a>
 
     <div class="header-status" aria-live="polite">
       <span class="status-pill privacy-pill"><span class="pulse-dot"></span>LOCAL ONLY</span>
-      <span class="status-pill" id="truth-pill">Checking truth…</span>
+      <button class="status-pill status-button" id="truth-pill" type="button">Checking truth…</button>
       <span class="last-refresh" id="last-refresh">Loading</span>
     </div>
 
@@ -204,8 +205,61 @@
         <div><strong>If the change was intentional</strong><span>Validate the current source, register it as a deliberate evidence revision, and renew ground-truth approval.</span></div>
         <div><strong>If you are unsure</strong><span>Leave generation blocked. No evidence or application artefact is changed by closing this dialog.</span></div>
       </div>
-      <div class="dialog-actions"><button class="secondary-button dialog-close" type="button">Close</button><button class="primary-button" id="truth-integrity-codex" type="button"><span class="agent-orb"></span> Discuss further with Codex</button></div>
+      <div class="dialog-actions"><button class="secondary-button dialog-close" type="button">Close</button><button class="secondary-button" id="truth-integrity-replace" type="button">Replace changed source</button><button class="primary-button" id="truth-integrity-codex" type="button"><span class="agent-orb"></span> Discuss further with Codex</button></div>
     </form>
+  </dialog>
+
+  <dialog class="workspace-dialog truth-workbench-dialog" id="truth-workbench-dialog">
+    <div class="truth-workbench-body">
+      <div class="dialog-heading"><div><p class="eyebrow">Generation authority</p><h2>Career-truth workbench</h2></div><button class="icon-button dialog-close" type="button" aria-label="Close"><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+      <p class="dialog-copy">Source files stay private. Extracted lines are proposals until you disposition every claim, review the complete identity and boundary summary, and sign the exact digest.</p>
+      <div class="truth-steps" id="truth-steps"></div>
+
+      <form id="truth-upload-form">
+        <div class="truth-section-heading"><div><strong>1. Add source evidence</strong><span>Start with your base CV; add certificates, references or notes independently.</span></div></div>
+        <div class="form-grid two"><label>Source type<select name="kind"><option value="base_cv">Base CV</option><option value="historical_cv">Older CV</option><option value="certificate">Certificate</option><option value="reference">Reference</option><option value="career_note">Career note</option></select></label><label>Private files<input name="files" type="file" multiple required accept=".pdf,.docx,.txt,.md,.json"><small>PDF, DOCX, UTF-8 text, Markdown or JSON; 12 MB each.</small></label><label>Intentional replacement <span class="optional">only when a registered file was deliberately revised</span><select name="supersedes_source_id"><option value="">Add as a new independent source</option></select><small>A replacement is accepted only after active facts are re-evidenced from the new file.</small></label></div>
+        <div class="dialog-status" id="truth-upload-status"></div>
+        <div class="dialog-actions"><button class="secondary-button" type="submit">Hash, store & extract</button></div>
+      </form>
+
+      <form id="truth-review-form" hidden>
+        <div class="truth-section-heading"><div><strong>2. Review identity and every extracted claim</strong><span>Edit proposed wording; nothing below has authority until this review is saved.</span></div></div>
+        <div class="form-grid two"><label>Name<input name="name" maxlength="200" required></label><label>Based in<input name="based_in" maxlength="200"></label><label>Email<input name="email" type="email" maxlength="300" required></label><label>Phone<input name="phone_primary" maxlength="100" required></label><label>Identity key<input name="identity" pattern="[A-Za-z0-9 _-]+" maxlength="80" placeholder="systems_engineer" required></label><label>CV headline<input name="headline" maxlength="200" required></label></div>
+        <label>Professional summary<textarea name="summary" rows="3" maxlength="500" required placeholder="A candidate-approved, evidence-backed positioning statement of at least eight words."></textarea></label>
+        <label>Identity description<input name="identity_description" maxlength="300" placeholder="The work this identity covers"></label>
+        <div class="truth-candidate-list" id="truth-candidate-list"></div>
+        <label class="check-row"><input name="boundaries_reviewed" type="checkbox" required><span>I reviewed the identity, source locators, disclosure boundary and every claim disposition shown above.</span></label>
+        <div class="dialog-status" id="truth-review-status"></div>
+        <div class="dialog-actions"><button class="primary-button" type="submit">Save reviewed career truth</button></div>
+      </form>
+
+      <section id="truth-comments-section">
+        <div class="truth-section-heading"><div><strong>Career-truth comments</strong><span>Open concerns block sign-off. Adoption requires a real, integrity-valid truth change first.</span></div></div>
+        <div class="feedback-history" id="truth-comment-list"></div>
+        <form id="truth-comment-form">
+          <div class="form-grid two"><label>Scope<select name="scope"><option value="FACT">Fact</option><option value="SOURCE">Source</option><option value="BOUNDARY">Boundary</option><option value="WORDING">Wording</option><option value="STRUCTURE">Structure</option></select></label><label>Author<input name="author" maxlength="200" required></label></div>
+          <label>Concern or requested correction<textarea name="note" rows="3" maxlength="3000" required></textarea></label>
+          <label>Evidence / affected IDs <span class="optional">one per line</span><textarea name="evidence" rows="2"></textarea></label>
+          <div class="dialog-actions"><button class="secondary-button" type="submit">Add truth comment</button></div>
+        </form>
+        <form id="truth-comment-resolve-form" hidden>
+          <label>Open truth comment<select name="item_id" required></select></label>
+          <div class="form-grid two"><label>Decision<select name="status"><option value="REJECTED">Reject / no truth change</option><option value="ADOPTED">Adopt after truth changed</option></select></label><label>Implementation<textarea name="implementation" rows="3" required></textarea></label></div>
+          <label>Validation evidence<textarea name="validation" rows="3" required></textarea></label>
+          <div class="dialog-status" id="truth-comment-status"></div>
+          <div class="dialog-actions"><button class="primary-button" type="submit">Save truth decision</button></div>
+        </form>
+      </section>
+
+      <form id="truth-sign-form" hidden>
+        <div class="truth-section-heading"><div><strong>3. Sign the complete truth digest</strong><span>This enables job capture; it does not approve any future CV.</span></div></div>
+        <div class="truth-summary" id="truth-summary"></div>
+        <label>Reviewer name<input name="reviewer" maxlength="200" required></label>
+        <label class="check-row"><input name="confirmed" type="checkbox" required><span>I reviewed the identity, sources, facts and boundaries represented by this exact digest.</span></label>
+        <div class="dialog-status" id="truth-sign-status"></div>
+        <div class="dialog-actions"><button class="primary-button" type="submit">Sign exact career truth</button></div>
+      </form>
+    </div>
   </dialog>
 
   <dialog class="workspace-dialog intake-dialog" id="intake-dialog">
@@ -224,6 +278,20 @@
     </form>
   </dialog>
 
+  <dialog class="workspace-dialog" id="advert-review-dialog">
+    <form method="dialog" id="advert-review-form">
+      <div class="dialog-heading"><div><p class="eyebrow">Captured source checkpoint</p><h2>Confirm the complete advert</h2></div><button class="icon-button dialog-close" type="button" aria-label="Close"><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+      <p class="dialog-copy">Check the extraction before fit analysis. Correct only the company or title if the page parser got them wrong; the captured advert text itself remains exact and immutable.</p>
+      <div class="form-grid two"><label>Company<input name="company" maxlength="200" required></label><label>Exact job title<input name="title" maxlength="300" required></label></div>
+      <label>Official URL<input name="url" readonly></label>
+      <label>Complete captured advert<textarea name="raw" rows="15" readonly></textarea></label>
+      <label>Reviewer<input name="reviewer" maxlength="200" value="dashboard-user" required></label>
+      <label class="check-row"><input name="confirmed" type="checkbox" required><span>I reviewed the complete captured advert, company and title before fit analysis.</span></label>
+      <div class="dialog-status" id="advert-review-status"></div>
+      <div class="dialog-actions"><button class="secondary-button dialog-close" type="button">Cancel</button><button class="primary-button" type="submit">Confirm advert & continue</button></div>
+    </form>
+  </dialog>
+
   <dialog class="workspace-dialog preflight-dialog" id="preflight-dialog">
     <form method="dialog" id="preflight-form">
       <div class="dialog-heading"><div><p class="eyebrow">Deterministic preflight</p><h2>Review known fit gaps</h2></div><button class="icon-button dialog-close" type="button" aria-label="Close"><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
@@ -238,8 +306,11 @@
   <dialog class="workspace-dialog" id="feedback-dialog">
     <form method="dialog" id="feedback-form">
       <div class="dialog-heading"><div><p class="eyebrow">Governed feedback</p><h2>Add a review comment</h2></div><button class="icon-button dialog-close" type="button" aria-label="Close"><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
-      <p class="dialog-copy">A saved comment invalidates stale presentation or approval. Codex can discuss it first; it becomes a rule or truth change only after explicit resolution.</p>
-      <label>Scope<select name="scope"><option value="content">CV or letter content</option><option value="format">Formatting</option><option value="workflow">Workflow</option><option value="truth">Candidate truth</option><option value="rule">System rule</option></select></label>
+      <p class="dialog-copy">Anchor the request to the exact document version. Wording can use only an approved variant for the same evidence; factual corrections take the career-truth route.</p>
+      <label>Feedback class<select name="classification"><option value="APPLICATION_WORDING">Application wording</option><option value="FACTUAL_CORRECTION">Factual correction</option><option value="REUSABLE_PREFERENCE">Reusable preference</option><option value="WORKFLOW_REQUEST">Workflow request</option><option value="REJECTION">Reject a suggestion / leave as is</option></select></label>
+      <label>Exact CV sentence<select name="target_id"><option value="">Not tied to a CV sentence</option></select><small id="feedback-target-note">Loaded from the current plan; required for application wording.</small></label>
+      <label>Requested reach<select name="requested_scope"><option value="THIS_APPLICATION">This application only</option><option value="FUTURE_APPLICATIONS">Future applications</option><option value="CAREER_TRUTH">Career truth</option></select></label>
+      <div class="form-grid two" id="feedback-preference-fields"><label>Reusable control<select name="preference_type"><option value="WORDING_VARIANT">Wording length</option><option value="TARGET_PAGES">Target CV pages</option></select></label><label>Control value<select name="preference_value"><option value="short">Short wording</option><option value="std">Standard wording</option><option value="long">Long wording</option></select></label></div>
       <label>Comment<textarea name="note" required rows="7" maxlength="8000"></textarea></label>
       <div class="dialog-status" id="feedback-status"></div>
       <div class="dialog-actions"><button class="secondary-button dialog-close" type="button">Cancel</button><button class="primary-button" type="submit">Save feedback</button></div>
@@ -249,14 +320,24 @@
   <dialog class="workspace-dialog" id="resolve-feedback-dialog">
     <form method="dialog" id="resolve-feedback-form">
       <div class="dialog-heading"><div><p class="eyebrow">Review decision</p><h2>Resolve open feedback</h2></div><button class="icon-button dialog-close" type="button" aria-label="Close"><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
-      <p class="dialog-copy">Decide each comment explicitly. Adoption does not silently edit the CV; the implementation and its validation remain reviewable before a new presentation can be approved.</p>
+      <p class="dialog-copy">First review an evidence-authorized before/after proposal. Then accept, edit, reject or defer it. Accepted wording is applied by regeneration and closes only after deterministic validation.</p>
       <label>Open feedback<select name="feedback_id" required></select></label>
       <div class="immutable-bundle" id="feedback-item-detail"></div>
-      <label>Decision<select name="status" required><option value="adopted">Adopted</option><option value="rejected">Rejected</option></select></label>
-      <label>Implementation or rejection rationale<textarea name="implementation" required rows="4" minlength="8" maxlength="8000" placeholder="State exactly what changed, or why this comment should not be adopted."></textarea></label>
-      <label>Validation evidence<textarea name="validation" required rows="4" minlength="8" maxlength="8000" placeholder="State how the decision was checked against the JD, ground truth or rendered output."></textarea></label>
+      <div id="feedback-proposal-controls">
+        <label>Source-authorized replacement<select name="after_text"></select></label>
+        <div class="dialog-actions"><button class="secondary-button" id="feedback-propose" type="button">Save before/after proposal</button></div>
+      </div>
+      <div id="feedback-decision-controls" hidden>
+        <label>Decision<select name="decision"><option value="ACCEPT">Accept proposal</option><option value="EDIT">Use another authorized variant</option><option value="REJECT">Reject</option><option value="DEFER">Defer</option></select></label>
+        <label>Decision note<textarea name="decision_note" rows="3" maxlength="2000" placeholder="Required when rejecting or deferring."></textarea></label>
+      </div>
+      <div id="legacy-feedback-controls" hidden>
+        <label>Legacy decision<select name="status"><option value="adopted">Adopted</option><option value="rejected">Rejected</option></select></label>
+        <label>Implementation or rejection rationale<textarea name="implementation" rows="4" minlength="8" maxlength="8000"></textarea></label>
+        <label>Validation evidence<textarea name="validation" rows="4" minlength="8" maxlength="8000"></textarea></label>
+      </div>
       <div class="dialog-status" id="resolve-feedback-status"></div>
-      <div class="dialog-actions"><button class="secondary-button dialog-close" type="button">Cancel</button><button class="primary-button" type="submit">Save decision</button></div>
+      <div class="dialog-actions"><button class="secondary-button dialog-close" type="button">Cancel</button><button class="primary-button" id="feedback-decision-save" type="submit">Save decision</button></div>
     </form>
   </dialog>
 
@@ -278,7 +359,7 @@
       <p class="dialog-copy">Open the employer portal separately, upload the verified files below, save its screening answers, then return here. Joblooper does not claim to submit into a third-party portal.</p>
       <div class="form-grid two"><label>Exact CV<select name="cv_artifact_id" required></select></label><label>Exact cover letter<select name="letter_artifact_id"><option value="">Not submitted</option></select></label></div>
       <div class="form-grid two"><label>Channel<select name="channel"><option value="portal">Employer portal</option><option value="email">Email</option><option value="recruiter">Recruiter</option><option value="referral">Referral</option></select></label><label>Applied date<input name="applied_date" type="date"></label></div>
-      <label>Portal questions / screening answers <span class="optional">optional but strongly recommended</span><input name="screening_file" type="file" accept=".pdf,.txt,.md,.json,.html,.png,.jpg,.jpeg,.webp"><small>Upload the saved portal page, PDF, text, JSON or screenshot. Maximum 8 MB.</small></label>
+      <label>Portal questions / screening answers <span class="optional">optional but strongly recommended</span><input name="screening_file" type="file" multiple accept=".pdf,.txt,.md,.json,.html,.png,.jpg,.jpeg,.webp"><small>Upload all saved portal pages, PDFs, text, JSON or screenshots. Maximum 8 MB each.</small></label>
       <label class="check-row"><input name="confirmed" type="checkbox" required><span>I uploaded the exact files selected above.</span></label>
       <div class="dialog-status" id="submission-status"></div>
       <div class="dialog-actions"><button class="secondary-button dialog-close" type="button">Cancel</button><button class="primary-button" type="submit">Record submission</button></div>
@@ -291,7 +372,7 @@
       <p class="dialog-copy">Correct user-reported metadata without changing the immutable CV or cover letter that was submitted. Every correction is appended to the event trail.</p>
       <div class="immutable-bundle" id="update-submission-bundle"></div>
       <div class="form-grid two"><label>Submission date<input name="applied_date" type="date"></label><label>Submission channel<select name="channel"><option value="portal">Employer portal</option><option value="email">Email</option><option value="recruiter">Recruiter</option><option value="referral">Referral</option></select></label></div>
-      <label>Saved portal questions / answers <span class="optional">attach later when available</span><input name="screening_file" type="file" accept=".pdf,.txt,.md,.json,.html,.png,.jpg,.jpeg,.webp"><small>Exact PDF, text, JSON, HTML or screenshot. Maximum 8 MB.</small></label>
+      <label>Saved portal questions / answers <span class="optional">attach later when available</span><input name="screening_file" type="file" multiple accept=".pdf,.txt,.md,.json,.html,.png,.jpg,.jpeg,.webp"><small>Exact PDFs, text, JSON, HTML or screenshots. Maximum 8 MB each.</small></label>
       <label class="check-row"><input name="screening_unavailable" type="checkbox"><span>Historical portal answers are unavailable. Keep this explicit instead of repeatedly asking or reconstructing them.</span></label>
       <div class="dialog-status" id="update-submission-status"></div>
       <div class="dialog-actions"><button class="secondary-button dialog-close" type="button">Cancel</button><button class="primary-button" type="submit">Save record update</button></div>
@@ -302,12 +383,31 @@
     <form method="dialog" id="outcome-form">
       <div class="dialog-heading"><div><p class="eyebrow">Observed outcome</p><h2>Record what happened</h2></div><button class="icon-button dialog-close" type="button" aria-label="Close"><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
       <p class="dialog-copy">Save the observation first. Employer text and stated reasons remain facts; any explanation discussed with Codex remains an unverified best guess unless the employer explicitly confirms it.</p>
+      <label>Observation being corrected <span class="optional">leave as New observation unless the earlier entry was wrong</span><select name="correction_event_id"><option value="">New observation</option></select></label>
+      <label id="outcome-correction-reason" hidden>Why is the earlier observation wrong?<textarea name="correction_reason" rows="3" maxlength="1000"></textarea><small>The old entry remains visible and this correction supersedes it.</small></label>
       <div class="form-grid two"><label>Outcome<select name="status" required><option value="" disabled selected>Select observed outcome</option><option value="rejected">Rejected</option><option value="interview">Interview</option><option value="progressed">Progressed</option><option value="offer">Offer</option><option value="ghosted">Ghosted</option><option value="withdrawn">Withdrawn</option></select></label><label>Response date<input name="response_date" type="date"></label></div>
       <label>Response timing<select name="latency"><option value="unknown">Unknown</option><option value="under_24h">Under 24 hours</option><option value="1_3d">1–3 days</option><option value="4_7d">4–7 days</option><option value="8_30d">8–30 days</option><option value="over_30d">Over 30 days</option></select></label>
       <label>Exact employer-stated reason <span class="optional">leave blank when none was given</span><textarea name="employer_reason" rows="3" maxlength="600" placeholder="Do not enter your theory here"></textarea></label>
       <label>Exact employer email or response <span class="optional">optional</span><textarea name="response_text" rows="9" maxlength="120000" placeholder="Paste the exact response to hash-bind it to this application"></textarea><small>A response date is required when exact text is pasted.</small></label>
+      <label>Employer response files <span class="optional">optional; select every page or attachment</span><input name="response_files" type="file" multiple accept=".eml,.msg,.pdf,.txt,.md,.json,.html,.png,.jpg,.jpeg,.webp"><small>Files are renamed generically, copied into the private case, and hash-bound. Maximum 8 MB each.</small></label>
       <div class="dialog-status" id="outcome-status"></div>
       <div class="dialog-actions"><button class="secondary-button dialog-close" type="button">Cancel</button><button class="primary-button" type="submit">Record outcome</button></div>
+    </form>
+  </dialog>
+
+  <dialog class="workspace-dialog" id="hypothesis-dialog">
+    <form method="dialog" id="hypothesis-form">
+      <div class="dialog-heading"><div><p class="eyebrow">Governed learning</p><h2>Challenge an outcome explanation</h2></div><button class="icon-button dialog-close" type="button" aria-label="Close"><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+      <p class="dialog-copy">This records a hypothesis, never an employer fact. Retention requires competing explanations, three substantive passes, counterevidence and unresolved unknowns.</p>
+      <label>Reasoning record<select name="hypothesis_id"><option value="">New hypothesis</option></select></label>
+      <div class="form-grid two"><label>Possible cause<select name="cause"><option value="HARD_GATE">Direct requirement</option><option value="SENIORITY_MISMATCH">Seniority alignment</option><option value="DOMAIN_TRANSLATION">Domain translation</option><option value="ATS_KEYWORD">ATS / wording</option><option value="EVIDENCE_DEPTH">Evidence depth</option><option value="NARRATIVE_COHERENCE">Narrative coherence</option><option value="LOCATION_VISA">Location / eligibility</option><option value="COMPENSATION">Compensation</option><option value="TIMING_INTERNAL">Process / timing</option><option value="NO_SIGNAL">No reliable signal</option></select></label><label>Disposition<select name="status"><option value="OPEN">Open / keep testing</option><option value="RETAINED_PLAUSIBLE">Retain as plausible</option><option value="CONFIRMED">Employer-confirmed</option><option value="DISMISSED">Dismiss</option></select></label></div>
+      <div class="form-grid two"><label>Evidence support (0 to 1)<input name="confidence" type="number" min="0" max="1" step="0.05" value="0.5" required></label><label>Reviewer<input name="author" maxlength="200" required></label></div>
+      <label>Reasoning note<textarea name="note" rows="4" maxlength="3000" required></textarea></label>
+      <div class="form-grid two"><label>Evidence for <span class="optional">one item per line</span><textarea name="evidence_for" rows="4"></textarea></label><label>Counterevidence <span class="optional">one item per line</span><textarea name="evidence_against" rows="4"></textarea></label></div>
+      <label>Still unknown <span class="optional">one item per line</span><textarea name="unknowns" rows="3"></textarea></label>
+      <details class="manual-intake"><summary>Separate other relevant factors</summary><div class="form-grid two"><label>Company context<textarea name="company_context" rows="3"></textarea></label><label>Candidate profile factors<textarea name="profile_factors" rows="3"></textarea></label></div><label>Other factors<textarea name="other_factors" rows="3"></textarea></label></details>
+      <div class="dialog-status" id="hypothesis-status"></div>
+      <div class="dialog-actions"><button class="secondary-button dialog-close" type="button">Cancel</button><button class="primary-button" type="submit">Save reasoning pass</button></div>
     </form>
   </dialog>
 

@@ -31,6 +31,7 @@ def main():
             'release_manifest_sha256': 'a' * 64, 'cv_sha256': 'b' * 64,
             'identity': 'systems_engineer', 'coverage': 0.82,
             'exclude_from_analytics': False,
+            'stated_reason': 'Reason belonging to an older observation',
         }
         checks.append(('both exact submission modes are eligible for bounded learning',
                        learning._exact_submission(app)
@@ -50,7 +51,8 @@ def main():
                        and app['responded_date_status'] == 'not_provided'
                        and app['response_latency'] == {
                            'band': 'under_24h', 'basis': 'user_reported'}
-                       and 'days' not in app))
+                       and 'days' not in app
+                       and app['stated_reason'] is None))
         metrics_out = io.StringIO()
         with contextlib.redirect_stdout(metrics_out):
             metrics_result = jl.cmd_metrics(SimpleNamespace())
@@ -123,6 +125,31 @@ def main():
         checks.append(('retained rejection learning becomes a pre-generation question',
                        any(row['id'].startswith('PRIOR-REJECTION-')
                            for row in questions)))
+        prior = next(row for row in questions
+                     if row['id'].startswith('PRIOR-REJECTION-'))
+        checks.append(('a carried lesson separates finding, provenance and the ask',
+                       bool(prior.get('finding')) and bool(prior.get('reason'))
+                       and prior['question'].endswith('?')
+                       and 'RETAINED_PLAUSIBLE' not in prior['finding']
+                       and 'HARD_GATE' not in prior['finding']
+                       and {opt['value'] for opt in prior['options']} == {
+                           'REVIEWED_NO_CHANGE', 'NOT_APPLICABLE_HERE',
+                           'ADD_NEW_CONTEXT'}
+                       and any(opt['requires_note'] and not opt['completes_preflight']
+                               for opt in prior['options'])
+                       and any(opt['requires_note'] and opt['completes_preflight']
+                               for opt in prior['options'])))
+        # A lesson the user judged not applicable here stops reaching the plan.
+        dismiss_record = {
+            'questions': [prior],
+            'answers': {prior['id']: {'decision': 'NOT_APPLICABLE_HERE',
+                                      'note': 'This role names no proprietary platform.'}},
+        }
+        kept = preflight.selected_learning_signals(dismiss_record, lessons)
+        checks.append(('a lesson dismissed for this job is filtered from the plan',
+                       lessons and not any(
+                           l['hypothesis_id'] == prior['lesson_id']
+                           and l['app_id'] == prior['lesson_app_id'] for l in kept)))
         negative_preview = '\n'.join(preview.outcome_learning_lines({
             'learning_signals': lessons, 'positive_outcome_signals': []}))
         checks.append(('rejection-only preview retains its evidence and unknowns',
@@ -169,6 +196,20 @@ def main():
                        reached == [stage for stage in learning.MILESTONE_ORDER
                                    if stage in set(reached)]
                        and 'because' not in surviving[0]['observation']))
+        wrong = store.append_application_event({
+            'event': 'OUTCOME', 'app_id': slug, 'status': 'offer'})
+        store.append_application_event({
+            'event': 'OUTCOME_CORRECTED', 'app_id': slug, 'status': 'rejected',
+            'supersedes_event_id': wrong['event_id'],
+            'correction_reason': 'The offer status was entered in error.'})
+        corrected_reached = learning.milestones_reached(
+            slug, None, rejected_later)
+        checks.append(('a correction supersedes the wrong milestone without deleting history',
+                       'offer' not in corrected_reached
+                       and any(row.get('event_id') == wrong['event_id']
+                               for row in store.application_events())
+                       and any(row.get('supersedes_event_id') == wrong['event_id']
+                               for row in store.application_events())))
         store.write_jsonl(store.p('index', 'applications.jsonl'), [current])
 
         positive_questions = preflight.questions(
@@ -176,7 +217,9 @@ def main():
             {'primary': 'systems_engineer', 'ranked': [('systems_engineer', 1.0)]})
         checks.append(('positive outcome becomes a bounded pre-generation question',
                        any(row['id'].startswith('PRIOR-POSITIVE-')
-                           and 'does not prove why' in row['question']
+                           and 'does not prove why' in ' '.join(
+                               str(row.get(field) or '')
+                               for field in ('finding', 'reason', 'question'))
                            for row in positive_questions)))
         try:
             learning.record_hypothesis(

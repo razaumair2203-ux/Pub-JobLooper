@@ -54,12 +54,14 @@ will not guess an unavailable advert.
 
 ```text
 python jl.py ingest job.txt --company "Company" --title "Job title" --url "https://example/job/ref"
+python jl.py confirm-advert <exact-job-key> --company "Company" --title "Job title"
 python jl.py preflight <exact-job-key>
 python jl.py plan <exact-job-key>
 python jl.py present <exact-job-key>
 ```
 
-Use the dashboard **Preflight review** for the remaining decisions. Joblooper
+The dashboard first displays the complete immutable advert and asks you to
+confirm its company and title. Only then use **Preflight review** for the remaining decisions. Joblooper
 has already checked approved truth, so resolved facts do not appear again.
 Choose **Proceed with recorded gap** to continue without inventing the missing
 experience, or **I have new evidence** to stop and update ground truth. Chat is
@@ -92,6 +94,10 @@ verifies; do not approve a second time.
 python jl.py dashboard
 ```
 
+On Windows, optionally install the branded launcher with `python jl.py dashboard
+--install-shortcut start-menu` (or `desktop` / `both`). Remove only those links
+with `--remove-shortcut`; career data is not touched.
+
 Run the same command after an upgrade. It replaces only the verified previous
 Joblooper dashboard, reuses `http://127.0.0.1:8765/`, and opens the current page.
 If another application owns the port, Joblooper refuses to terminate it.
@@ -100,7 +106,7 @@ The local workspace answers what is in progress, what needs attention, which
 exact files belong to each job, which outcomes were observed, and which
 rejection lessons survived challenge. It is also the simplest front door:
 paste the official job URL, let Joblooper extract the employer, title and full
-advert, resolve the deterministic preflight decisions, select **Generate CV &
+advert, confirm that exact capture, resolve the deterministic preflight decisions, select **Generate CV &
 letter**, and review the
 complete CV and letter, add comments, approve and build, record the exact sent
 files and portal answers, and paste the employer response. The same CLI gates
@@ -137,7 +143,7 @@ Record the exact submitted files so a later response can be correlated without
 guessing:
 
 ```text
-python jl.py submit <exact-job-key> --sent-file "<path-to-CV>" --cover-letter-file "<path-to-letter>" --screening-file "<saved-portal-answers>" --channel portal
+python jl.py submit <exact-job-key> --sent-file "<path-to-CV>" --cover-letter-file "<path-to-letter>" --screening-file "<portal-page-1>" --screening-file "<portal-page-2>" --channel portal
 python jl.py update-submission <exact-job-key> --date YYYY-MM-DD --channel portal --screening-unavailable
 python jl.py response rejection-email.txt
 python jl.py case <exact-job-key>

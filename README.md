@@ -1,9 +1,14 @@
+<img src="dashboard/app-icon.svg" alt="Joblooper" width="96" align="left" hspace="16">
+
 # Joblooper
 
 An evidence-governed job-application system that runs entirely on your own
 machine. You approve one record of your career; Joblooper tailors a CV and cover
 letter to a real advert using only wording you have approved, and refuses to
 build anything you have not signed off.
+
+<br clear="left">
+
 
 It will not invent experience, guess at an advert it cannot read, or claim a
 requirement your evidence does not cover. When something is missing it says what
@@ -43,16 +48,17 @@ checkout, so updating Joblooper never touches it.
  1 Career truth   Review your CV and evidence into approved facts, then sign them.
                   Nothing can be generated until you do.
  2 Capture        Paste a job link. The exact advert is stored — never a summary.
- 3 Preflight      Joblooper answers what your truth already covers and asks only
+ 3 Confirm JD     Read the complete capture and confirm company/title.
+ 4 Preflight      Joblooper answers what your truth already covers and asks only
                   about real gaps. You choose: proceed with the gap recorded, or
                   stop and add evidence.
- 4 Draft          CV and cover letter assembled from approved wording only.
- 5 Review         You read the complete documents. Comments block sign-off until
+ 5 Draft          CV and cover letter assembled from approved wording only.
+ 6 Review         You read the complete documents. Comments block sign-off until
                   they are resolved.
- 6 Approve/build  Only after sign-off do DOCX and PDF files exist.
- 7 Submit         You upload to the employer. Joblooper records the exact files
+ 7 Approve/build  Only after sign-off do DOCX and PDF files exist.
+ 8 Submit         You upload to the employer. Joblooper records the exact files
                   sent and their fingerprints.
- 8 Outcome        Record what the employer did. Explanations stay challenged
+ 9 Outcome        Record what the employer did. Explanations stay challenged
                   hypotheses, never facts.
 ```
 
@@ -120,6 +126,7 @@ Everything below assumes signed candidate truth.
 python jl.py doctor
 python jl.py check
 python jl.py ingest job.txt --company "Acme" --title "Systems Manager" --url "https://example/job/123"
+python jl.py confirm-advert <exact-job-key> --company "Acme" --title "Systems Manager"
 python jl.py refresh-jd <exact-job-key>  # only when Cautions reports stale analysis
 python jl.py preflight <exact-job-key>
 python jl.py plan <exact-job-key>
@@ -224,9 +231,16 @@ see [ground-truth governance](references/ground-truth-governance.md).
 | Core competencies | Add only useful, deduplicated, evidence-backed JD vocabulary; omit a weak band. |
 
 The local match score is an evidence-coverage heuristic. `DIRECT`,
-`TRANSFERABLE`, `PARTIAL` and `GAP` describe captured requirements against
-registered evidence; they are not ATS scores, hiring probabilities or
-guarantees.
+`TRANSFERABLE`, `PARTIAL`, `GAP` and `BEHAVIOURAL` describe captured
+requirements against registered evidence; they are not ATS scores, hiring
+probabilities or guarantees.
+
+The logo is a paper-craft parrot, made by the maintainer's child and set inside
+the pentagon badge. A parrot repeats what it has heard; Joblooper repeats only
+what you have approved. The favicon, the header mark and the Windows icon are
+all generated from that one photograph by `tools/build_app_icon.py`, and a check
+fails if any of them drifts. The original photograph is not published — see
+[NOTICE](NOTICE) for the copyright position.
 
 ## Gates and judgment
 
@@ -279,6 +293,16 @@ Launch the dashboard at any point in the lifecycle:
 python jl.py dashboard
 ```
 
+On Windows, install a native launcher only when you want it:
+
+```powershell
+python jl.py dashboard --install-shortcut start-menu
+# use desktop or both instead; remove with --remove-shortcut
+```
+
+The browser and launcher use the same Joblooper icon. Shortcut creation is
+opt-in and never initializes or copies career data.
+
 This is also the upgrade/restart command: it stops only the authenticated prior
 Joblooper instance, starts the installed code on the same loopback address and
 opens the current page. Dashboard behavior is modular and ships with both
@@ -288,7 +312,8 @@ regenerated into the privacy-audited `Pub-JobLooper` mirror. See the
 
 It opens the governed application workspace on `127.0.0.1`. From there, paste
 only the official job URL; Joblooper extracts the employer, exact title and
-complete advert. A blocked or JavaScript-only page is handed to Codex, and
+ complete advert. You then confirm the complete capture, company and title
+ before preflight. A blocked or JavaScript-only page is handed to Codex, and
 manual paste appears only if neither route can access the full JD. Then work
 through the deterministic Preflight control, select **Generate CV & letter**
 (or type the same unambiguous request in the job panel), and review the complete

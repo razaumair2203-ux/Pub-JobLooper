@@ -214,8 +214,8 @@ def ingest(text, explicit_job=None, explicit_status=None, received=None,
     }
     app['employer_response_id'] = response_id
     app['employer_response_sha256'] = raw_sha256
-    if reason:
-        app['stated_reason'] = reason
+    # Do not let a reason from an older response leak into this observation.
+    app['stated_reason'] = reason or None
     store.write_jsonl(store.p('index', 'applications.jsonl'),
                       [row for row in apps if row.get('app_id') != slug] + [app])
     store.write_json(os.path.join(d, 'outcome.json'), app)

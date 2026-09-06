@@ -140,7 +140,8 @@ def assemble(jd, m, target_pages=None):
     default_pages = str(spec.get('default_pages', 3))
     budget = spec.get('page_budgets', {}).get(
         str(target_pages), spec.get('page_budgets', {}).get(default_pages, {}))
-    variant = budget.get('variant', 'std')
+    variant = ((m.get('_preference_options') or {}).get('wording_variant')
+               or budget.get('variant', 'std'))
     scale = budget.get('role_scale', 1.0)
     sscale = budget.get('section_scale', 1.0)
 

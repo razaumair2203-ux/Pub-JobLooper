@@ -67,3 +67,18 @@ The installed repository includes the complete dashboard. Launch it with
 Joblooper process, serves the upgraded code at `http://127.0.0.1:8765/`, and
 opens that same canonical address. Pull repository upgrades before relaunching;
 do not copy dashboard files separately from the skill.
+
+### Optional Windows launcher
+
+The dashboard has its own browser favicon and Windows shortcut icon. Creation is
+explicit, never part of setup:
+
+```powershell
+python jl.py dashboard --install-shortcut start-menu
+python jl.py dashboard --install-shortcut desktop
+python jl.py dashboard --install-shortcut both
+```
+
+The launcher points to this checkout and runs the normal governed dashboard
+command. Remove the selected links with `--remove-shortcut start-menu`,
+`desktop`, or `both`. Removal leaves the repository and all runtime data intact.

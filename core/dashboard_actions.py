@@ -11,7 +11,8 @@ import tempfile
 import threading
 import urllib.parse
 
-from . import job_fetch, learning, match, preflight, release, store, truth_review
+from . import (advert_review, feedback, job_fetch, learning, match, preflight, release, store,
+               preferences, truth_intake, truth_review)
 
 
 _ACTION_LOCK = threading.RLock()
@@ -20,7 +21,83 @@ OUTCOME_STATES = {'rejected', 'interview', 'offer', 'progressed', 'ghosted', 'wi
 LATENCY_BANDS = {'under_24h', '1_3d', '4_7d', '8_30d', 'over_30d', 'unknown'}
 SCREENING_EXTENSIONS = {'.pdf', '.txt', '.md', '.json', '.html', '.png', '.jpg',
                         '.jpeg', '.webp'}
+RESPONSE_EXTENSIONS = SCREENING_EXTENSIONS | {'.eml', '.msg'}
 MAX_SCREENING_BYTES = 8 * 1024 * 1024
+MAX_UPLOAD_BATCH_BYTES = 24 * 1024 * 1024
+
+
+def truth_workspace():
+    """Return the resumable source-to-sign-off workbench projection."""
+    return truth_intake.summary()
+
+
+def upload_truth_sources(files, kind='base_cv', supersedes_source_id=None):
+    if not isinstance(files, list) or not files:
+        raise ValueError('Select at least one career source')
+    if len(files) > 12:
+        raise ValueError('Upload no more than 12 career sources at once')
+    if supersedes_source_id and len(files) != 1:
+        raise ValueError('Replace one registered source with one reviewed file at a time')
+    decoded = []
+    total = 0
+    for supplied in files:
+        if not isinstance(supplied, dict):
+            raise ValueError('Each career source must be an uploaded file')
+        encoded = str(supplied.get('base64') or '')
+        try:
+            content = base64.b64decode(encoded, validate=True)
+        except (ValueError, binascii.Error) as error:
+            raise ValueError('Career source is not valid base64 data') from error
+        total += len(content)
+        if total > MAX_UPLOAD_BATCH_BYTES:
+            raise ValueError('Career-source batch exceeds 24 MB; upload it in smaller batches')
+        decoded.append((supplied.get('name'), content))
+    results = []
+    with _ACTION_LOCK, store.writer_lock():
+        for name, content in decoded:
+            results.append(truth_intake.upload(
+                name, content, kind=kind,
+                supersedes_source_id=supersedes_source_id))
+    return {'ok': True, 'sources': [row['source'] for row in results],
+            'workspace': truth_intake.summary()}
+
+
+def review_truth_candidates(profile, decisions):
+    if not isinstance(profile, dict) or not isinstance(decisions, list):
+        raise ValueError('Career-truth review requires profile fields and claim decisions')
+    with _ACTION_LOCK, store.writer_lock():
+        workspace = truth_intake.review(profile, decisions)
+    return {'ok': True, 'workspace': workspace,
+            'message': 'Source decisions saved. Review the complete summary and sign its exact digest.'}
+
+
+def sign_truth(reviewer, confirmation):
+    reviewer = str(reviewer or '').strip()
+    if len(reviewer) < 2 or len(reviewer) > 200:
+        raise ValueError('Enter the name of the person reviewing career truth')
+    if confirmation != 'I reviewed the identity, sources, facts and boundaries':
+        raise ValueError('Confirm the complete identity, source, fact and boundary review')
+    with _ACTION_LOCK:
+        result = _run_cli([
+            'onboard', 'finalize', '--reviewer', reviewer, '--confirm-reviewed',
+        ], timeout=90)
+    if not result['ok']:
+        raise ValueError(result['output'] or 'Career-truth sign-off was refused')
+    result['workspace'] = truth_intake.summary()
+    return result
+
+
+def record_truth_comment(scope, note, author, evidence=None):
+    values = evidence if isinstance(evidence, list) else str(evidence or '').splitlines()
+    with _ACTION_LOCK, store.writer_lock():
+        item = truth_review.record(scope, note, author, values)
+    return {'ok': True, 'item': item, 'workspace': truth_intake.summary()}
+
+
+def resolve_truth_comment(item_id, status, implementation, validation):
+    with _ACTION_LOCK, store.writer_lock():
+        item = truth_review.resolve(item_id, status, implementation, validation)
+    return {'ok': True, 'item': item, 'workspace': truth_intake.summary()}
 
 
 def _run_cli(arguments, timeout=300):
@@ -92,13 +169,7 @@ def ingest(raw, company, title, url=None):
     if not match:
         raise RuntimeError('Job was captured but its application key was not returned')
     result['job_id'] = match.group(1)
-    # Preflight discovery is deterministic and cheap. Prepare it immediately so
-    # the user lands on a durable decision control instead of waiting for an AI
-    # turn to restate the same known facts and gaps.
-    prepared = _run_cli(['preflight', result['job_id']], timeout=60)
-    if prepared['returncode'] not in {0, 1}:
-        raise ValueError(prepared['output'] or 'Preflight discovery failed')
-    result['preflight'] = prepared
+    result['advert_review'] = advert_review.state(result['job_id'])
     return result
 
 
@@ -125,6 +196,19 @@ def refresh_job_analysis(job_id):
     return result
 
 
+def advert_review_state(job_id):
+    slug = store.resolve_job(job_id)
+    return advert_review.state(slug)
+
+
+def confirm_advert(job_id, company, title, reviewer='dashboard-user'):
+    slug = store.resolve_job(job_id)
+    with _ACTION_LOCK, store.writer_lock():
+        receipt = advert_review.confirm(slug, company, title, reviewer)
+    return {'ok': True, 'receipt': receipt,
+            'message': 'Exact advert confirmed. Deterministic preflight is now enabled.'}
+
+
 def preflight_state(job_id):
     """Read the exact current decision set without changing application state."""
     slug = store.resolve_job(job_id)
@@ -132,6 +216,7 @@ def preflight_state(job_id):
     jd = store.read_json(os.path.join(directory, 'jd.json'), {}) or {}
     if not jd:
         raise ValueError('The exact captured job description is unavailable')
+    advert_review.require(slug)
     jd['_slug'] = slug
     identity = match.pick_identity(jd)
     mapping = match.match_jd(jd, identity)
@@ -184,6 +269,10 @@ def plan_state(job_id):
     jd['_slug'] = slug
     current_inputs = store.generation_fingerprint(jd).get('sha256')
     errors = []
+    accepted_feedback = feedback.accepted_overrides(slug)
+    if accepted_feedback:
+        errors.append('accepted feedback requires deterministic regeneration: '
+                      + ', '.join(row['id'] for row in accepted_feedback))
     if (receipt.get('_schema') != 'joblooper.plan-receipt.v1'
             or receipt.get('app_id') != slug
             or receipt.get('plan_sha256') != release.plan_digest(slug)):
@@ -220,14 +309,25 @@ def review_preflight(job_id, answers, reviewer='dashboard-user'):
     clean = {}
     for key, value in answers.items():
         key = str(key or '').strip()
-        value = str(value or '').strip()
-        if not re.fullmatch(r'[A-Z0-9_-]{2,80}', key) or len(value) > 120:
+        if not re.fullmatch(r'[A-Z0-9_-]{2,80}', key):
             raise ValueError('Preflight contains an invalid decision value')
-        clean[key] = value
+        if isinstance(value, dict):
+            decision = str(value.get('decision') or '').strip()
+            note = str(value.get('note') or '').strip()
+            if len(decision) > 120 or len(note) > 2000:
+                raise ValueError('Preflight contains an invalid decision value')
+            clean[key] = {'decision': decision, 'note': note}
+        else:
+            value = str(value or '').strip()
+            if len(value) > 120:
+                raise ValueError('Preflight contains an invalid decision value')
+            clean[key] = value
     current = preflight_state(job_id)
     identity_choice = None
     if any(row.get('id') == 'IDENTITY' for row in current['questions']):
-        identity_choice = clean.pop('IDENTITY', None)
+        identity_value = clean.pop('IDENTITY', None)
+        identity_choice = (identity_value.get('decision')
+                           if isinstance(identity_value, dict) else identity_value)
         if not identity_choice:
             raise ValueError('Select the application identity before continuing')
     answer_path = None
@@ -305,7 +405,15 @@ def prepare_application(job_id):
         return result
 
 
-def record_feedback(job_id, scope, note, author='dashboard-user'):
+def feedback_targets(job_id):
+    slug = store.resolve_job(job_id)
+    return {'job_id': slug, 'targets': feedback.document_targets(slug)}
+
+
+def record_feedback(job_id, scope, note, author='dashboard-user',
+                    classification=None, target_id=None,
+                    requested_scope='THIS_APPLICATION', preference_type=None,
+                    preference_value=None):
     scope = str(scope or '').strip().lower()
     note = str(note or '').strip()
     if scope not in FEEDBACK_SCOPES:
@@ -314,13 +422,86 @@ def record_feedback(job_id, scope, note, author='dashboard-user'):
         raise ValueError('Feedback cannot be empty')
     if len(note) > 8000:
         raise ValueError('Feedback exceeds the 8,000-character limit')
-    result = _run_cli([
-        'feedback', job_id, '--scope', scope, '--note', note,
-        '--author', str(author or 'dashboard-user')[:200],
-    ], timeout=60)
-    if not result['ok']:
-        raise ValueError(result['output'] or 'Feedback could not be recorded')
-    return result
+    slug = store.resolve_job(job_id)
+    selected_target = feedback.target(slug, target_id) if target_id else None
+    feedback.validate_record(scope, note)
+    with _ACTION_LOCK, store.writer_lock():
+        retired = release.invalidate_unsubmitted_package(
+            slug, 'user feedback invalidated the approved unsubmitted package')
+        item = feedback.record(
+            slug, scope, note, str(author or 'dashboard-user')[:200],
+            plan_sha256=release.plan_digest(slug),
+            classification=classification, target=selected_target,
+            requested_scope=requested_scope, preference_type=preference_type,
+            preference_value=preference_value)
+        release.write_status(slug, 'PLAN')
+    return {
+        'ok': True, 'item': item,
+        'output': (f"recorded {item['id']} · {item.get('classification') or item['scope']} · OPEN"
+                   + ('; approved unsubmitted package retired' if retired else '')),
+    }
+
+
+def propose_feedback(job_id, feedback_id, after_text):
+    slug = store.resolve_job(job_id)
+    with _ACTION_LOCK, store.writer_lock():
+        item = feedback.propose(slug, feedback_id, after_text)
+    return {'ok': True, 'item': item,
+            'output': f"proposal {item.get('proposal_id')} saved for {item['id']}"}
+
+
+def decide_feedback(job_id, feedback_id, decision, note='', edited_text=None):
+    slug = store.resolve_job(job_id)
+    with _ACTION_LOCK, store.writer_lock():
+        item = next((row for row in feedback.current(slug)
+                     if row.get('id') == feedback_id), None)
+        if not item:
+            raise ValueError('Select an open feedback item')
+        normalized = str(decision or '').upper()
+        if item.get('classification') == 'REUSABLE_PREFERENCE' and normalized == 'ACCEPT':
+            preference = preferences.record(
+                item.get('preference_type'), item.get('preference_value'),
+                item.get('note'), item['id'])
+            receipt = {
+                '_schema': 'joblooper.preference-receipt.v1',
+                'preference_id': preference['id'], 'type': preference['type'],
+                'value': preference['value'], 'source_feedback_id': item['id'],
+            }
+            item = feedback.complete_governed(
+                slug, item['id'],
+                f"Adopted governed preference {preference['id']}.",
+                'The preference is included in generation fingerprints and plan previews.',
+                receipt)
+        elif item.get('classification') == 'FACTUAL_CORRECTION' and normalized == 'ACCEPT':
+            current_truth = store.truth_approval_subject()['sha256']
+            if current_truth == item.get('truth_sha256'):
+                raise ValueError('Career truth has not changed since this correction was recorded')
+            if not truth_review.readiness()['ready']:
+                raise ValueError('Review and sign the changed career truth before closing this correction')
+            receipt = {
+                '_schema': 'joblooper.truth-feedback-receipt.v1',
+                'before_truth_sha256': item.get('truth_sha256'),
+                'after_truth_sha256': current_truth,
+            }
+            item = feedback.complete_governed(
+                slug, item['id'], 'Applied through the governed career-truth workbench.',
+                'Changed career truth passed integrity and exact digest sign-off.', receipt)
+        elif (item.get('classification') in {'WORKFLOW_REQUEST', 'REJECTION'}
+              and normalized in {'ACCEPT', 'EDIT'}):
+            raise ValueError('A workflow request cannot mutate the product from this application; defer or reject it')
+        else:
+            item = feedback.decide(slug, feedback_id, decision, note, edited_text)
+    return {'ok': True, 'item': item,
+            'output': (f"{item['id']} {item['status']}" +
+                       ('; regenerate to apply and verify the exact change'
+                       if item['status'] == 'ACCEPTED_PENDING_REPLAN' else ''))}
+
+
+def retire_preference(preference_id, reason):
+    with _ACTION_LOCK, store.writer_lock():
+        row = preferences.retire(preference_id, reason)
+    return {'ok': True, 'preference': row,
+            'output': f"retired preference {row['id']}"}
 
 
 def resolve_feedback(job_id, feedback_id, status, implementation, validation):
@@ -445,6 +626,71 @@ def build_application(job_id, no_pdf=False):
         return built
 
 
+def repair_unsubmitted_package(job_id, confirmation, no_pdf=False):
+    """Rebuild a damaged, never-submitted derivative from its approved plan."""
+    if confirmation != 'REBUILD UNSUBMITTED PACKAGE':
+        raise ValueError('Confirm the exact unsubmitted-package rebuild')
+    slug = store.resolve_job(job_id)
+    with _ACTION_LOCK, store.writer_lock():
+        package, _manifest = release.load_release(slug)
+        if not package:
+            raise ValueError('No approved package exists to rebuild')
+        if release.has_record_file(package, release.SUBMISSION_NAME):
+            raise ValueError('Submitted packages are immutable and cannot be rebuilt')
+        _verified, errors = release.verify_release(slug)
+        if not errors:
+            raise ValueError('Package already verifies; no repair is needed')
+        approval, approval_errors = release.validate_approval(slug)
+        if not approval or approval_errors:
+            raise ValueError('The damaged package has no current approved source plan: '
+                             + '; '.join(approval_errors or ['approval missing']))
+        release.invalidate_unsubmitted_package(
+            slug, 'User-approved integrity recovery from the current approved plan')
+        # Plan invalidation removes the case registry intentionally. A repair is
+        # different: re-create the empty approved destination bound to the same
+        # approval before the renderer starts in its own process.
+        store.create_approved_case(
+            slug, approval['approved_at'], approval['plan_sha256'])
+    rebuilt = build_application(slug, no_pdf=no_pdf)
+    rebuilt['repair'] = 'REBUILT_UNSUBMITTED_PACKAGE'
+    return rebuilt
+
+
+def acknowledge_package_exception(job_id, confirmation):
+    """Acknowledge unsent-derivative drift without altering submitted evidence."""
+    if confirmation != 'ACKNOWLEDGE SUBMITTED EXCEPTION':
+        raise ValueError('Confirm the exact submitted-package exception')
+    slug = store.resolve_job(job_id)
+    package, manifest = release.load_release(slug)
+    receipt, submission_errors = release.verify_submission(slug)
+    _verified, package_errors = release.verify_release(slug)
+    if not package or not receipt or submission_errors or not package_errors:
+        raise ValueError('No safely bounded submitted-package exception is available')
+    signature = store.sha256_text(store.canonical_json(sorted(package_errors)))
+    existing = store.read_jsonl(release.record_path(
+        package, 'INTEGRITY-ACKNOWLEDGEMENTS.jsonl'))
+    if any(row.get('exception_sha256') == signature for row in existing):
+        return {'output': 'Current submitted-package exception was already acknowledged.',
+                'reused': True}
+    row = {
+        '_schema': 'joblooper.integrity-acknowledgement.v1',
+        'timestamp': store.now(), 'app_id': slug,
+        'package_id': (manifest or {}).get('package_id'),
+        'exception_sha256': signature, 'exceptions': sorted(package_errors),
+        'basis': ('Exact submitted files still verify; only unsent derivatives differ. '
+                  'No submitted evidence was modified.'),
+    }
+    store.append_jsonl(release.record_path(
+        package, 'INTEGRITY-ACKNOWLEDGEMENTS.jsonl', create=True), row)
+    store.append_application_event({
+        'event': 'SUBMITTED_INTEGRITY_EXCEPTION_ACKNOWLEDGED',
+        'app_id': slug, 'package_id': row['package_id'],
+        'exception_sha256': signature,
+    })
+    return {'output': 'Submitted-package exception acknowledged; sent files remain immutable.',
+            'acknowledgement': row}
+
+
 def _screening_file(screening):
     """Decode one bounded browser-supplied evidence file into a temporary path."""
     if not screening:
@@ -471,13 +717,70 @@ def _screening_file(screening):
         return stream.name
 
 
+def _screening_files(screening):
+    supplied = screening if isinstance(screening, list) else ([screening] if screening else [])
+    if len(supplied) > 12:
+        raise ValueError('Upload no more than 12 portal-evidence files at once')
+    paths = []
+    try:
+        for item in supplied:
+            paths.append(_screening_file(item))
+        if sum(os.path.getsize(path) for path in paths) > MAX_UPLOAD_BATCH_BYTES:
+            raise ValueError('Portal-evidence batch exceeds 24 MB; add it in smaller updates')
+        return paths
+    except Exception:
+        for path in paths:
+            if path and os.path.isfile(path):
+                os.unlink(path)
+        raise
+
+
+def _response_files(responses):
+    supplied = responses if isinstance(responses, list) else ([responses] if responses else [])
+    if len(supplied) > 12:
+        raise ValueError('Upload no more than 12 employer-response files at once')
+    paths = []
+    total = 0
+    try:
+        for response in supplied:
+            if not isinstance(response, dict):
+                raise ValueError('Employer response evidence must be uploaded files')
+            filename = os.path.basename(str(response.get('name') or '').strip())
+            extension = os.path.splitext(filename)[1].lower()
+            if extension not in RESPONSE_EXTENSIONS:
+                raise ValueError('Employer response must be email, PDF, text, JSON, HTML or an image')
+            encoded = str(response.get('base64') or '')
+            try:
+                content = base64.b64decode(encoded, validate=True)
+            except (ValueError, binascii.Error) as error:
+                raise ValueError('Employer response evidence is not valid base64 data') from error
+            if not content:
+                raise ValueError('Employer response evidence is empty')
+            if len(content) > MAX_SCREENING_BYTES:
+                raise ValueError('Employer response evidence exceeds the 8 MB limit')
+            total += len(content)
+            if total > MAX_UPLOAD_BATCH_BYTES:
+                raise ValueError('Employer-response evidence for one observation exceeds 24 MB')
+            with tempfile.NamedTemporaryFile(
+                    mode='wb', suffix=extension, prefix='joblooper-response-file-',
+                    delete=False) as stream:
+                stream.write(content)
+                paths.append(stream.name)
+        return paths
+    except Exception:
+        for path in paths:
+            if os.path.isfile(path):
+                os.unlink(path)
+        raise
+
+
 def record_submission(job_id, sent_file, cover_letter_file=None, channel='portal',
                       applied_date=None, screening=None):
     if not sent_file:
         raise ValueError('Select the exact CV that was actually submitted')
-    screening_path = None
+    screening_paths = []
     try:
-        screening_path = _screening_file(screening)
+        screening_paths = _screening_files(screening)
         arguments = ['submit', job_id, '--sent-file', sent_file]
         if cover_letter_file:
             arguments += ['--cover-letter-file', cover_letter_file]
@@ -485,12 +788,13 @@ def record_submission(job_id, sent_file, cover_letter_file=None, channel='portal
             arguments += ['--channel', str(channel)[:100]]
         if applied_date:
             arguments += ['--date', applied_date]
-        if screening_path:
+        for screening_path in screening_paths:
             arguments += ['--screening-file', screening_path]
         result = _run_cli(arguments, timeout=90)
     finally:
-        if screening_path and os.path.isfile(screening_path):
-            os.unlink(screening_path)
+        for screening_path in screening_paths:
+            if os.path.isfile(screening_path):
+                os.unlink(screening_path)
     if not result['ok']:
         raise ValueError(result['output'] or 'Submission could not be recorded')
     return result
@@ -512,29 +816,30 @@ def update_submission(job_id, applied_date=None, channel=None, screening=None,
         raise ValueError('Submission channel exceeds 100 characters')
     if screening and screening_unavailable:
         raise ValueError('Attach portal answers or mark them unavailable, not both')
-    screening_path = None
+    screening_paths = []
     try:
-        screening_path = _screening_file(screening)
+        screening_paths = _screening_files(screening)
         arguments = ['update-submission', job_id]
         if applied_date:
             arguments += ['--date', applied_date]
         if channel:
             arguments += ['--channel', channel]
-        if screening_path:
+        for screening_path in screening_paths:
             arguments += ['--screening-file', screening_path]
         if screening_unavailable:
             arguments.append('--screening-unavailable')
         result = _run_cli(arguments, timeout=90)
     finally:
-        if screening_path and os.path.isfile(screening_path):
-            os.unlink(screening_path)
+        for screening_path in screening_paths:
+            if os.path.isfile(screening_path):
+                os.unlink(screening_path)
     if not result['ok']:
         raise ValueError(result['output'] or 'Submission metadata could not be updated')
     return result
 
 
 def record_outcome(job_id, status, response_date=None, latency=None,
-                   employer_reason=None, response_text=None):
+                   employer_reason=None, response_text=None, responses=None):
     """Record an observation, preserving exact email text when the user has it."""
     slug = store.resolve_job(job_id)
     application = next(
@@ -569,10 +874,13 @@ def record_outcome(job_id, status, response_date=None, latency=None,
         raise ValueError('Employer response exceeds 120,000 characters')
     if response_text and not response_date:
         raise ValueError('Give the response date when preserving exact employer text')
+    if responses and not response_date:
+        raise ValueError('Give the response date when preserving employer response files')
     if response_text and status not in {'rejected', 'interview', 'offer', 'progressed'}:
         raise ValueError('Exact response ingestion supports rejected, interview, offer or progressed')
 
     response_path = None
+    response_paths = _response_files(responses)
     try:
         if response_text:
             with tempfile.NamedTemporaryFile(
@@ -591,7 +899,10 @@ def record_outcome(job_id, status, response_date=None, latency=None,
             captured = _run_cli(arguments, timeout=90)
             if not captured['ok']:
                 raise ValueError(captured['output'] or 'Employer response could not be correlated')
-            return {'ok': True, 'output': captured['output']}
+            evidence = release.capture_response_evidence(
+                slug, response_paths, status, response_date) if response_paths else []
+            return {'ok': True, 'output': captured['output'],
+                    'response_evidence': evidence}
 
         arguments = ['outcome', slug, '--status', status]
         if response_date:
@@ -603,7 +914,162 @@ def record_outcome(job_id, status, response_date=None, latency=None,
         observed = _run_cli(arguments, timeout=90)
         if not observed['ok']:
             raise ValueError(observed['output'] or 'Outcome could not be recorded')
-        return {'ok': True, 'output': observed['output']}
+        evidence = release.capture_response_evidence(
+            slug, response_paths, status, response_date) if response_paths else []
+        return {'ok': True, 'output': observed['output'],
+                'response_evidence': evidence}
     finally:
         if response_path and os.path.isfile(response_path):
             os.unlink(response_path)
+        for path in response_paths:
+            if os.path.isfile(path):
+                os.unlink(path)
+
+
+def _outcome_values(application, status, response_date=None, latency=None,
+                    employer_reason=None):
+    status = str(status or '').strip().lower()
+    latency = str(latency or '').strip().lower() or None
+    if latency == 'unknown':
+        latency = None
+    response_date = str(response_date or '').strip() or None
+    employer_reason = str(employer_reason or '').strip() or None
+    if status not in OUTCOME_STATES:
+        raise ValueError('Select a valid observed outcome')
+    if latency and latency not in LATENCY_BANDS:
+        raise ValueError('Select a valid response-time band')
+    responded = None
+    if response_date:
+        try:
+            responded = datetime.date.fromisoformat(response_date)
+        except ValueError as error:
+            raise ValueError('Response date must use YYYY-MM-DD') from error
+        if responded > datetime.date.today():
+            raise ValueError('Response date cannot be in the future')
+    applied = None
+    if application.get('applied'):
+        try:
+            applied = datetime.date.fromisoformat(application['applied'])
+        except ValueError as error:
+            raise ValueError('Recorded submission date must use YYYY-MM-DD') from error
+    if responded and applied and responded < applied:
+        raise ValueError('Response date cannot precede submission date')
+    if employer_reason and len(employer_reason) > 600:
+        raise ValueError('Employer-stated reason exceeds 600 characters')
+    return {
+        'status': status, 'responded': response_date,
+        'responded_date_status': 'recorded' if response_date else 'not_provided',
+        'days': (responded - applied).days if responded and applied else None,
+        'stated_reason': employer_reason,
+        'response_latency': {
+            'band': latency or 'unknown',
+            'basis': 'user_reported' if latency else 'not_provided',
+        },
+    }
+
+
+def correct_outcome(job_id, event_id, status, response_date=None, latency=None,
+                    employer_reason=None, reason=None, responses=None,
+                    response_text=None):
+    """Supersede the active outcome while preserving both ledger records."""
+    slug = store.resolve_job(job_id)
+    event_id = str(event_id or '').strip()
+    reason = str(reason or '').strip()
+    if not event_id:
+        raise ValueError('Select the outcome observation being corrected')
+    if len(reason) < 5:
+        raise ValueError('Explain why this observation is being corrected')
+    response_text = str(response_text or '').strip() or None
+    if response_text and len(response_text) > 120000:
+        raise ValueError('Employer response exceeds 120,000 characters')
+    if response_text and not response_date:
+        raise ValueError('Give the response date when preserving exact employer text')
+    if responses and not response_date:
+        raise ValueError('Give the response date when preserving employer response files')
+    apps = store.applications()
+    application = next((row for row in apps if row.get('app_id') == slug), None)
+    if not application or not learning._exact_submission(application):
+        raise ValueError('Outcome correction requires an exact recorded submission')
+    receipt, submission_errors = release.verify_submission(slug)
+    if not receipt or submission_errors:
+        raise ValueError('Outcome correction requires a verifiable submitted package')
+    active = learning.active_outcome_events(slug)
+    target = active[-1] if active else None
+    if not target or target.get('event_id') != event_id:
+        raise ValueError('Only the latest active outcome observation can be corrected')
+    values = _outcome_values(
+        application, status, response_date, latency, employer_reason)
+    response_paths = _response_files(responses)
+    response_text_path = None
+    try:
+        if response_text:
+            with tempfile.NamedTemporaryFile(
+                    mode='w', suffix='.txt', prefix='joblooper-response-',
+                    encoding='utf-8', delete=False) as stream:
+                stream.write(response_text)
+                response_text_path = stream.name
+            response_paths.insert(0, response_text_path)
+        with _ACTION_LOCK, store.writer_lock():
+            application.update(values)
+            store.write_jsonl(store.p('index', 'applications.jsonl'),
+                              [row for row in apps if row.get('app_id') != slug]
+                              + [application])
+            store.write_json(os.path.join(store.job_dir(slug), 'outcome.json'), application)
+            package = store.approved_dir(slug)
+            if package:
+                store.write_json(release.record_path(package, 'OUTCOME.json', create=True),
+                                 application)
+                _, manifest = release.load_release(slug)
+                release.write_status(slug, 'SUBMITTED', manifest)
+            event = store.append_application_event({
+                'event': 'OUTCOME_CORRECTED', 'app_id': slug,
+                'supersedes_event_id': event_id, 'status': values['status'],
+                'responded': values['responded'],
+                'stated_reason': values['stated_reason'],
+                'response_latency': values['response_latency'],
+                'correction_reason': reason,
+            })
+        evidence = release.capture_response_evidence(
+            slug, response_paths, values['status'], values['responded']) \
+            if response_paths else []
+        return {'event': event, 'response_evidence': evidence, 'output': (
+            f"outcome corrected  {slug} -> {values['status']}\n"
+            f"  supersedes  {event_id}")}
+    finally:
+        for path in response_paths:
+            if os.path.isfile(path):
+                os.unlink(path)
+
+
+def _text_list(value):
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return [item.strip() for item in str(value or '').splitlines() if item.strip()]
+
+
+def record_hypothesis(job_id, cause, confidence, note, author,
+                      evidence_for=None, evidence_against=None,
+                      hypothesis_id=None, status='OPEN', company_context=None,
+                      profile_factors=None, other_factors=None, unknowns=None):
+    """Create or revise an explicitly labelled rejection hypothesis."""
+    slug = store.resolve_job(job_id)
+    cause = str(cause or '').strip().upper() or None
+    hypothesis_id = str(hypothesis_id or '').strip() or None
+    status = str(status or 'OPEN').strip().upper()
+    if not hypothesis_id and cause not in learning.LESSON_TRANSFER:
+        raise ValueError('Select a valid hypothesis category')
+    try:
+        confidence = float(confidence)
+    except (TypeError, ValueError) as error:
+        raise ValueError('Evidence support must be a number from 0 to 1') from error
+    with _ACTION_LOCK, store.writer_lock():
+        row = learning.record_hypothesis(
+            slug, cause, confidence, str(note or '').strip(),
+            str(author or '').strip(), _text_list(evidence_for),
+            _text_list(evidence_against), hypothesis_id=hypothesis_id,
+            status=status, company_context=_text_list(company_context),
+            profile_factors=_text_list(profile_factors),
+            other_factors=_text_list(other_factors), unknowns=_text_list(unknowns))
+    return {'hypothesis': row, 'output': (
+        f"hypothesis {row['id']} saved · {row['status']} · "
+        f"{len(row.get('revisions') or [])} reasoning pass(es)")}

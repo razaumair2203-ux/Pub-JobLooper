@@ -16,12 +16,13 @@ import webbrowser
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import (codex_bridge, dashboard_actions, dashboard_runtime, employer_review,
+from . import (advert_review, codex_bridge, dashboard_actions, dashboard_runtime, employer_review,
                feedback, gates, integrity, learning, match, preflight, release,
-               store, truth_review)
+               preferences, store, truth_review)
 
 
 STATIC_ROOT = store.code_p('dashboard')
+MAX_REQUEST_BYTES = 35 * 1024 * 1024
 CAUSE_LABELS = {
     'HARD_GATE': 'Direct requirement',
     'SENIORITY_MISMATCH': 'Seniority alignment',
@@ -37,17 +38,19 @@ CAUSE_LABELS = {
 ATTENTION_ROUTES = frozenset({
     'artifacts', 'build', 'cautions', 'codex_outcome', 'evidence', 'feedback', 'outcome', 'prepare',
     'preflight', 'review_bundle', 'submission', 'submission_metadata',
-    'truth_integrity',
+    'truth_integrity', 'truth_workspace', 'advert_review',
 })
 # A job may raise several independent tasks at once. Ranking them explicitly
 # keeps the queue order intentional instead of an accident of insertion order.
 ATTENTION_KIND_RANK = {
-    'truth_integrity': 0, 'integrity': 1, 'jd_analysis': 2, 'feedback': 3,
-    'preflight': 4, 'prepare': 5, 'gate_blocked': 6, 'approve': 7, 'review': 8,
-    'build': 9, 'submission_reconcile': 10, 'submit': 11,
-    'submission_metadata': 12, 'outcome_date': 13, 'silent_application': 14,
-    'next_stage': 15,
-    'reasoning': 16,
+    'truth_integrity': 0, 'truth_workspace': 1, 'integrity': 2,
+    'advert_review': 3, 'jd_analysis': 4,
+    'feedback': 5,
+    'preflight': 6, 'prepare': 7, 'gate_blocked': 8, 'approve': 9, 'review': 10,
+    'build': 11, 'submission_reconcile': 12, 'submit': 13,
+    'submission_metadata': 14, 'outcome_date': 15, 'silent_application': 16,
+    'next_stage': 17,
+    'reasoning': 18,
 }
 # The single definition of the lifecycle vocabulary. `dashboard/app.js` reads
 # these from the snapshot so the browser cannot hold a divergent copy.
@@ -92,6 +95,7 @@ RECORD_ARTIFACTS = {
     'status': ('STATUS.md', 'Application status and links', 'Governance'),
 }
 WORK_ARTIFACTS = {
+    'advert_review': ('advert-review.json', 'Advert confirmation', 'Governance'),
     'job_description': ('jd.raw.md', 'Job description · captured', 'Source'),
     'jd_record': ('jd.json', 'Job description · structured', 'Source'),
     'preflight_record': ('preflight.json', 'Preflight decisions · exact record', 'Review'),
@@ -444,6 +448,8 @@ def _job_snapshot(slug, applications, events):
     submission = (store.read_json(
         release.record_path(package, release.SUBMISSION_NAME), {})
         if package else {}) or {}
+    advert_state = advert_review.state(slug)
+    advert_confirmed = bool(app or advert_state['confirmed'])
     work_state = _work_state(directory)
     has_manifest = bool(package and manifest)
     package_errors = release.verify_release(slug)[1] if has_manifest else []
@@ -465,6 +471,14 @@ def _job_snapshot(slug, applications, events):
     exact_submission = learning._exact_submission(app or {})
     exact_submitted_history = bool(
         app and exact_submission and submission_receipt and not submission_errors)
+    integrity_signature = store.sha256_text(store.canonical_json(
+        sorted(set(package_errors + submission_errors)))) \
+        if package_errors or submission_errors else None
+    related_ids = {slug, *(jd.get('_legacy_slugs') or [])}
+    acknowledged_signatures = {event.get('exception_sha256') for event in events
+                               if event.get('app_id') in related_ids
+                               and event.get('event')
+                               == 'SUBMITTED_INTEGRITY_EXCEPTION_ACKNOWLEDGED'}
     if submission and not app and package_ready:
         integrity_state = 'submission_incomplete'
     elif submission_receipt and not submission_errors:
@@ -512,6 +526,11 @@ def _job_snapshot(slug, applications, events):
     correlated_ids = {slug, *(jd.get('_legacy_slugs') or [])}
     milestones = learning.milestones_reached(correlated_ids, events, app)
     timeline = []
+    active_outcome_ids = {event.get('event_id') for event in
+                          learning.active_outcome_events(correlated_ids, events)}
+    corrected_ids = {event.get('supersedes_event_id') for event in events
+                     if event.get('app_id') in correlated_ids
+                     and event.get('event') == 'OUTCOME_CORRECTED'}
     for event in events:
         if event.get('app_id') not in correlated_ids:
             continue
@@ -520,6 +539,9 @@ def _job_snapshot(slug, applications, events):
             'event': event.get('event'), 'status': event.get('status'),
             'hypothesis_id': event.get('hypothesis_id'),
             'cause': event.get('cause'),
+            'supersedes_event_id': event.get('supersedes_event_id'),
+            'active': event.get('event_id') in active_outcome_ids,
+            'corrected': event.get('event_id') in corrected_ids,
         })
     timeline.sort(key=lambda row: str(row.get('at') or ''), reverse=True)
 
@@ -531,7 +553,8 @@ def _job_snapshot(slug, applications, events):
                      if row.get('status') == 'OPEN']
     plan_projection = dashboard_actions.plan_state(slug)
     plan_available = plan_projection['available']
-    plan_current = bool(plan_projection['current'] and analysis['current'])
+    plan_current = bool(advert_confirmed and plan_projection['current']
+                        and analysis['current'])
     plan_errors = plan_projection['errors']
     if not analysis['current']:
         plan_errors = list(dict.fromkeys([
@@ -598,7 +621,9 @@ def _job_snapshot(slug, applications, events):
                             else 'not_captured'))
     next_action = _next_action(phase, app, work_state)
     if not app:
-        if not analysis['current']:
+        if not advert_confirmed:
+            next_action = 'Review and confirm the exact captured advert'
+        elif not analysis['current']:
             next_action = 'Refresh incomplete JD analysis before preflight'
         elif preflight_errors and preflight_questions_available:
             next_action = 'Review the prepared fit decisions before CV planning'
@@ -632,10 +657,11 @@ def _job_snapshot(slug, applications, events):
         historical=bool(app))
     workflow = {
         'captured': bool(jd),
+        'advert_confirmed': advert_confirmed,
         'analysis_current': bool(app or analysis['current']),
         'analysis_message': analysis['message'],
-        'preflight': bool(historical_complete
-                          or (preflight_record and not preflight_errors)),
+        'preflight': bool(advert_confirmed and (historical_complete
+                          or (preflight_record and not preflight_errors))),
         'preflight_questions': preflight_questions_available,
         'preflight_errors': ([] if historical_complete else preflight_errors),
         'plan_available': plan_available,
@@ -674,6 +700,10 @@ def _job_snapshot(slug, applications, events):
         ('capture', 'Capture exact JD', workflow['captured'],
          'Exact source advert and structured JD record',
          'Exact JD is captured' if workflow['captured'] else 'No JD is captured'),
+        ('advert', 'Confirm captured advert', workflow['advert_confirmed'],
+         'User-confirmed company, title and complete exact advert digest',
+         ('Exact advert is confirmed' if workflow['advert_confirmed']
+          else 'Captured advert still needs user confirmation')),
         ('preflight', 'Resolve preflight', workflow['preflight'],
          'Digest-bound decision record for every material fit question',
          ('Decisions are saved for the current JD and truth'
@@ -741,6 +771,11 @@ def _job_snapshot(slug, applications, events):
         'role': jd.get('title') or (app or {}).get('role') or 'Unknown role',
         'reference': jd.get('job_reference') or 'Not recorded',
         'official_url': jd.get('url'),
+        'advert_review': {
+            'status': advert_state['status'],
+            'confirmed': advert_confirmed,
+            'subject_sha256': advert_state['subject']['sha256'],
+        },
         'phase': phase,
         # `phase` is the current state and is overwritten; `milestones_reached`
         # is append-only history, so a later rejection cannot erase an interview.
@@ -785,6 +820,13 @@ def _job_snapshot(slug, applications, events):
         'integrity_exceptions': sorted(set(
             package_errors + submission_errors
             + list((app or {}).get('submission_integrity_exceptions') or []))),
+        'integrity_signature': integrity_signature,
+        'integrity_acknowledged': integrity_signature in acknowledged_signatures,
+        'integrity_resolution': (
+            'REBUILD_UNSUBMITTED' if package_errors and not submission else
+            'ACKNOWLEDGE_SUBMITTED_EXCEPTION'
+            if submission_receipt and not submission_errors and package_errors else
+            'MANUAL_REVIEW' if package_errors or submission_errors else 'NONE'),
         'outputs': key_outputs,
         'output_count': output_count,
         'workflow': workflow,
@@ -792,6 +834,14 @@ def _job_snapshot(slug, applications, events):
         'open_feedback': [{
             'id': row.get('id'), 'scope': row.get('scope'),
             'note': row.get('note'), 'opened_at': row.get('opened_at'),
+            'status': row.get('status'), 'classification': row.get('classification'),
+            'target_id': row.get('target_id'), 'target_artifact': row.get('target_artifact'),
+            'target_sha256': row.get('target_sha256'), 'section': row.get('section'),
+            'selected_text': row.get('selected_text'),
+            'requested_scope': row.get('requested_scope'),
+            'proposal_id': row.get('proposal_id'),
+            'before_text': row.get('before_text'), 'after_text': row.get('after_text'),
+            'evidence': row.get('evidence') or [],
         } for row in open_feedback],
         'feedback_items': [{
             'id': row.get('id'), 'scope': row.get('scope'),
@@ -800,6 +850,14 @@ def _job_snapshot(slug, applications, events):
             'resolved_at': row.get('resolved_at'),
             'implementation': row.get('implementation'),
             'validation': row.get('validation'),
+            'classification': row.get('classification'),
+            'target_id': row.get('target_id'), 'section': row.get('section'),
+            'selected_text': row.get('selected_text'),
+            'requested_scope': row.get('requested_scope'),
+            'proposal_id': row.get('proposal_id'),
+            'before_text': row.get('before_text'), 'after_text': row.get('after_text'),
+            'evidence': row.get('evidence') or [],
+            'change_receipt': row.get('change_receipt'),
         } for row in feedback_items],
         'artifacts': [{key: value for key, value in row.items() if key != '_path'}
                       for row in artifacts],
@@ -927,6 +985,20 @@ def build_snapshot(include_private=False):
             'cta': 'Review options', 'route': 'truth_integrity',
             'action': 'Resolve ground-truth integrity',
         })
+    elif not entry.get('can_capture') or truth_data.get('audit_overdue'):
+        attention.append({
+            'id': 'system:truth_workspace', 'job_id': None,
+            'company': 'Ground truth', 'role': 'Candidate evidence',
+            'phase': 'system', 'severity': 'action',
+            'kind': 'truth_workspace',
+            'title': ('Complete the scheduled career-truth audit'
+                      if truth_data.get('audit_overdue') else entry.get('next_action')),
+            'detail': (f"Audit was due {truth_data.get('audit_due')}. Review the current "
+                       'identity, sources, facts and boundaries, then renew the exact digest.'
+                       if truth_data.get('audit_overdue') else entry.get('reason')),
+            'cta': 'Open career truth', 'route': 'truth_workspace',
+            'action': 'Open career truth',
+        })
 
     for job in jobs:
         workflow = job.get('workflow') or {}
@@ -935,9 +1007,14 @@ def build_snapshot(include_private=False):
                 job, 'integrity', 'Resolve package integrity errors',
                 'Inspect the exact artefact and digest exceptions before doing anything else.',
                 'Inspect', 'artifacts', 'critical')
+        if not workflow.get('advert_confirmed') and not job.get('exact_submission'):
+            add_attention(
+                job, 'advert_review', 'Confirm the exact captured advert',
+                'Review the full advert, company and title before any fit decision.',
+                'Review advert', 'advert_review', 'critical')
         analysis_stale = (not workflow.get('analysis_current')
-                          and not job.get('exact_submission'))
-        if analysis_stale:
+                           and not job.get('exact_submission'))
+        if analysis_stale and workflow.get('advert_confirmed'):
             add_attention(
                 job, 'jd_analysis', 'Refresh incomplete job analysis',
                 job.get('cautions', {}).get('analysis_message')
@@ -947,7 +1024,9 @@ def build_snapshot(include_private=False):
         # stale analysis makes them the wrong work and they wait for the
         # refresh. A package-integrity failure suppresses nothing: the record
         # tasks below are independent of it and must stay visible.
-        if analysis_stale:
+        if not workflow.get('advert_confirmed'):
+            pass
+        elif analysis_stale:
             pass
         elif workflow.get('open_feedback'):
             add_attention(
@@ -1101,7 +1180,8 @@ def build_snapshot(include_private=False):
         },
         'jobs': [{key: value for key, value in job.items() if key != '_artifacts'}
                  for job in jobs],
-        'lessons': lessons, 'attention': attention,
+        'lessons': lessons, 'preferences': preferences.current(),
+        'attention': attention,
     }
     if not include_private:
         return snapshot
@@ -1169,8 +1249,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             length = int(self.headers.get('Content-Length') or 0)
         except ValueError as error:
             raise ValueError('Invalid Content-Length') from error
-        if length <= 0 or length > 12000000:
-            raise ValueError('Request body must be between 1 and 12,000,000 bytes')
+        if length <= 0 or length > MAX_REQUEST_BYTES:
+            raise ValueError('Request body must be between 1 byte and 35 MB')
         try:
             value = json.loads(self.rfile.read(length).decode('utf-8'))
         except (UnicodeDecodeError, ValueError) as error:
@@ -1234,6 +1314,29 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return self._json(dashboard_actions.preflight_state(job))
             except (OSError, ValueError) as error:
                 return self._error(error)
+        if parsed.path == '/api/truth-workspace':
+            try:
+                return self._json(dashboard_actions.truth_workspace())
+            except (OSError, ValueError) as error:
+                return self._error(error)
+        if parsed.path == '/api/advert-review':
+            query = urllib.parse.parse_qs(parsed.query)
+            job = (query.get('job') or [''])[0]
+            if not job:
+                return self._error('job is required')
+            try:
+                return self._json(dashboard_actions.advert_review_state(job))
+            except (OSError, ValueError) as error:
+                return self._error(error)
+        if parsed.path == '/api/feedback-targets':
+            query = urllib.parse.parse_qs(parsed.query)
+            job = (query.get('job') or [''])[0]
+            if not job:
+                return self._error('job is required')
+            try:
+                return self._json(dashboard_actions.feedback_targets(job))
+            except (OSError, ValueError) as error:
+                return self._error(error)
         if parsed.path == '/api/agent/task':
             query = urllib.parse.parse_qs(parsed.query)
             task_id = (query.get('id') or [''])[0]
@@ -1273,7 +1376,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
 
         relative = 'index.html' if parsed.path in {'', '/'} else parsed.path.lstrip('/')
-        if relative not in {'index.html', 'styles.css', 'app.js'}:
+        if relative not in {'index.html', 'styles.css', 'app.js', 'app-icon.svg'}:
             return self._not_found()
         path = os.path.join(STATIC_ROOT, relative)
         if not os.path.isfile(path):
@@ -1299,6 +1402,29 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return self._error('Dashboard session authorization failed', 403)
         try:
             body = self._read_json()
+            if parsed.path == '/api/actions/truth-upload':
+                result = dashboard_actions.upload_truth_sources(
+                    body.get('files'), body.get('kind') or 'base_cv',
+                    body.get('supersedes_source_id'))
+                return self._json({'ok': True, 'result': result})
+            if parsed.path == '/api/actions/truth-review':
+                result = dashboard_actions.review_truth_candidates(
+                    body.get('profile') or {}, body.get('decisions') or [])
+                return self._json({'ok': True, 'result': result})
+            if parsed.path == '/api/actions/truth-sign':
+                result = dashboard_actions.sign_truth(
+                    body.get('reviewer'), body.get('confirmation'))
+                return self._json({'ok': True, 'result': result})
+            if parsed.path == '/api/actions/truth-comment':
+                result = dashboard_actions.record_truth_comment(
+                    body.get('scope'), body.get('note'), body.get('author'),
+                    body.get('evidence'))
+                return self._json({'ok': True, 'result': result})
+            if parsed.path == '/api/actions/truth-comment-resolve':
+                result = dashboard_actions.resolve_truth_comment(
+                    body.get('item_id'), body.get('status'),
+                    body.get('implementation'), body.get('validation'))
+                return self._json({'ok': True, 'result': result})
             if parsed.path == '/api/actions/ingest':
                 result = dashboard_actions.ingest(
                     body.get('jd'), body.get('company'), body.get('title'),
@@ -1313,7 +1439,29 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if parsed.path == '/api/actions/feedback':
                 result = dashboard_actions.record_feedback(
                     body.get('job_id'), body.get('scope'), body.get('note'),
-                    body.get('author'))
+                    body.get('author'), body.get('classification'),
+                    body.get('target_id'), body.get('requested_scope'),
+                    body.get('preference_type'), body.get('preference_value'))
+                return self._json({'ok': True, 'result': result})
+            if parsed.path == '/api/actions/advert-confirm':
+                result = dashboard_actions.confirm_advert(
+                    body.get('job_id'), body.get('company'), body.get('title'),
+                    body.get('reviewer') or 'dashboard-user')
+                return self._json({'ok': True, 'result': result})
+            if parsed.path == '/api/actions/preference-retire':
+                result = dashboard_actions.retire_preference(
+                    body.get('preference_id'), body.get('reason'))
+                return self._json({'ok': True, 'result': result})
+            if parsed.path == '/api/actions/feedback-proposal':
+                result = dashboard_actions.propose_feedback(
+                    body.get('job_id'), body.get('feedback_id'),
+                    body.get('after_text'))
+                return self._json({'ok': True, 'result': result})
+            if parsed.path == '/api/actions/feedback-decision':
+                result = dashboard_actions.decide_feedback(
+                    body.get('job_id'), body.get('feedback_id'),
+                    body.get('decision'), body.get('note'),
+                    body.get('edited_text'))
                 return self._json({'ok': True, 'result': result})
             if parsed.path == '/api/actions/resolve-feedback':
                 result = dashboard_actions.resolve_feedback(
@@ -1339,6 +1487,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if parsed.path == '/api/actions/build':
                 result = dashboard_actions.build_application(
                     body.get('job_id'), bool(body.get('no_pdf')))
+                return self._json({'ok': True, 'result': result})
+            if parsed.path == '/api/actions/integrity-rebuild':
+                result = dashboard_actions.repair_unsubmitted_package(
+                    body.get('job_id'), body.get('confirmation'),
+                    bool(body.get('no_pdf')))
+                return self._json({'ok': True, 'result': result})
+            if parsed.path == '/api/actions/integrity-acknowledge':
+                result = dashboard_actions.acknowledge_package_exception(
+                    body.get('job_id'), body.get('confirmation'))
                 return self._json({'ok': True, 'result': result})
             if parsed.path == '/api/actions/submit':
                 job_id = body.get('job_id')
@@ -1370,7 +1527,24 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 result = dashboard_actions.record_outcome(
                     body.get('job_id'), body.get('status'),
                     body.get('response_date'), body.get('latency'),
-                    body.get('employer_reason'), body.get('response_text'))
+                    body.get('employer_reason'), body.get('response_text'),
+                    body.get('responses'))
+                return self._json({'ok': True, 'result': result})
+            if parsed.path == '/api/actions/outcome-correction':
+                result = dashboard_actions.correct_outcome(
+                    body.get('job_id'), body.get('event_id'), body.get('status'),
+                    body.get('response_date'), body.get('latency'),
+                    body.get('employer_reason'), body.get('reason'),
+                    body.get('responses'), body.get('response_text'))
+                return self._json({'ok': True, 'result': result})
+            if parsed.path == '/api/actions/hypothesis':
+                result = dashboard_actions.record_hypothesis(
+                    body.get('job_id'), body.get('cause'), body.get('confidence'),
+                    body.get('note'), body.get('author'), body.get('evidence_for'),
+                    body.get('evidence_against'), body.get('hypothesis_id'),
+                    body.get('status'), body.get('company_context'),
+                    body.get('profile_factors'), body.get('other_factors'),
+                    body.get('unknowns'))
                 return self._json({'ok': True, 'result': result})
             if parsed.path == '/api/agent/turn':
                 task = self.server.codex_bridge.start_turn(
@@ -1395,7 +1569,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
 class DashboardServer(ThreadingHTTPServer):
     # Windows otherwise permits multiple HTTPServer processes to share the same
     # loopback port, making a familiar URL serve an unpredictable old instance.
-    allow_reuse_address = False
+    allow_reuse_address = os.name != 'nt'
 
     def server_close(self):
         try:

@@ -1,7 +1,8 @@
 # Primary user journey and dashboard control audit
 
-**Status:** target product contract and implementation plan  
-**Audit date:** 2026-09-03  
+**Status:** remediated control contract and release acceptance record
+
+**Audit date:** 2026-09-03; remediation verified 2026-09-06
 **Scope:** local dashboard, governed candidate truth, application lifecycle,
 feedback incorporation, outcome tracking, and reusable learning
 
@@ -191,7 +192,12 @@ sample size, conflicts, last validation date, and effect. The user must be able
 to inspect, dismiss, narrow, or retire a preference or lesson. No lesson should
 be described as the employer's reason unless exact employer evidence says so.
 
-## Current dashboard control audit
+## Baseline dashboard control audit (2026-09-03)
+
+The tables in this section preserve the observed pre-remediation baseline and
+the correction that each finding required. They are not the current product
+status. The material-defect register and implemented-resolution evidence below
+record the post-remediation result.
 
 Status meanings:
 
@@ -219,7 +225,7 @@ shell behavior; they do not replace domain controls.
 | Truth summary and sign-off | Backend can audit and digest-bind truth through `onboard finalize`; dashboard shows only readiness/counts | Partial | Add complete review presentation, reviewer confirmation, approval receipt, and affected-item renewal |
 | Truth pill and integrity panel | `/api/dashboard` shows readiness and errors; the dialog offers safe explanation and Codex discussion | Partial | Make readiness/audit/source issues actionable; preserve read-only diagnosis as one option |
 | Periodic truth audit | Due/overdue data is computed but no dedicated dashboard task completes it | Missing | Add due-soon/overdue attention routes into the truth workbench |
-| Add evidence from preflight | “I have new evidence/context” stops completion; only “Clarify with Codex” is offered | Defect | Deep-link to source upload or fact edit, then resume the exact preflight question |
+| Add evidence from preflight | “I have evidence that closes it” closes the preflight dialog and opens the governed career-truth workbench with the originating job and question recorded; generation stays blocked until the digest is re-signed | Sound | Keep the resume link back to the exact preflight question |
 
 ### Dashboard shell and portfolio
 
@@ -237,7 +243,7 @@ shell behavior; they do not replace domain controls.
 | Integrity control list | Shows truth, submission, screening, date, and timing coverage | Display | Route each incomplete value to its completing control |
 | Ledger search and filters | Client-side filtering and job workspace navigation | Sound | Add explicit archived/withdrawn handling when stage model is implemented |
 | Attention queue | Typed routes exist and are tested | Defect | Remove integrity short-circuit; permit multiple independent tasks per job and provide integrity repair |
-| Learning memory cards | Displays retained hypotheses with evidential support | Partial | Add source inspection, dismiss/narrow/retire actions, conflicts, and actual downstream use |
+| Learning memory cards | Displays retained hypotheses with evidential support; a lesson can be marked not-applicable to a job at preflight, which removes it from that plan's carried signals and is traceable in the decision record | Partial | Still to add: source inspection, retire/narrow, and conflict display |
 
 ### Job capture through approval
 
@@ -247,7 +253,7 @@ shell behavior; they do not replace domain controls.
 | Manual advert intake | Requires company, title, and complete text, then uses the same ingest path | Sound | Add confirmation; retain exact source provenance |
 | Official-advert and captured-JD links | Open registered artefacts or original public URL | Sound | Keep |
 | Cautions | Dedicated warning control and tab show internal, non-predictive JD-to-evidence risks before the separate document review; stale parser output exposes a governed refresh | Sound | Keep requirement-category labels distinct from match class and never call similarity candidates counterevidence |
-| Preflight review | Records structured per-question decisions bound to JD and truth | Partial | Replace evidence/context dead end with resumable truth update |
+| Preflight review | Records structured per-question decisions bound to JD and truth; each item separates the finding about this job, where the concern came from, and the one decision asked, with no internal cause names in user-facing text; the two stop choices route to the truth workbench and each require a brief reason | Sound | Keep the plain-language split; keep internal taxonomy out of the question text |
 | Generate/refresh CV and letter | Calls deterministic plan, validates preflight, and verifies complete review records | Sound | Incorporate typed accepted feedback and expose affected inputs |
 | Review tab | Loads only the employer-facing CV and letter; internal analysis remains in Cautions while the presentation digest binds both | Sound | Add stable anchors, selection, diff, and comment placement |
 | Mark complete bundle presented | Writes presentation receipt bound to exact content | Sound | Keep |
@@ -290,20 +296,20 @@ shell behavior; they do not replace domain controls.
 
 | ID | Priority | Status | Verified defect | Consequence |
 |---|---|---|---|---|
-| JF-01 | P0 | Partly fixed | Dashboard begins at job intake and has no source-to-truth onboarding | The primary persona cannot establish generation authority without developer/manual work |
-| JF-02 | P0 | Open | Preflight evidence/context choices have no completing dashboard route | A truthful user choice blocks generation and strands the journey |
-| JF-03 | P0 | Open | Feedback records and resolves prose but cannot propose/apply/verify the requested document change | User feedback is governed as a log, not incorporated as a product workflow |
+| JF-01 | P0 | Fixed | Dashboard begins at job intake and has no source-to-truth onboarding | The primary persona cannot establish generation authority without developer/manual work |
+| JF-02 | P0 | Fixed | Preflight evidence/context choices have no completing dashboard route | A truthful user choice blocks generation and strands the journey |
+| JF-03 | P0 | Fixed | Feedback records and resolves prose but cannot propose/apply/verify the requested document change | User feedback is governed as a log, not incorporated as a product workflow |
 | JF-04 | P0 | Fixed | Learning reads one mutable latest application status | Later rejection can erase evidence that the exact application previously progressed |
 | JF-05 | P0 | Fixed | Historical completion depends on current package verification before exact-submission verification is attempted | A changed unsent derivative can make completed preflight/review/approval look incomplete |
-| JF-06 | P1 | Open | Package-integrity Attention opens artefacts but has no restore/exception/repair completion | Critical tasks become inspection dead ends |
+| JF-06 | P1 | Fixed | Package-integrity Attention opens artefacts but has no restore/exception/repair completion | Critical tasks become inspection dead ends |
 | JF-07 | P1 | Fixed | Integrity Attention short-circuits all other tasks for the job | Missing dates, screening state, or outcome work can be hidden |
-| JF-08 | P1 | Open | URL extraction is committed without an applicant confirmation screen | Incorrect metadata or incomplete extraction can enter the workflow before correction |
-| JF-09 | P1 | Open | One screening file and pasted-text-only employer response are narrower than real portal evidence | Users must preprocess evidence outside the product or omit it |
-| JF-10 | P1 | Open | Truth audit due state and truth comments have no completing dashboard journey | Ground truth can be correctly blocked but operationally unmaintainable |
+| JF-08 | P1 | Fixed | URL extraction is committed without an applicant confirmation screen | Incorrect metadata or incomplete extraction can enter the workflow before correction |
+| JF-09 | P1 | Fixed | One screening file and pasted-text-only employer response are narrower than real portal evidence | Users must preprocess evidence outside the product or omit it |
+| JF-10 | P1 | Fixed | Truth audit due state and truth comments have no completing dashboard journey | Ground truth can be correctly blocked but operationally unmaintainable |
 | JF-11 | P2 | Fixed | Public release fingerprint changes across otherwise equivalent checkouts | Mirror checks can report false drift, likely from byte/line-ending sensitivity |
-| JF-12 | P3 | Open | No packaged launcher icon, Start Menu/Desktop shortcut, favicon, or app manifest | Discoverability is weaker, but core job functionality is unaffected |
+| JF-12 | P3 | Fixed | No packaged launcher icon, Start Menu/Desktop shortcut, favicon, or app manifest | Discoverability is weaker, but core job functionality is unaffected |
 
-### What has been fixed, and what JF-01 still needs
+### Implemented resolution evidence
 
 - **JF-04** — `learning.milestones_reached` derives every stage an application
   reached from the append-only event ledger. `phase` remains the current state;
@@ -319,14 +325,11 @@ shell behavior; they do not replace domain controls.
 - **JF-11** — `check_repo.file_digest` normalizes text to LF, and both
   `release_fingerprint` implementations share it.
 
-**JF-01 remains partly open.** `truth_review.entry_state()` now routes the entry
-surface and `dashboard_actions.ingest`/`ingest_url` refuse capture until the
-truth digest is signed, so the product no longer opens on a journey it cannot
-support. What is still missing is Phase 1 itself: the *Set up career truth*
-workspace — bounded multi-file source upload, staged extraction candidates with
-citations, conflict resolution and in-dashboard digest sign-off. Until that
-exists, a first-run user is correctly stopped but must still complete onboarding
-through the CLI, so the P0 journey gap is narrowed rather than closed.
+**JF-01 is closed.** `truth_review.entry_state()` routes first run into the
+dashboard workbench. The workbench now provides bounded multi-file source
+upload, source receipts, staged cited candidates, keep/edit/reject/defer review,
+conflict handling, truth comments, summary, integrity validation, and exact
+digest sign-off. Job capture remains unavailable until that sign-off is current.
 
 ### Post-audit correction — JD completeness and caution authenticity
 
@@ -346,7 +349,7 @@ nearest anchors are labelled non-proof similarity candidates.
 
 ## Prioritized implementation plan
 
-### Phase 0 — Lock the lifecycle contract and repair false history — **done except item 5**
+### Phase 0 — Lock the lifecycle contract and repair false history — **complete**
 
 1. ~~Add regression fixtures for multi-stage applications, later rejection,
    submitted-package integrity exceptions, and simultaneous Attention items.~~
@@ -357,16 +360,28 @@ nearest anchors are labelled non-proof similarity candidates.
    derivatives.~~
 4. ~~Remove the per-job integrity `continue`; rank multiple tasks without hiding
    them.~~
-5. Add a typed integrity resolution state even before the full repair UI.
-   **Still open** — this is JF-06.
+5. ~~Add a typed integrity resolution state and completing repair UI.~~
 
 **Exit evidence:** historical completed gates remain complete; interview history
 survives later rejection; every missing metadata task remains visible; existing
 exact-submission hashes remain unchanged. All four are covered by regressions in
 `tests/test_release.py`, `tests/test_learning.py` and
-`tests/test_dashboard_journey.py`.
+ `tests/test_dashboard_journey.py`.
 
-### Phase 1 — Deliver dashboard-first ground truth
+- **JF-01/02/10** — the dashboard now runs source upload, per-claim review,
+  truth comments, digest sign-off, scheduled audit renewal and return-to-preflight.
+  Each preflight item reads as a finding about this job, a plain-language note of
+  where the concern came from, and one decision, with no internal cause names
+  shown. A stop choice records a required reason and opens the truth workbench
+  bound to the originating job and question; a "does not apply here" choice
+  completes preflight and drops that lesson from the plan's carried signals.
+- **JF-03** — comments are classified and target-bound; authorized before/after
+  wording is applied only through regeneration and closes with a typed receipt.
+- **JF-06/08/09/12** — safe integrity states have completing actions; every new
+  advert requires exact confirmation; portal/response evidence accepts multiple
+  files; a branded favicon and opt-in Windows launchers ship with the skill.
+
+### Phase 1 — Deliver dashboard-first ground truth — **complete**
 
 1. ~~Add first-run state routing~~ (done: `truth_review.entry_state()` gates
    capture) and a **Set up career truth** workspace.
@@ -384,7 +399,7 @@ exact-submission hashes remain unchanged. All four are covered by regressions in
 sign truth, paste a job URL, and reach preflight without using a terminal or
 editing governed files.
 
-### Phase 2 — Make feedback incorporation real
+### Phase 2 — Make feedback incorporation real — **complete**
 
 1. Add stable document/section/selection anchors to comments.
 2. Require classification as factual correction, application wording,
@@ -400,7 +415,7 @@ editing governed files.
 change, see that exact change in both the diff and regenerated bundle, and
 approve it; truth and global-rule feedback take their separate governed paths.
 
-### Phase 3 — Complete tracking and cumulative learning
+### Phase 3 — Complete tracking and cumulative learning — **complete**
 
 1. Render and edit stage history from append-only events.
 2. Support multiple portal-evidence files and response-file ingestion.
@@ -415,7 +430,7 @@ approve it; truth and global-rule feedback take their separate governed paths.
 progressed, which preferences the user adopted, which rejection risks remain
 plausible, and how each signal affected preflight or drafting.
 
-### Phase 4 — Harden capture, recovery, and public mirroring
+### Phase 4 — Harden capture, recovery, and public mirroring — **complete in code; release verification required for each publish**
 
 1. Add advert confirmation/correction receipts.
 2. Add deterministic integrity repair choices: restore authoritative bytes,
@@ -430,7 +445,7 @@ plausible, and how each signal affected preflight or drafting.
 never appears in the public tree, and equivalent private/public code produces a
 stable release fingerprint.
 
-### Phase 5 — Launcher and icon convenience
+### Phase 5 — Launcher and icon convenience — **complete**
 
 1. Add an app icon/favicon and optional local manifest.
 2. Provide an explicit installer option for a Start Menu shortcut and an
@@ -458,3 +473,78 @@ Each phase must satisfy these gates before private/public release:
 - fixtures are fictional and public export contains no personal data;
 - the private repository remains authoritative and the public repository is
   updated only through the sanitized export workflow with separate history.
+
+## Paused release and independent-review checkpoint — 2026-09-06
+
+The remediation is implemented and locally verified, but publication is
+deliberately paused at the user's request so the user can ask Claude directly.
+No private or public commit/push, dashboard restart, or shortcut installation
+was performed at this checkpoint.
+
+### Verified observations
+
+- The staged product change covers 44 files: dashboard-first truth intake,
+  advert confirmation, typed feedback/preferences, append-only outcomes and
+  corrections, multi-file portal/response evidence, package recovery, source
+  supersession, public-release attestation, and opt-in Windows launchers.
+- `python tools/run_checks.py full` completed successfully. This included the
+  deterministic generation and adversarial gates, truth/preflight controls,
+  release integrity, learning, locking, 67 dashboard invariants, 23 complete
+  dashboard journey touchpoints, browser automation, standalone installation,
+  repository policy, privacy scanning, and mirror drift.
+- A scratch public export contained 102 allowlisted files and passed the public
+  privacy scanner. The unrelated personal PNG in `assets/` was not selected;
+  only `assets/joblooper.ico.b64` is allowlisted.
+- GitHub authentication was verified outside the restricted process. No remote
+  mutation was attempted after verification.
+- The temporary audit export was removed after checks. The private
+  `.joblooper/index/public_export.json` baseline was updated locally but remains
+  uncommitted pending the actual two-repository publish sequence.
+
+### Independent Claude review status
+
+The user approved sending a frozen, privacy-limited audit bundle containing the
+staged product scope, selected high-risk excerpts, passing test evidence, known
+constraints, and the rubric below. Private runtime records, candidate identity,
+career facts, generated applications, credentials, environment dumps, and
+unrelated personal assets were excluded.
+
+Two dispatch attempts reached the Claude CLI but were rejected before content
+review with HTTP 429: `Usage credits are required for this model` for
+`claude-fable-5`. Both attempts consumed zero input/output tokens, produced no
+review findings or rubric results, and left the repository snapshot unchanged.
+Accordingly, there is no independent verdict and no reviewer-suggested fix was
+applied.
+
+### User-approved external review rubric
+
+1. Unsubmitted-package repair requires exact confirmation, targets only the
+   resolved private package, and refuses submitted packages.
+2. Submitted CVs, cover letters, receipts, hashes, and employer evidence remain
+   immutable during repair and exception acknowledgement.
+3. Failed recovery operations preserve authoritative plans and leave a clear,
+   retryable state without silent data loss.
+4. Source supersession retains history and succeeds only after every active
+   fact has alternative reviewed evidence.
+5. Upload failures remove only Joblooper-created temporary files; accepted
+   source evidence is never accidentally deleted.
+6. Shortcut removal targets only Joblooper's known shortcuts/icon and cannot
+   delete broader directories or user files.
+7. All destructive targets are path-bounded, validated before deletion, and
+   covered by regression tests.
+8. Public export contains no candidate data, private runtime records,
+   credentials, or unrelated personal assets.
+9. Private/public synchronization remains independently verifiable through
+   fingerprints, clean-clone checks, and remote attestation.
+
+### Open verification items before publication
+
+- Obtain and evaluate an independent review against all nine rubric items, or
+  explicitly record a decision to publish without it.
+- A real Windows shortcut has not been created during automated verification;
+  only syntax, packaged icon, CLI options, and standalone installation were
+  tested. Shortcut installation remains opt-in.
+- After review resolution, rerun the proportional/full checks if code changes,
+  then commit and push private, update a separate canonical public clone only
+  through the sanitizer, run public checks, push public, attest the remote
+  public commit, and commit/push the resulting private attestation.

@@ -141,9 +141,9 @@ svg {
   color: var(--cyan);
   box-shadow: inset 0 0 24px rgba(77, 217, 232, .04);
 }
-.brand-mark svg { width: 26px; height: 26px; }
-.brand-mark svg path:first-child { stroke-width: 1.4; }
-.brand-mark svg path:last-child { fill: currentColor; opacity: .25; }
+/* The mark is served from the generated app-icon.svg rather than inlined, so
+   the header, the browser tab and the desktop shortcut are one drawing. */
+.brand-mark img { width: 34px; height: 34px; border-radius: 9px; display: block; }
 .brand strong {
   display: block;
   font-size: .87rem;
@@ -884,6 +884,29 @@ h1 em { color: var(--text-soft); font-style: normal; font-weight: 420; }
 .workspace-dialog form { padding: 26px; overflow-y: auto; max-height: calc(100vh - 44px); }
 .workspace-dialog.intake-dialog { width: min(880px, calc(100vw - 28px)); }
 .workspace-dialog.preflight-dialog { width: min(820px, calc(100vw - 28px)); }
+.workspace-dialog.truth-workbench-dialog { width: min(1080px, calc(100vw - 28px)); }
+.truth-workbench-body { padding: 26px; overflow-y: auto; max-height: calc(100vh - 44px); }
+.truth-workbench-body form { padding: 0; max-height: none; overflow: visible; }
+.status-button { font: inherit; cursor: pointer; }
+.truth-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 12px 0 20px; }
+.truth-steps span { padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px; color: var(--muted); background: var(--surface); font-size: .61rem; }
+.truth-steps span.active { color: var(--cyan); border-color: color-mix(in srgb, var(--cyan) 45%, var(--line)); background: var(--cyan-soft); }
+.truth-steps span.complete { color: var(--green); }
+.truth-section-heading { display: flex; justify-content: space-between; gap: 12px; margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
+.truth-section-heading > div { display: grid; gap: 3px; }
+.truth-section-heading strong { font-size: .82rem; }
+.truth-section-heading span { color: var(--muted); font-size: .63rem; }
+.truth-candidate-list { display: grid; gap: 10px; margin-top: 16px; }
+.truth-candidate { padding: 13px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); }
+.truth-candidate header { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.truth-candidate header strong { color: var(--cyan); font-size: .64rem; }
+.truth-candidate header span { color: var(--muted); font-size: .57rem; }
+.truth-candidate .source-proposal { margin: 0 0 8px; color: var(--text-soft); font-size: .67rem; line-height: 1.45; }
+.truth-candidate-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; }
+.truth-candidate-fields label { margin-top: 0; }
+.truth-candidate-fields .wide { grid-column: 1 / -1; }
+.truth-summary { display: grid; gap: 7px; margin-top: 14px; padding: 13px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--text-soft); font-size: .65rem; }
+.truth-summary code { overflow-wrap: anywhere; color: var(--cyan); }
 .dialog-heading { display: flex; justify-content: space-between; gap: 20px; align-items: start; }
 .dialog-heading h2 { margin: 0; font-size: 1.7rem; letter-spacing: -.035em; }
 .dialog-copy { margin: 9px 0 20px; color: var(--muted); font-size: .7rem; }
@@ -1014,6 +1037,8 @@ h1 em { color: var(--text-soft); font-style: normal; font-weight: 420; }
   .agent-scroll { padding: 22px 17px; }
   .composer { padding-inline: 14px; }
   .form-grid.two { grid-template-columns: 1fr; }
+  .truth-steps, .truth-candidate-fields { grid-template-columns: 1fr; }
+  .truth-candidate-fields .wide { grid-column: auto; }
   .workspace-dialog form { padding: 20px 17px; }
   .workflow-track { grid-template-columns: repeat(4, 1fr); }
   .review-toolbar { margin-left: -19px; margin-right: -19px; padding-inline: 19px; }

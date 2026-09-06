@@ -35,7 +35,10 @@ ESSENTIAL = {
     'core/truth_review.py', 'references/ground-truth-governance.md',
     'references/rejection-learning.md', 'references/section-contracts.md',
     'tools/install_local_skill.py', 'references/installation.md',
-    'tools/prepare_public_release.py', 'references/maintenance.md',
+    'tools/prepare_public_release.py', 'tools/attest_public_release.py',
+    'tools/install_dashboard_shortcut.ps1', 'dashboard/app-icon.svg',
+    'assets/joblooper.ico.b64', 'references/maintenance.md',
+    '.github/workflows/checks.yml',
 }
 
 
@@ -164,6 +167,21 @@ def file_digest(path):
     return hashlib.sha256(content).hexdigest()
 
 
+def distributable_path(relative):
+    """Whether a path is stable source rather than ignored/generated state."""
+    normal = relative.replace('\\', '/').lstrip('./')
+    parts = normal.split('/')
+    name = parts[-1]
+    if any(part in {'.git', '__pycache__', '.pytest_cache'} for part in parts):
+        return False
+    if (name.endswith(('.pyc', '.tmp')) or name == '.writer.lock'
+            or name.startswith('TRUTH-AUDIT.')):
+        return False
+    if normal.endswith('/index/truth_context.json') or normal == 'index/truth_context.json':
+        return False
+    return normal != 'repo-policy.json'
+
+
 def release_fingerprint(root):
     digest = hashlib.sha256()
     for base, dirs, names in os.walk(root):
@@ -171,7 +189,7 @@ def release_fingerprint(root):
         for name in sorted(names):
             path = os.path.join(base, name)
             relative = os.path.relpath(path, root).replace('\\', '/')
-            if relative == 'repo-policy.json':
+            if not distributable_path(relative):
                 continue
             digest.update(relative.encode('utf-8') + b'\0')
             digest.update(file_digest(path).encode('ascii'))
@@ -195,7 +213,7 @@ def allowlist_digests(root, allow_files):
             for filename in sorted(names):
                 path = os.path.join(base, filename)
                 relative = os.path.relpath(path, root).replace('\\', '/')
-                if relative.endswith('.pyc'):
+                if not distributable_path(relative):
                     continue
                 digests[relative] = file_digest(path)
     return digests

@@ -81,6 +81,19 @@ def outcome_learning_lines(mapping):
     return lines
 
 
+def preference_lines(mapping):
+    rows = mapping.get('preferences') or []
+    if not rows:
+        return []
+    lines = ['## CANDIDATE PREFERENCES — explicit drafting controls', '']
+    for row in rows:
+        lines.append(
+            f"- `{row.get('id')}` · {row.get('type')} = `{row.get('value')}` — "
+            f"{row.get('note')}")
+    lines += ['', 'These controls affect presentation only; they are not career facts.', '']
+    return lines
+
+
 def render(jd, m, cv, slug, phase='plan'):
     by_id, recs = store.anchors()
     section_contracts = {s.get('name'): s for s in store.sections().get('sections', [])}
@@ -226,6 +239,7 @@ def render(jd, m, cv, slug, phase='plan'):
             o.append(f"- …and {len(rs)-12} more; all remain available in MATCH.json")
         o.append('')
 
+    o += preference_lines(m)
     o += outcome_learning_lines(m)
 
     # ---- gate results -------------------------------------------------

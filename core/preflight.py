@@ -69,31 +69,43 @@ def legacy_questions(jd, mapping, identity):
     for n, lesson in enumerate(
             learning.relevant_lessons(jd, exclude_slug=current_slug, top=2,
                                       mapping=mapping), 1):
+        # Three parts, kept apart: what is true of THIS job, where the concern
+        # came from, and the one thing being asked. Merged into a paragraph --
+        # with the internal cause name and the lesson's own system-facing
+        # wording in it -- this read as a wall of jargon at the exact moment a
+        # person has to make a decision.
+        trigger = lesson.get('trigger') or 'this advert is similar to that one'
         rows.append({
             'id': f'PRIOR-REJECTION-{n}', 'kind': 'PRIOR_OUTCOME_CONTEXT',
-            'question': (
-                f"An earlier application to {lesson.get('company')} retained the "
-                f"{lesson.get('cause')} hypothesis: {lesson.get('summary')} "
-                f"It is raised here because {lesson.get('trigger') or 'the advert is similar'}. "
-                "Review whether new evidence changes this risk; do not treat the "
-                "hypothesis as an employer-stated fact."),
+            'finding': trigger[0].upper() + trigger[1:] + '.',
+            'reason': (
+                f"You noted this after applying to {lesson.get('company')}, and it "
+                "was never confirmed by any employer: "
+                f"“{lesson.get('summary')}”"),
+            'question': 'Does anything change that for this job?',
+            'lesson_id': lesson.get('hypothesis_id'),
+            'lesson_app_id': lesson.get('app_id'),
         })
     for n, outcome in enumerate(
             learning.relevant_positive_outcomes(jd, exclude_slug=current_slug, top=2), 1):
         rows.append({
             'id': f'PRIOR-POSITIVE-{n}', 'kind': 'PRIOR_OUTCOME_CONTEXT',
-            'question': (
-                f"A {outcome['similarity']:.2f}-similar exact application to "
-                f"{outcome.get('company')} reached {outcome.get('status')}. Review whether "
-                "its verified positioning remains relevant here; the outcome does not prove why it advanced."),
+            'finding': (
+                f"A similar application to {outcome.get('company')} reached "
+                f"{outcome.get('status')}."),
+            'reason': ('That is an observation of what advanced. It does not prove '
+                       'why the employer advanced it.'),
+            'question': 'Reuse that verified positioning here?',
+            'positive': True,
         })
     return rows
 
 
-def _choice(value, label, consequence, completes=True):
+def _choice(value, label, consequence, completes=True, requires_note=False):
     return {
         'value': value, 'label': label, 'consequence': consequence,
         'completes_preflight': bool(completes),
+        'requires_note': bool(requires_note),
     }
 
 
@@ -152,15 +164,35 @@ def questions(jd, mapping, identity):
                 ],
             })
             continue
+        if legacy.get('kind') == 'PRIOR_OUTCOME_CONTEXT' and legacy.get('positive'):
+            rows.append({
+                **legacy, 'title': 'A past application that advanced',
+                'options': [
+                    _choice('REUSE_POSITIONING', 'Yes — reuse the verified positioning',
+                            'Carry the same verified framing into this application.'),
+                    _choice('NOT_RELEVANT_HERE', 'No — this job is different enough',
+                            'Continue without reusing it. No career fact changes.'),
+                ],
+            })
+            continue
         if legacy.get('kind') == 'PRIOR_OUTCOME_CONTEXT':
             rows.append({
-                **legacy, 'title': 'Review retained outcome context',
+                **legacy, 'title': 'A concern you recorded earlier',
                 'options': [
-                    _choice('REVIEWED_NO_CHANGE', 'Reviewed - no new evidence',
-                            'Keep the prior signal as context, never as employer fact.'),
-                    _choice('ADD_NEW_CONTEXT', 'I have new context',
-                            'Stop and record the new context before generation.',
-                            completes=False),
+                    _choice('REVIEWED_NO_CHANGE', 'No — proceed with it recorded',
+                            'Continue. The risk stays visible in Cautions and in '
+                            'the application record.'),
+                    # A judgement that a past concern does not apply to this job
+                    # asserts no new career fact, so it may complete preflight --
+                    # but it must say why, or it is indistinguishable from
+                    # dismissing the signal out of hand.
+                    _choice('NOT_APPLICABLE_HERE', 'It does not apply to this job',
+                            'Record why, and stop raising it for this application.',
+                            requires_note=True),
+                    _choice('ADD_NEW_CONTEXT', 'I have evidence that closes it',
+                            'Generation stops until that evidence is registered '
+                            'and your career truth is signed again.',
+                            completes=False, requires_note=True),
                 ],
             })
             continue
@@ -188,24 +220,52 @@ def _normalise_answers(rows, answers):
     if not isinstance(answers, dict):
         raise ValueError('structured preflight answers must be a JSON object')
     expected = {row.get('id'): row for row in rows}
-    missing = [row_id for row_id in expected if not str(answers.get(row_id) or '').strip()]
+
+    def decision_for(value):
+        raw = value.get('decision') if isinstance(value, dict) else value
+        return str(raw or '').strip()
+
+    missing = [row_id for row_id in expected
+               if not decision_for(answers.get(row_id))]
     if missing:
         raise ValueError('answer every preflight decision: ' + ', '.join(missing))
     normalised = {}
     for row_id, row in expected.items():
-        decision = str(answers.get(row_id) or '').strip()
+        supplied = answers.get(row_id)
+        decision = decision_for(supplied)
+        note = str(supplied.get('note') or '').strip() if isinstance(supplied, dict) else ''
         options = {str(option.get('value')): option
                    for option in row.get('options') or []
                    if isinstance(option, dict)}
         if decision not in options:
             raise ValueError(f'{row_id} has an unsupported decision')
+        if options[decision].get('requires_note') and len(note) < 8:
+            raise ValueError(f'{row_id} requires a brief reason for this decision')
         if not options[decision].get('completes_preflight', True):
             if decision == 'ADD_NEW_EVIDENCE':
                 raise ValueError(
                     f'{row_id} requires a ground-truth evidence update and renewed user approval')
             raise ValueError(f'{row_id} requires clarification before preflight can complete')
         normalised[row_id] = {'decision': decision}
+        if note:
+            normalised[row_id]['note'] = note
     return normalised
+
+
+def selected_learning_signals(record, lessons):
+    """Return only lessons the user kept applicable to this application."""
+    answers = (record or {}).get('answers') or {}
+    disposition = {}
+    for row in (record or {}).get('questions') or []:
+        lesson_key = (row.get('lesson_app_id'), row.get('lesson_id'))
+        if not all(lesson_key):
+            continue
+        answer = answers.get(row.get('id')) or {}
+        decision = (answer.get('decision') if isinstance(answer, dict) else answer)
+        disposition[lesson_key] = str(decision or '')
+    return [lesson for lesson in (lessons or [])
+            if disposition.get((lesson.get('app_id'), lesson.get('hypothesis_id')))
+            != 'NOT_APPLICABLE_HERE']
 
 
 def create(slug, jd, mapping, identity, reviewer=None, note=None, answers=None):
@@ -278,9 +338,11 @@ def validate(slug, jd, mapping, identity):
         problems.append('material candidate questions were not reviewed with the user')
     elif rows and record.get('decision') == 'STRUCTURED_DECISIONS_RECORDED':
         try:
-            _normalise_answers(rows, {
-                key: value.get('decision') if isinstance(value, dict) else value
-                for key, value in (record.get('answers') or {}).items()})
+            # Re-validate the full answer objects, notes included. Stripping the
+            # note here made a saved NOT_APPLICABLE_HERE / ADD_NEW_CONTEXT
+            # decision re-fail its own requires_note check, so a plan the user
+            # legitimately completed read as permanently broken.
+            _normalise_answers(rows, record.get('answers') or {})
         except ValueError as error:
             problems.append(str(error))
     elif not rows and record.get('decision') != 'NO_MATERIAL_QUESTIONS':
@@ -304,7 +366,12 @@ def to_markdown(jd, identity, rows):
                 out += [row['requirement'], '',
                         f"**Recorded state:** {row.get('classification')}",
                         f"**Reason:** {row.get('reason')}", '']
-            out += [row['question'], '']
+            elif row.get('finding'):
+                out += [f"**About this job:** {row['finding']}"]
+                if row.get('reason'):
+                    out += [f"**Where it came from:** {row['reason']}"]
+                out += ['']
+            out += [row.get('question') or '', '']
             for option in row.get('options') or []:
                 if isinstance(option, dict):
                     out += [f"- **{option.get('label')}** - {option.get('consequence')}"]

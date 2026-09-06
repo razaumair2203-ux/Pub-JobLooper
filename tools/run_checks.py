@@ -27,8 +27,10 @@ CHECKS = [
     ('output invariants', ['tests/test_pipeline.py'], {'full'}),
     ('semantic matching', ['tests/test_match.py'], {'full'}),
     ('approval and releases', ['tests/test_release.py'], {'full'}),
+    ('typed feedback changes', ['tests/test_feedback_changes.py'], {'full', 'dashboard'}),
     ('ground-truth context', ['tests/test_context.py'], {'full'}),
     ('ground-truth review', ['tests/test_truth_review.py'], {'full'}),
+    ('dashboard truth intake', ['tests/test_truth_intake.py'], {'full', 'dashboard'}),
     ('pre-generation questions', ['tests/test_preflight.py'], {'full'}),
     ('protected inventory', ['tests/test_inventory_retention.py'], {'full'}),
     ('outcome learning', ['tests/test_learning.py'], {'full'}),
@@ -44,6 +46,8 @@ CHECKS = [
      {'full', 'dashboard', 'mirror'}),
     ('personal/public repository boundary', ['tests/test_repo_policy.py'],
      {'full', 'mirror'}),
+    ('application mark', ['tools/build_app_icon.py', '--check'],
+     {'full', 'dashboard', 'mirror'}),
     ('repository policy', ['tools/check_repo.py'], {'full', 'mirror'}),
     # Passes when no export baseline exists yet; fails once the private source
     # moves ahead of the last published mirror.

@@ -75,6 +75,7 @@ of a first run.
 | Journey step | Applicant interaction | Controller and proof of completion | Fail-closed behaviour |
 |---|---|---|---|
 | Capture | Paste the official job URL; use manual fields only after both access routes fail | Bounded URL extractor, then scoped Codex URL fallback, then deterministic `ingest`; when both access routes fail, the manual-paste panel reopens automatically with the URL preserved and the first missing field focused | Private-network URLs, blocked pages, incomplete content and search-snippet reconstruction are refused; advert prose is never candidate truth |
+| Confirm advert | Read the complete captured source and confirm/correct company and title | `advert-review.json` binds user confirmation to the exact raw advert digest and identity fields | Preflight and planning refuse an unconfirmed or stale receipt; captured text cannot be edited through this control |
 | Cautions | Open the warning control on the active card before drafting or review | A read-only reparse compares the exact captured advert with stored parser output; the dedicated Cautions view shows every non-direct classification, exact JD text, unresolved element, and nearest evidence IDs explicitly labelled as non-proof | A mismatch withdraws the old CV decision and exposes one governed `refresh-jd` action; refresh invalidates downstream bindings and returns the job to preflight without changing candidate truth |
 | Preflight | Review only unresolved fit decisions; use Codex only when a gap needs explanation | Deterministic JD/truth match plus per-item governed `preflight` answers; **Save & generate** durably records these before invoking preparation | Resolved facts are not re-asked; new evidence stops for truth review; chat cannot complete the gate |
 | Prepare | Select **Generate CV & letter**, or type an unambiguous generation request in the job panel | One allowlisted `plan` action revalidates truth/JD/preflight/feedback and publishes `match`, `cv`, `cover-letter` and risk records followed by one plan receipt bound to the exact preflight decision digest | The action does not rely on a Codex stream; an incomplete or stale receipt is not a current plan; repeating Prepare reopens an unchanged current review without regenerating it |
@@ -98,7 +99,7 @@ must not make the work appear to vanish.
 Each active card must expose, without opening a folder:
 
 - exact company, role, reference, lifecycle state and last durable activity;
-- all eight touchpoints and the current next action;
+- all nine touchpoints and the current next action;
 - whether evidence coverage and gaps are assessed, with an explicit statement
   that coverage is not an ATS score;
 - a persistent warning control with the current internal-caution count, CV
@@ -116,7 +117,7 @@ this operational surface.
 
 | User touchpoint | What remains visible afterwards | Required next control |
 |---|---|---|
-| Paste URL | Active card, exact source-JD links, evidence/gap assessment and captured timestamp | Review deterministic preflight decisions |
+| Paste URL | Active card, exact source-JD links and captured timestamp | Confirm the complete advert, company and title |
 | JD analysis stale or incomplete | Critical Attention item plus warning control showing stored and currently detected requirement counts | Open Cautions, run the governed refresh, then review the regenerated preflight decisions |
 | Direct extraction blocked | Codex tries only the same official URL; if capture succeeds it binds the job and opens the same deterministic control used by direct intake | Preflight decisions; otherwise the automatically reopened manual form |
 | Preflight incomplete | `Preflight` gate open; resolved facts omitted; remaining known gaps and their consequences visible | Save proceed/stop decisions in Preflight; chat is optional clarification |
@@ -163,7 +164,7 @@ all been specified and covered by a regression test.
 
 ### Job workspace
 
-- Overview shows eight touchpoints: Capture, Preflight, Prepare, Review,
+- Overview shows nine touchpoints: Capture, Confirm advert, Preflight, Prepare, Review,
   Approve, Build, Submit and Outcome.
 - Artefacts resolve to allowlisted files inside the configured data root.
 - Review displays the exact complete CV and cover letter before sign-off.

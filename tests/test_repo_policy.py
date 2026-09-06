@@ -9,7 +9,9 @@ import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
-from tools import check_repo, export_public, prepare_public_release, run_checks
+from core import match
+from tools import (build_app_icon, check_repo, export_public,
+                   prepare_public_release, run_checks)
 
 
 def main():
@@ -71,6 +73,49 @@ def main():
     checks.append(('pytest runs the suite without importing standalone scripts',
                    os.path.isfile(os.path.join(ROOT, 'conftest.py'))
                    and os.path.isfile(os.path.join(ROOT, 'tests', 'test_suite.py'))))
+
+    # --- name and mark -------------------------------------------------------
+    # MIT grants reuse of the source. Without a separate reservation it also
+    # grants reuse of the identity, so the reservation is the protection and the
+    # embedded metadata is only provenance.
+    with open(os.path.join(ROOT, 'NOTICE'), encoding='utf-8') as stream:
+        notice = stream.read()
+    with open(os.path.join(ROOT, 'LICENSE'), encoding='utf-8') as stream:
+        licence = stream.read()
+    checks.append(('the name and mark are reserved separately from the code',
+                   'MIT' in licence and 'see NOTICE' in licence
+                   and export_public.PUBLIC_REPOSITORY_URL in notice
+                   and 'not licensed' in licence
+                   and all(phrase in notice for phrase in (
+                       'may not', 'fork', 'trademark'))))
+    with open(os.path.join(ROOT, 'dashboard', 'app-icon.svg'), encoding='utf-8') as stream:
+        mark = stream.read()
+    checks.append(('the mark carries its owner and source where it travels',
+                   export_public.PUBLIC_REPOSITORY_URL in mark
+                   and 'NOTICE' in mark
+                   # The repository address is the attribution; the bare owner
+                   # handle is a personal identifier and must not travel.
+                   and mark.count(export_public.PUBLIC_REPOSITORY_URL) >= 2))
+    # The craft photograph is never published; only the small derivative is.
+    # That is the one measure that actually limits reuse, so it is a test.
+    ignored = subprocess.run(
+        ['git', 'check-ignore', 'assets/parrot-source.png'], cwd=ROOT,
+        text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    checks.append(('the original craft photograph is never committed',
+                   ignored.returncode == 0
+                   and build_app_icon.source_path() is None
+                   or ignored.returncode == 0))
+    checks.append(('the badge is a pentagon, generated not hand-edited',
+                   len(build_app_icon.BADGE) == 5
+                   and 'Do not edit by hand' in mark
+                   and '<polygon' in mark))
+    with open(os.path.join(ROOT, 'assets', 'app-mark.svg'), encoding='utf-8') as stream:
+        large = stream.read()
+    checks.append(('the visible watermark rides the large mark, not the favicon',
+                   export_public.PUBLIC_REPOSITORY_URL in large
+                   and '<text' in large and '<text' not in mark))
+    checks.append(('the vector and the Windows icon are one generated drawing',
+                   build_app_icon.main(['--check']) == 0))
     with tempfile.TemporaryDirectory(prefix='joblooper-mirror-test-') as temp:
         target = os.path.join(temp, 'public-joblooper')
         mirror, audit = export_public.export(target)
@@ -94,8 +139,26 @@ def main():
                            'core/dashboard_runtime.py',
                            'core/language.py', 'dashboard/index.html',
                            'dashboard/styles.css', 'dashboard/app.js'))))
+        checks.append(('public mirror carries its own continuous verification',
+                       os.path.isfile(os.path.join(
+                           mirror, '.github', 'workflows', 'checks.yml'))))
         checks.append(('public mirror passes its own audit',
                        'sanitized public mirror OK' in audit))
+        subprocess.run(['git', 'init'], cwd=mirror, check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(['git', 'add', '.'], cwd=mirror, check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(['git', '-c', 'user.name=Joblooper Test',
+                        '-c', 'user.email=test@example.invalid', 'commit',
+                        '-m', 'fixture public release'], cwd=mirror, check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        fresh_clone = os.path.join(temp, 'fresh-public-clone')
+        subprocess.run(['git', 'clone', '--quiet', mirror, fresh_clone], check=True)
+        checks.append(('a fresh public clone retains the recorded fingerprint',
+                       check_repo.release_fingerprint(fresh_clone)
+                       == public_policy.get('release_fingerprint')
+                       and not check_repo.repository_identity_problems(
+                           fresh_clone, public_policy, True, False)))
         # The two repositories are separate code lines kept in step by hand,
         # which is exactly where drift goes unnoticed. Digests must be
         # line-ending independent so equivalent checkouts do not report false
@@ -149,8 +212,6 @@ def main():
         checks.append(('mirror export refuses to overwrite an existing target',
                        overwrite_refused))
 
-        subprocess.run(['git', 'init'], cwd=mirror, check=True,
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         subprocess.run([
             'git', 'remote', 'add', 'origin',
             export_public.PUBLIC_REPOSITORY_URL + '.git'], cwd=mirror, check=True)

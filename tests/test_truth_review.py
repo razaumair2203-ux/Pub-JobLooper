@@ -52,7 +52,18 @@ def main():
                        truth_review.readiness()['ready']))
 
         adopted = truth_review.record('source', 'Adopt evidence from a new source.',
-                                      'candidate')
+                                       'candidate')
+        try:
+            truth_review.resolve(adopted['id'], 'ADOPTED',
+                                 'Claimed a change without making one.',
+                                 'No different digest exists.')
+            unchanged_adoption_refused = False
+        except ValueError:
+            unchanged_adoption_refused = True
+        checks.append(('adopted truth comment requires an actual digest change',
+                       unchanged_adoption_refused))
+        sections['default_pages'] = 2
+        store.write_json(sections_path, sections); store.reset_context_cache()
         truth_review.resolve(adopted['id'], 'ADOPTED',
                              'Source was registered and anchors were reviewed.',
                              'Integrity review will run before renewed sign-off.')

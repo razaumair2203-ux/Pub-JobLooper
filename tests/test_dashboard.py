@@ -99,9 +99,10 @@ def main():
         checks.append(('active job projection preserves durable workspace state',
                        bool(active_job['updated_at'])
                        and isinstance(active_job['feedback_items'], list)
-                       and len(active_job['touchpoints']) == 8
+                       and len(active_job['touchpoints']) == 9
                        and active_job['touchpoints'][0]['status'] == 'complete'
-                       and active_job['touchpoints'][1]['status'] == 'current'
+                       and active_job['touchpoints'][1]['status'] == 'complete'
+                       and active_job['touchpoints'][2]['status'] == 'current'
                        and active_job['workflow']['captured'] is True
                        and active_job['workflow']['preflight'] is False
                        and active_job['workflow']['preflight_questions'] is False
@@ -690,6 +691,25 @@ def main():
                                == 'fictional answer evidence'))
             finally:
                 os.unlink(screening_path)
+            with tempfile.TemporaryDirectory(prefix='joblooper-upload-cleanup-') as upload_dir:
+                previous_tempdir = tempfile.tempdir
+                tempfile.tempdir = upload_dir
+                try:
+                    try:
+                        dashboard_actions._screening_files([
+                            {
+                                'name': 'portal-answers.txt',
+                                'base64': base64.b64encode(b'valid first file').decode('ascii'),
+                            },
+                            {'name': 'blocked.exe', 'base64': 'eA=='},
+                        ])
+                        invalid_batch_refused = False
+                    except ValueError:
+                        invalid_batch_refused = True
+                    checks.append(('failed evidence batches leave no temporary files',
+                                   invalid_batch_refused and os.listdir(upload_dir) == []))
+                finally:
+                    tempfile.tempdir = previous_tempdir
         finally:
             server.shutdown()
             server.server_close()
@@ -763,7 +783,16 @@ def main():
                        and url_result['extraction']['requested_url'].endswith('/44556677')
                        and store.read_json(os.path.join(
                            store.job_dir(url_result['job_id']), 'jd.json'))['company']
-                       == 'Link Aerospace'))
+                       == 'Link Aerospace'
+                       and url_result['advert_review']['confirmed'] is False))
+        dashboard_actions.confirm_advert(
+            url_result['job_id'], 'Link Aerospace', 'Principal Integration Lead',
+            'fixture-reviewer')
+        checks.append(('new capture requires exact advert confirmation before preflight',
+                       dashboard_actions.advert_review_state(
+                           url_result['job_id'])['confirmed'] is True
+                       and dashboard_actions.preflight_state(
+                           url_result['job_id'])['company'] == 'Link Aerospace'))
 
     with tempfile.TemporaryDirectory(prefix='joblooper-dashboard-empty-') as empty:
         store.configure(empty)

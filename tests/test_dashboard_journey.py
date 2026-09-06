@@ -15,7 +15,7 @@ FIXTURE = os.path.join(ROOT, 'examples', 'starter')
 sys.path.insert(0, ROOT)
 
 import jl
-from core import dashboard, dashboard_actions, match, preflight, release, store, vec
+from core import dashboard, dashboard_actions, learning, match, preflight, release, store, vec
 
 
 def check(name, condition, results):
@@ -33,7 +33,8 @@ def main():
         captured = dashboard.build_snapshot()['jobs'][0]
         check('capture exposes exact JD and makes preflight current',
               captured['touchpoints'][0]['status'] == 'complete'
-              and captured['touchpoints'][1]['status'] == 'current'
+              and captured['touchpoints'][1]['status'] == 'complete'
+              and captured['touchpoints'][2]['status'] == 'current'
               and captured['outputs']['cv'] is False
               and captured['outputs']['letter'] is False
               and {row['id'] for row in captured['artifacts']}
@@ -46,8 +47,8 @@ def main():
         reviewed = dashboard.build_snapshot()['jobs'][0]
         check('preflight writes durable answers and makes generation current',
               reviewed['workflow']['preflight'] is True
-              and reviewed['touchpoints'][1]['status'] == 'complete'
-              and reviewed['touchpoints'][2]['status'] == 'current'
+              and reviewed['touchpoints'][2]['status'] == 'complete'
+              and reviewed['touchpoints'][3]['status'] == 'current'
               and reviewed['next_action']
               == 'Generate the CV and cover-letter review bundle'
               and any(row['event'] == 'PREFLIGHT_RECORDED'
@@ -66,8 +67,8 @@ def main():
                    'work-risk_record'} <= plan_artifacts
               and review['available'] is True
               and review['valid'] is False
-              and planned['touchpoints'][2]['status'] == 'complete'
-              and planned['touchpoints'][3]['status'] == 'current'
+              and planned['touchpoints'][3]['status'] == 'complete'
+              and planned['touchpoints'][4]['status'] == 'current'
               and any(row['event'] == 'PLAN_CREATED'
                       for row in planned['timeline']), results)
 
@@ -101,7 +102,7 @@ def main():
               and stale_plan['workflow']['plan_current'] is False
               and stale_plan['workflow']['plan'] is False
               and stale_plan['workflow']['can_approve'] is False
-              and stale_plan['touchpoints'][2]['status'] == 'current', results)
+              and stale_plan['touchpoints'][3]['status'] == 'current', results)
         # A stale plan whose preflight is still complete is refreshed directly.
         check('a stale plan with complete decisions offers the refresh',
               next(item for item in dashboard.build_snapshot()['attention']
@@ -150,7 +151,7 @@ def main():
         check('blocking gates are visible before an approval control is offered',
               bool(blocked['workflow']['gate_blockers'])
               and blocked['workflow']['can_approve'] is False
-              and blocked['touchpoints'][4]['status'] == 'blocked'
+              and blocked['touchpoints'][5]['status'] == 'blocked'
               and next(item for item in dashboard.build_snapshot()['attention']
                        if item['job_id'] == job_id)['route'] == 'evidence', results)
         store.write_json(cv_path, original_cv)
@@ -161,8 +162,8 @@ def main():
         check('review binds the complete current bundle before approval',
               presented['workflow']['presentation'] is True
               and presented['workflow']['can_approve'] is True
-              and presented['touchpoints'][3]['status'] == 'complete'
-              and presented['touchpoints'][4]['status'] == 'current'
+              and presented['touchpoints'][4]['status'] == 'complete'
+              and presented['touchpoints'][5]['status'] == 'current'
               and any(row['id'] == 'work-presentation_record'
                       for row in presented['artifacts']), results)
 
@@ -181,7 +182,7 @@ def main():
               and interrupted_build['workflow']['package'] is False
               and interrupted_build['workflow']['can_build'] is True
               and interrupted_build['workflow']['can_submit'] is False
-              and interrupted_build['touchpoints'][5]['status'] == 'current'
+              and interrupted_build['touchpoints'][6]['status'] == 'current'
               and interrupted_attention['route'] == 'build', results)
 
         dashboard_actions.build_application(job_id, no_pdf=True)
@@ -191,9 +192,9 @@ def main():
               packaged['workflow']['approval'] is True
               and packaged['workflow']['package'] is True
               and packaged['workflow']['can_submit'] is True
-              and packaged['touchpoints'][4]['status'] == 'complete'
               and packaged['touchpoints'][5]['status'] == 'complete'
-              and packaged['touchpoints'][6]['status'] == 'current'
+              and packaged['touchpoints'][6]['status'] == 'complete'
+              and packaged['touchpoints'][7]['status'] == 'current'
               and (job_id, 'manifest-docx') in registry
               and (job_id, 'manifest-letter_docx') in registry, results)
 
@@ -206,6 +207,25 @@ def main():
               repeated_build['reused'] is True
               and release.load_release(job_id)[1]['manifest_sha256'] == manifest_digest
               and not release.verify_release(job_id)[1], results)
+
+        # JF-06: a corrupted package that has never been submitted has one
+        # typed, confirmed recovery action and is rebuilt from approved inputs.
+        package_dir, package_manifest = release.load_release(job_id)
+        damaged_path = os.path.join(
+            package_dir, package_manifest['files']['docx']['file'])
+        with open(damaged_path, 'ab') as stream:
+            stream.write(b' damaged-unsubmitted-derivative')
+        damaged = dashboard.build_snapshot()['jobs'][0]
+        repaired = dashboard_actions.repair_unsubmitted_package(
+            job_id, 'REBUILD UNSUBMITTED PACKAGE', no_pdf=True)
+        repaired_job = dashboard.build_snapshot()['jobs'][0]
+        check('unsubmitted package damage exposes and completes a typed rebuild',
+              damaged['integrity_resolution'] == 'REBUILD_UNSUBMITTED'
+              and repaired['repair'] == 'REBUILT_UNSUBMITTED_PACKAGE'
+              and repaired_job['workflow']['package'] is True
+              and repaired_job['integrity_resolution'] == 'NONE'
+              and not release.verify_release(job_id)[1], results)
+        built, registry = dashboard.build_snapshot(include_private=True)
 
         # Give the package unsent employer-facing derivatives so the exact
         # submission can later be proven independent of them (JF-05).
@@ -245,8 +265,8 @@ def main():
         check('submission binds the exact sent files and waits without a false task',
               submitted['workflow']['submission'] is True
               and submitted['exact_submission'] is True
-              and submitted['touchpoints'][6]['status'] == 'complete'
-              and submitted['touchpoints'][7]['status'] == 'waiting'
+              and submitted['touchpoints'][7]['status'] == 'complete'
+              and submitted['touchpoints'][8]['status'] == 'waiting'
               and not dashboard.build_snapshot()['attention'], results)
 
         # JF-05: re-rendering the unsent PDF must not retract a single completed
@@ -263,11 +283,19 @@ def main():
               and drifted['workflow']['preflight'] is True
               and drifted['workflow']['approval'] is True
               and drifted['workflow']['package'] is False
-              and drifted['touchpoints'][6]['status'] == 'complete'
+              and drifted['touchpoints'][7]['status'] == 'complete'
               and drifted['integrity_state'] == 'submission_verified_with_exception'
               and any(error.startswith('pdf:')
                       for error in drifted['integrity_exceptions'])
               and not dashboard.build_snapshot()['attention'], results)
+        dashboard_actions.acknowledge_package_exception(
+            job_id, 'ACKNOWLEDGE SUBMITTED EXCEPTION')
+        acknowledged = dashboard.build_snapshot()['jobs'][0]
+        check('submitted exception acknowledgement changes no sent-file evidence',
+              acknowledged['integrity_acknowledged'] is True
+              and acknowledged['integrity_resolution']
+              == 'ACKNOWLEDGE_SUBMITTED_EXCEPTION'
+              and release.verify_submission(job_id)[1] == [], results)
         with open(unsent_pdf, 'wb') as stream:
             stream.write(unsent_original)
 
@@ -277,7 +305,7 @@ def main():
         check('outcome records only the observation and completes the journey proof',
               outcome['phase'] == 'rejected'
               and outcome['employer_stated_reason'] is None
-              and outcome['touchpoints'][7]['status'] == 'complete'
+              and outcome['touchpoints'][8]['status'] == 'complete'
               and all(row['status'] == 'complete'
                       for row in outcome['touchpoints']), results)
 
@@ -306,6 +334,24 @@ def main():
         check('restoring the artefact clears only the integrity task',
               'integrity' not in restored
               and set(restored) == {'outcome_date', 'reasoning'}, results)
+
+        original_outcome = learning.active_outcome_events(job_id)[-1]
+        correction = dashboard_actions.correct_outcome(
+            job_id, original_outcome['event_id'], 'interview',
+            response_date=store.today(), latency='under_24h',
+            reason='The earlier outcome was entered against the wrong message.',
+            response_text='Fictional employer invitation to an interview.')
+        corrected_job = dashboard.build_snapshot()['jobs'][0]
+        corrected_timeline = corrected_job['timeline']
+        check('outcome correction preserves exact pasted response and supersession',
+              correction['response_evidence']
+              and not release.verify_response_evidence(package_dir)
+              and corrected_job['status'] == 'interview'
+              and corrected_job['phase'] == 'progressed'
+              and any(row['id'] == original_outcome['event_id'] and row['corrected']
+                      for row in corrected_timeline)
+              and any(row['event'] == 'OUTCOME_CORRECTED' and row['active']
+                      for row in corrected_timeline), results)
 
     for name, ok in results:
         print(f"  {'ok  ' if ok else 'FAIL'} {name}")

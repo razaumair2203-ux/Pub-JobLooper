@@ -75,7 +75,7 @@ try {
     role: document.querySelector('.active-job-card h2')?.textContent,
     action: document.querySelector('.active-job-actions .primary-button')?.dataset.activeAction,
   }))()`);
-  if (initial.stages !== 8) fail(`expected 8 touchpoints, found ${initial.stages}`);
+  if (initial.stages !== 9) fail(`expected 9 touchpoints, found ${initial.stages}`);
   if (!initial.role?.includes('Senior Systems Engineer')) fail('active role is not visible');
   if (initial.action !== 'preflight') fail(`expected preflight action, found ${initial.action}`);
 
@@ -111,7 +111,7 @@ try {
       || !finalState.artifacts.includes('work-letter_record')) {
     fail('generated CV or cover-letter artefact is not accessible');
   }
-  if (finalState.touchpoints[2] !== 'complete' || finalState.touchpoints[3] !== 'current') {
+  if (finalState.touchpoints[3] !== 'complete' || finalState.touchpoints[4] !== 'current') {
     fail('browser journey did not advance from Prepare to Review');
   }
   process.stdout.write('  ok   browser URL-to-review touchpoint path is observable and durable\n');

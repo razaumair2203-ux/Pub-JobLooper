@@ -1,0 +1,62 @@
+Joblooper — name and mark
+=========================
+
+The MIT licence in LICENSE covers the source code. It does not grant rights to
+the project's name or its visual identity, which are reserved:
+
+  Name   Joblooper
+  Mark   The parrot logo in dashboard/app-icon.svg, assets/app-mark.svg and
+         assets/joblooper.ico.b64
+  Owner  The Joblooper project, at the repository below
+  Source https://github.com/razaumair2203-ux/Pub-JobLooper
+
+Copyright in the artwork
+------------------------
+
+The parrot is a photograph of an original paper craft made by the maintainer's
+child. Two separate copyrights subsist in it — in the craft as an artistic work,
+and in the photograph — and both are held by the maintainer. Copyright is
+automatic and does not depend on this notice or on any registration.
+
+    Artwork and photograph © 2026, held by the maintainer of the repository
+    above. All rights reserved. Not licensed under the MIT licence.
+
+The original photograph is deliberately not published. Only a small, cropped,
+watermarked derivative is distributed, and it is generated rather than committed
+by hand. Reproducing that derivative outside an unmodified copy of Joblooper, or
+attempting to reconstruct the original from it, is not permitted.
+
+You may:
+
+  - use, modify and redistribute the source code under the MIT licence;
+  - keep the mark in place in an unmodified copy of Joblooper;
+  - use the name and mark to refer to this project, including in articles,
+    talks and comparisons.
+
+You may not, without written permission:
+
+  - use the Joblooper name or the parrot mark for a fork, derivative or
+    competing product, or in a way that suggests it is endorsed by or
+    affiliated with this project;
+  - use them as your own product, company or service branding;
+  - register them, or anything confusingly similar, as a trademark.
+
+If you fork Joblooper, please replace the name and the mark. Everything else in
+the repository is yours to use under MIT.
+
+Provenance
+----------
+
+The mark is a photograph of an original paper-craft parrot. It is generated, not
+hand-edited: `tools/build_app_icon.py` crops the craft, lifts its paper
+background and sets it inside the badge, emitting the favicon, the large mark
+and the Windows icon from that one photograph. `--check` fails if any of them
+drifts. Each generated file carries the source URL and this rights statement in
+its metadata, and only the large mark carries a visible watermark — at favicon
+size a watermark is unreadable and protects nothing.
+
+The parrot sits inside the pentagon badge the dashboard header has always used.
+A parrot repeats what it has heard; Joblooper repeats only wording its user has
+approved.
+
+Contact the owner through the repository above for permission requests.

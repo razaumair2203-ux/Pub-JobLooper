@@ -1,4 +1,5 @@
 """A linked user-skill install retains the complete executable system."""
+import base64
 import os
 import subprocess
 import sys
@@ -39,9 +40,17 @@ with tempfile.TemporaryDirectory(prefix='joblooper-install-') as temp:
         assert os.path.isfile(os.path.join(destination, 'dashboard', 'index.html'))
         assert os.path.isfile(os.path.join(destination, 'core', 'dashboard.py'))
         assert os.path.isfile(os.path.join(destination, 'core', 'dashboard_runtime.py'))
+        assert os.path.isfile(os.path.join(destination, 'dashboard', 'app-icon.svg'))
+        with open(os.path.join(destination, 'assets', 'joblooper.ico.b64'),
+                  encoding='ascii') as stream:
+            assert base64.b64decode(stream.read()).startswith(b'\x00\x00\x01\x00')
+        installed_fixture = os.path.join(temp, 'installed-fixture')
+        import shutil
+        shutil.copytree(os.path.join(destination, 'examples', 'starter'),
+                        installed_fixture)
         doctor = subprocess.run(
-            [sys.executable, os.path.join(destination, 'jl.py'), '--data-dir', FIXTURE,
-             'doctor'], cwd=destination, text=True,
+            [sys.executable, os.path.join(destination, 'jl.py'), '--data-dir',
+             installed_fixture, 'doctor'], cwd=destination, text=True,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         assert doctor.returncode == 0, doctor.stdout
         assert 'System is ready' in doctor.stdout
@@ -104,5 +113,5 @@ with tempfile.TemporaryDirectory(prefix='joblooper-firstrun-') as fresh:
     assert again.returncode == 0, again.stdout
     assert 'Existing workspace found' in again.stdout
 
-print('standalone linked skill installation: 10/10 pass')
+print('standalone linked skill installation: 12/12 pass')
 print('first-run setup: environment, explanation and workspace verified')

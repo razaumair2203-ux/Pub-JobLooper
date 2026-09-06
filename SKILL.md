@@ -34,7 +34,10 @@ must be discoverable; copying only `SKILL.md` is not a functional installation.
    exact JD; if both routes fail, ask the user to paste the advert manually. For
    supplied text, use `python jl.py ingest`. Use the unique application key
    returned.
-3. Run `python jl.py preflight <key>` before planning. It must resolve the exact
+3. Review the complete captured advert and confirm its company/title in the
+   dashboard, or run `python jl.py confirm-advert <key> --company "..." --title
+   "..."`. Preflight and planning must refuse a missing/stale confirmation.
+   Then run `python jl.py preflight <key>` before planning. It must resolve the exact
    JD against approved truth first: omit facts already answered, then present
    only remaining known gaps or application decisions. Record each decision in
    the dashboard Preflight control; chat is optional for clarification and is
@@ -76,7 +79,8 @@ must be discoverable; copying only `SKILL.md` is not a functional installation.
    an approval folder a review folder.
 7. Record submission with the exact sent CV and, when used, exact sent cover
    letter. Before submitting, ask the user to save the portal questionnaire or
-   answer summary and attach it with `--screening-file`; record `not captured`
+   answer summary and attach every saved page with repeated `--screening-file`;
+   record `not captured`
    rather than reconstructing unavailable answers. Never guess a sent file.
    Use `--confirm-external` only for a retrospective, explicit user confirmation
    where every selected sent file still matches its approved manifest; it does

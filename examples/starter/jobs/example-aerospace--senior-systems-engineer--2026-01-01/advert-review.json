@@ -1,0 +1,13 @@
+{
+  "_schema": "joblooper.advert-review.v1",
+  "app_id": "example-aerospace--senior-systems-engineer--2026-01-01",
+  "status": "CONFIRMED",
+  "subject_sha256": "68658d428c372ecb71c2b7dbfeeccc1759e55767b07e5c05a2a41b1c01bba7bc",
+  "raw_sha256": "54ea1114b152aa5fa1593f51ab6e30c22112b4632cee141bec8b017ce2c1428e",
+  "company": "Example Aerospace",
+  "title": "Senior Systems Engineer",
+  "url": "https://example.com/jobs/senior-systems-engineer",
+  "reviewer": "fictional-fixture",
+  "confirmed_at": "2026-01-01T00:00:00+00:00",
+  "confirmation": "I reviewed the complete captured advert, company and title before fit analysis."
+}

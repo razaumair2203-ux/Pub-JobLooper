@@ -57,6 +57,7 @@ _ENGINE_CONTEXT_FILES = (
     'core/casefile.py', 'core/cover_letter.py', 'core/employer_review.py',
     'core/truth_review.py', 'core/preflight.py',
     'core/language.py', 'core/pdftext.py',
+    'core/truth_intake.py', 'core/preferences.py',
 )
 
 OVERSIGHT_CONTRACT = {
@@ -272,6 +273,9 @@ def generation_fingerprint(jd=None):
               if rel != 'truth/changelog.jsonl'}
     style = p('templates', 'style.json')
     inputs['templates/style.json'] = sha256_file(style) if os.path.exists(style) else None
+    preference_path = p('index', 'preferences.jsonl')
+    inputs['preferences'] = (sha256_file(preference_path)
+                             if os.path.exists(preference_path) else None)
     for rel in _ENGINE_CONTEXT_FILES:
         path = code_p(*rel.split('/'))
         inputs[f'engine/{rel}'] = sha256_file(path) if os.path.exists(path) else None

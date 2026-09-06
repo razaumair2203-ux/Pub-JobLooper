@@ -36,7 +36,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from core import (store, vec, match, build, preview, gates, render, casefile,
                   integrity, release, learning, feedback, employer_response,
                   cover_letter, employer_review, preflight, truth_review,
-                  bootstrap, dashboard_actions, dashboard as dashboard_ui)
+                  bootstrap, dashboard_actions, dashboard as dashboard_ui,
+                  preferences, advert_review)
 
 FAIL_CATS = ['HARD_GATE', 'SENIORITY_MISMATCH', 'DOMAIN_TRANSLATION', 'ATS_KEYWORD',
              'EVIDENCE_DEPTH', 'NARRATIVE_COHERENCE', 'LOCATION_VISA', 'COMPENSATION',
@@ -460,6 +461,8 @@ def cmd_ingest(args):
     if os.path.isdir(d):
         existing = store.read_text(os.path.join(d, 'jd.raw.md'))
         if existing == raw:
+            if not os.path.isfile(os.path.join(d, advert_review.RECEIPT_NAME)):
+                advert_review.initialize(slug)
             say(f"already ingested  {slug} (identical JD; nothing overwritten)")
             return 0
         seq = 2
@@ -476,6 +479,7 @@ def cmd_ingest(args):
     jd['raw_normalized_sha256'] = store.sha256_advert(raw)
     store.write_json(os.path.join(d, 'jd.json'), jd)
     store.write_text(os.path.join(d, 'jd.raw.md'), raw)
+    advert_review.initialize(slug)
     store.append_application_event({
         'event': 'JOB_INGESTED', 'app_id': slug, 'company': company, 'role': title,
         'jd_raw_sha256': jd['raw_sha256'], 'requirements': len(jd['requirements']),
@@ -485,17 +489,27 @@ def cmd_ingest(args):
     hard = sum(1 for r in jd['requirements'] if r['hard_gate'])
     say(f"ingested  {slug}")
     say(f"  {len(jd['requirements'])} requirements ({hard} hard-gate) from {jd['raw_chars']} chars")
-    say(f"  next: jl plan {slug}")
+    say(f"  next: jl confirm-advert {slug} --company \"{company}\" --title \"{title}\"")
+
+
+def cmd_confirm_advert(args):
+    slug = store.resolve_job(args.job)
+    try:
+        receipt = advert_review.confirm(
+            slug, args.company, args.title, args.reviewer or 'cli-user')
+    except ValueError as error:
+        raise SystemExit(f'ADVERT CONFIRMATION REFUSED - {error}')
+    say(f"advert confirmed  {slug} · {receipt['subject_sha256'][:12]}")
+    say(f"  next: jl preflight {slug}")
+    return 0
 
 
 def _requirement_signature(jd):
-    """Return the parser-owned part of a JD record for stable comparisons."""
+    """Return only advert-stated fields for stable source comparisons."""
     return [{
         'n': row.get('n'),
         'text': row.get('text'),
         'kind': row.get('kind'),
-        'hard_gate': bool(row.get('hard_gate')),
-        'gate_type': row.get('gate_type'),
     } for row in jd.get('requirements') or []]
 
 
@@ -578,6 +592,10 @@ def cmd_preflight(args):
     """Ask material candidate questions before assembling either document."""
     require_truth_integrity('PREFLIGHT')
     slug = store.resolve_job(args.job)
+    try:
+        advert_review.require(slug)
+    except ValueError as error:
+        raise SystemExit(f'PREFLIGHT REFUSED - {error}')
     d = store.job_dir(slug)
     jd = store.read_json(os.path.join(d, 'jd.json')) or {}
     jd['_slug'] = slug
@@ -619,12 +637,18 @@ def cmd_preflight(args):
 
 def cmd_plan(args):
     context = require_truth_integrity('PLAN')
-    pages = args.pages or int(store.sections().get('default_pages', 3))
+    preference_options = preferences.options(
+        int(store.sections().get('default_pages', 3)))
+    pages = args.pages or preference_options['target_pages']
     slug = store.resolve_job(args.job)
     d = store.job_dir(slug)
     jd = store.read_json(os.path.join(d, 'jd.json'))
     if not jd:
         raise SystemExit(f"No jd.json in {d}. Run `jl ingest` first.")
+    try:
+        advert_review.require(slug)
+    except ValueError as error:
+        raise SystemExit(f'PLAN REFUSED - {error}')
     jd['_slug'] = slug
 
     try:
@@ -632,6 +656,8 @@ def cmd_plan(args):
     except ValueError as error:
         raise SystemExit(f"PLAN REFUSED — {error}")
     m = match.match_jd(jd, ident)
+    m['preferences'] = preferences.active()
+    m['_preference_options'] = preference_options
     preflight_record, preflight_errors, material_questions = preflight.validate(
         slug, jd, m, ident)
     if preflight_errors and not material_questions:
@@ -649,11 +675,18 @@ def cmd_plan(args):
         'decision': preflight_record['decision'],
         'reviewer': preflight_record['reviewer'],
     }
-    m['learning_signals'] = learning.relevant_lessons(jd, exclude_slug=slug, mapping=m)
+    m['learning_signals'] = preflight.selected_learning_signals(
+        preflight_record,
+        learning.relevant_lessons(jd, exclude_slug=slug, mapping=m))
     m['positive_outcome_signals'] = learning.relevant_positive_outcomes(
         jd, exclude_slug=slug)
     m['_inputs'] = store.generation_fingerprint(jd)
     cv = build.assemble(jd, m, target_pages=pages)
+    try:
+        feedback_changes = feedback.apply_cv(slug, cv)
+    except ValueError as error:
+        raise SystemExit(f"PLAN REFUSED — accepted feedback could not be applied: {error}")
+    m['feedback_changes'] = feedback_changes
     context_path = os.path.join(d, 'EMPLOYER-CONTEXT.json')
     employer_context = store.read_json(context_path, {}) or None
     try:
@@ -696,6 +729,11 @@ def cmd_plan(args):
     })
 
     results, blocked = gates.run_all(cv, m)
+    if feedback_changes and not blocked:
+        feedback.record_applied(
+            slug, feedback_changes, plan_sha256,
+            'All deterministic CV gates passed and the cover letter was regenerated '
+            'from the changed, traceable CV plan.')
     say(f"planned   {slug}")
     if retired:
         say("  removed   stale approved unsubmitted folder")
@@ -1106,6 +1144,8 @@ def cmd_apply(args):
         'sent_file': submission.get('sent_file'),
         'sent_cover_letter': submission.get('sent_cover_letter'),
         'screening_evidence': submission.get('screening_evidence'),
+        'screening_evidence_files': submission.get('screening_evidence_files') or (
+            [submission['screening_evidence']] if submission.get('screening_evidence') else []),
         'screening_evidence_status': submission.get(
             'screening_evidence_status') or (
                 'captured' if submission.get('screening_evidence') else 'not_captured'),
@@ -1180,6 +1220,8 @@ def cmd_update_submission(args):
         'recorded' if receipt.get('applied') else 'not_provided')
     rec['channel'] = receipt.get('channel')
     rec['screening_evidence'] = receipt.get('screening_evidence')
+    rec['screening_evidence_files'] = receipt.get('screening_evidence_files') or (
+        [receipt['screening_evidence']] if receipt.get('screening_evidence') else [])
     rec['screening_evidence_status'] = receipt.get('screening_evidence_status') or (
         'captured' if receipt.get('screening_evidence') else 'not_captured')
     store.write_jsonl(store.p('index', 'applications.jsonl'),
@@ -1218,6 +1260,7 @@ def cmd_outcome(args):
         'band': latency or 'unknown',
         'basis': 'user_reported' if latency else 'not_provided',
     }
+    rec.pop('days', None)
     if rec.get('applied') and rec.get('responded'):
         import datetime
         try:
@@ -1228,8 +1271,8 @@ def cmd_outcome(args):
         if b < a:
             raise SystemExit('OUTCOME REFUSED — response date cannot precede submission date')
         rec['days'] = (b - a).days
-    if args.reason:
-        rec['stated_reason'] = args.reason
+    # Blank is a deliberate observation and clears any older employer reason.
+    rec['stated_reason'] = args.reason or None
     if (args.reason or '').strip().lower() in {'test', 'probe'} or \
             (args.note or '').strip().lower() in {'test', 'probe'}:
         rec['test_record'] = True
@@ -1414,7 +1457,8 @@ def cmd_metrics(args):
     positive = [row for row in outcomes
                 if row.get('status') in learning.POSITIVE_OUTCOMES]
     exact = sum(learning._exact_submission(row) for row in apps)
-    screening = sum(bool(row.get('screening_evidence')) for row in apps)
+    screening = sum(bool(row.get('screening_evidence_files')
+                         or row.get('screening_evidence')) for row in apps)
     response_dates = sum(bool(row.get('responded')) for row in outcomes)
     timing_bands = sum(
         (row.get('response_latency') or {}).get('band') not in {None, 'unknown'}
@@ -1450,7 +1494,23 @@ def cmd_metrics(args):
 
 
 def cmd_dashboard(args):
-    """Launch or inspect the local, read-only lifecycle dashboard."""
+    """Launch, inspect or explicitly install the local dashboard."""
+    shortcut = getattr(args, 'install_shortcut', None)
+    remove_shortcut = getattr(args, 'remove_shortcut', None)
+    if shortcut and remove_shortcut:
+        raise SystemExit('SHORTCUT REFUSED - choose install or remove, not both')
+    if shortcut or remove_shortcut:
+        if os.name != 'nt':
+            raise SystemExit('SHORTCUT REFUSED - the shortcut installer is Windows-only')
+        script = store.code_p('tools', 'install_dashboard_shortcut.ps1')
+        command = ['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass',
+                   '-File', script, '-Location', shortcut or remove_shortcut]
+        if remove_shortcut:
+            command.append('-Remove')
+        result = subprocess.run(command, text=True, stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT)
+        say(result.stdout.strip())
+        return result.returncode
     if args.snapshot:
         say(dashboard_ui.snapshot_json())
         return 0
@@ -2066,6 +2126,9 @@ def main():
     s = sub.add_parser('ingest'); s.add_argument('file')
     s.add_argument('--company', required=True); s.add_argument('--title', required=True)
     s.add_argument('--url'); s.set_defaults(fn=cmd_ingest)
+    s = sub.add_parser('confirm-advert'); s.add_argument('job')
+    s.add_argument('--company', required=True); s.add_argument('--title', required=True)
+    s.add_argument('--reviewer'); s.set_defaults(fn=cmd_confirm_advert)
 
     s = sub.add_parser('refresh-jd'); s.add_argument('job')
     s.set_defaults(fn=cmd_refresh_jd)
@@ -2127,7 +2190,7 @@ def main():
         s.add_argument('--cover-letter-file',
                        help='exact COVER-LETTER.pdf or COVER-LETTER.docx if it was submitted')
         s.add_argument(
-            '--screening-file',
+            '--screening-file', action='append',
             help=('optional saved portal questionnaire/answers as PDF, text, JSON, HTML '
                   'or image; copied and hash-bound to the private application record'))
         s.add_argument(
@@ -2139,7 +2202,7 @@ def main():
     s = sub.add_parser('update-submission'); s.add_argument('job')
     s.add_argument('--date', help='correct submission date in YYYY-MM-DD')
     s.add_argument('--channel', help='correct submission channel')
-    s.add_argument('--screening-file',
+    s.add_argument('--screening-file', action='append',
                    help='late exact portal questionnaire/answer evidence')
     s.add_argument('--screening-unavailable', action='store_true',
                    help='record that historical portal answers are unavailable')
@@ -2191,6 +2254,10 @@ def main():
                    help='do not open the default browser automatically')
     s.add_argument('--snapshot', action='store_true',
                    help='print the deterministic dashboard JSON and exit')
+    s.add_argument('--install-shortcut', choices=('start-menu', 'desktop', 'both'),
+                   help='Windows only: explicitly install a launcher with Joblooper icon')
+    s.add_argument('--remove-shortcut', choices=('start-menu', 'desktop', 'both'),
+                   help='Windows only: remove selected launchers without touching data')
     s.set_defaults(fn=cmd_dashboard)
 
     s = sub.add_parser('ask'); s.add_argument('question', nargs='+'); s.set_defaults(fn=cmd_ask)

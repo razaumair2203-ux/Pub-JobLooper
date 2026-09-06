@@ -15,9 +15,10 @@ PRIVATE_REPOSITORY_NAME = 'Pvt-JobLooper'
 PUBLIC_REPOSITORY_NAME = 'Pub-JobLooper'
 PUBLIC_REPOSITORY_URL = 'https://github.com/razaumair2203-ux/Pub-JobLooper'
 ALLOW_FILES = {
-    '.gitattributes', '.gitignore', 'CONTRIBUTING.md', 'LICENSE', 'README.md',
-    'SECURITY.md', 'SKILL.md', 'USER-GUIDE.md', 'agents', 'conftest.py', 'core',
-    'dashboard', 'examples', 'jl.py',
+    '.gitattributes', '.github', '.gitignore', 'CONTRIBUTING.md', 'LICENSE', 'README.md',
+    'NOTICE', 'SECURITY.md', 'SKILL.md', 'USER-GUIDE.md', 'agents', 'conftest.py', 'core',
+    'dashboard', 'examples', 'jl.py', 'assets/joblooper.ico.b64',
+    'assets/app-mark.svg',
     'references', 'repo-policy.json', 'run_checks.ps1', 'run_checks.sh',
     'templates', 'tests', 'tools',
 }
@@ -60,7 +61,8 @@ def _copy_entry(source, target):
         shutil.copytree(
             source, target,
             ignore=shutil.ignore_patterns(
-                '__pycache__', '*.pyc', '*.tmp', '.writer.lock', 'TRUTH-AUDIT.*'))
+                '__pycache__', '.pytest_cache', '*.pyc', '*.tmp', '.writer.lock',
+                'TRUTH-AUDIT.*', 'truth_context.json'))
     elif os.path.isfile(source):
         os.makedirs(os.path.dirname(target), exist_ok=True)
         shutil.copy2(source, target)
@@ -154,7 +156,7 @@ def release_fingerprint(root):
         for name in sorted(names):
             path = os.path.join(base, name)
             relative = os.path.relpath(path, root).replace('\\', '/')
-            if relative == 'repo-policy.json':
+            if not check_repo.distributable_path(relative):
                 continue
             digest.update(relative.encode('utf-8') + b'\0')
             digest.update(check_repo.file_digest(path).encode('ascii'))

@@ -78,11 +78,14 @@ def source_review_rows():
     rows = []
     for source in store.sources():
         review = source.get('coverage_review') or {}
+        superseded = source.get('lifecycle_status') == 'SUPERSEDED'
         broad = source.get('kind') in BROAD_SOURCE_KINDS
         expected = str(source.get('sha256') or '').lower()
         reviewed = str(review.get('reviewed_sha256') or '').lower()
         state = 'not_required'
-        if broad:
+        if superseded:
+            state = 'superseded'
+        elif broad:
             if review.get('status') != 'reviewed':
                 state = 'missing'
             elif not expected or reviewed != expected:
@@ -317,6 +320,8 @@ def check_truth():
         if sid and n > 1:
             errors.append(f"source {sid}: duplicate id")
     for sid, src in sources.items():
+        if src.get('lifecycle_status') == 'SUPERSEDED':
+            continue
         path = src.get('path')
         expected = src.get('sha256')
         if path:

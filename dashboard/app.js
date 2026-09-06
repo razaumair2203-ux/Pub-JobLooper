@@ -19,6 +19,9 @@ const state = {
   actionJob: null,
   intakeBaseline: null,
   preflightState: null,
+  truthWorkspace: null,
+  truthOrigin: null,
+  feedbackTargets: [],
   mutatingJobs: new Set(),
 };
 
@@ -479,6 +482,7 @@ function renderAttention() {
 }
 
 function handleAttention(item, source) {
+  if (item.route === 'truth_workspace') { openTruthSetup(); return; }
   if (item.route === 'truth_integrity') {
     state.truthIntegrityDetail = item.detail;
     $('#truth-integrity-detail').textContent = item.detail;
@@ -487,6 +491,9 @@ function handleAttention(item, source) {
   }
   const job = jobById(item.job_id);
   if (!job) return;
+  if (item.route === 'advert_review') {
+    openAdvertReview(job); return;
+  }
   if (item.route === 'submission_metadata') {
     populateSubmissionUpdate(job); openDialog('#update-submission-dialog', job); return;
   }
@@ -521,12 +528,22 @@ function handleAttention(item, source) {
 
 function renderLearning() {
   const lessons = state.data.lessons;
-  $('#learning-list').innerHTML = lessons.length ? lessons.map(item => `
+  const preferences = state.data.preferences || [];
+  const preferenceCards = preferences.map(item => `
+    <article class="learning-item" data-preference="${h(item.id)}">
+      <div class="learning-head"><strong>${h(titleCase(item.type))}</strong><span class="evidence-support">${h(item.status)}</span></div>
+      <p>${h(item.value)} · ${h(item.note)}</p>
+      <div class="learning-source"><span>Candidate preference · ${h(item.source_feedback_id || 'direct')}</span><span>${h(item.id)}</span></div>
+      ${item.status === 'ACTIVE' ? `<button class="secondary-button preference-retire" type="button" data-preference-retire="${h(item.id)}">Retire</button>` : ''}
+    </article>`).join('');
+  const lessonCards = lessons.map(item => `
     <article class="learning-item">
       <div class="learning-head"><strong>${h(item.cause_label)}</strong><span class="evidence-support">${Math.round((item.confidence || 0) * 100)}%</span></div>
       <p>${h(item.summary)}</p><div class="learning-bar"><span style="width:${Math.round((item.confidence || 0) * 100)}%"></span></div>
       <div class="learning-source"><span>${h(item.company)} · ${h(item.role)}</span><span>${h(item.id)}</span></div>
-    </article>`).join('') : '<div class="empty-state"><strong>No retained lessons yet.</strong><span>Observed outcomes never become causal claims automatically.</span></div>';
+    </article>`).join('');
+  $('#learning-list').innerHTML = preferenceCards + lessonCards
+    || '<div class="empty-state"><strong>No retained lessons or preferences yet.</strong><span>Observed outcomes never become causal claims automatically.</span></div>';
 }
 
 function openDrawer(job, source) {
@@ -589,8 +606,9 @@ function renderDrawer() {
   const official = safeUrl(job.official_url);
   $('#drawer-actions').innerHTML = [
     official ? `<a class="action-link primary" href="${h(official)}" target="_blank" rel="noreferrer">Official advert ${icons.external}</a>` : '',
+    !job.workflow?.advert_confirmed ? '<button class="action-link primary" type="button" data-drawer-action="advert-review">Confirm captured advert</button>' : '',
     `<button class="action-link caution-link" type="button" data-drawer-action="cautions">${icons.warning} Cautions / ${job.cautions?.risk_count || 0}</button>`,
-    job.phase === 'captured' && !job.workflow?.preflight ? `<button class="action-link primary" type="button" data-drawer-action="preflight">Review preflight decisions</button>` : '',
+    job.phase === 'captured' && job.workflow?.advert_confirmed && !job.workflow?.preflight ? `<button class="action-link primary" type="button" data-drawer-action="preflight">Review preflight decisions</button>` : '',
     job.workflow?.preflight && !job.workflow?.plan ? `<button class="action-link primary" type="button" data-drawer-action="prepare">${job.workflow?.plan_available ? 'Refresh CV & letter' : 'Generate CV & letter'}</button>` : '',
     `<button class="action-link" type="button" data-drawer-action="codex"><span class="agent-orb"></span>Work with Codex</button>`,
     job.workflow?.can_review ? `<button class="action-link" type="button" data-drawer-action="review">Review complete bundle</button>` : '',
@@ -651,7 +669,29 @@ function drawerOverview(job) {
   <section class="drawer-section"><div class="drawer-section-title"><h3>Package integrity</h3></div>
     <div class="fact-grid">${fact('State', titleCase(job.integrity_state), job.integrity_state === 'attention' ? 'bad' : 'good')}${fact('Package', job.package_id || 'Not built')}</div>
     ${job.integrity_exceptions.length ? `<div class="unknown-box">${job.integrity_exceptions.map(h).join('<br>')}</div>` : ''}
+    ${job.integrity_resolution === 'REBUILD_UNSUBMITTED' ? '<button class="primary-button" type="button" data-integrity-action="rebuild">Rebuild unsubmitted package</button>' : ''}
+    ${job.integrity_resolution === 'ACKNOWLEDGE_SUBMITTED_EXCEPTION' && !job.integrity_acknowledged ? '<button class="secondary-button" type="button" data-integrity-action="acknowledge">Acknowledge immutable submitted exception</button>' : ''}
+    ${job.integrity_acknowledged ? '<div class="disclaimer">This exact exception set was acknowledged. The sent files remain hash-verified and unchanged.</div>' : ''}
   </section>`;
+}
+
+async function handleIntegrityAction(action, job, button) {
+  const rebuilding = action === 'rebuild';
+  const warning = rebuilding
+    ? 'This removes only the damaged, never-submitted generated package and rebuilds it from the current approved plan. Continue?'
+    : 'This records that the exact sent files verify while unsent derivatives differ. It changes no submitted file. Continue?';
+  if (!window.confirm(warning)) return;
+  button.disabled = true;
+  try {
+    const path = rebuilding ? '/api/actions/integrity-rebuild' : '/api/actions/integrity-acknowledge';
+    await apiPost(path, {
+      job_id: job.id,
+      confirmation: rebuilding ? 'REBUILD UNSUBMITTED PACKAGE' : 'ACKNOWLEDGE SUBMITTED EXCEPTION',
+    });
+    await loadData();
+    openDrawer(jobById(job.id));
+    toast(rebuilding ? 'Unsubmitted package rebuilt and re-verified.' : 'Submitted exception acknowledged without changing sent files.');
+  } catch (error) { toast(error.message); button.disabled = false; }
 }
 
 function drawerCautions(job) {
@@ -785,7 +825,8 @@ function drawerReasoning(job) {
   return `<section class="drawer-section"><div class="drawer-section-title"><h3>Observed outcome</h3></div>
     <div class="outcome-observation"><strong>${h(observation)}</strong><p>Employer-stated reason: ${h(job.employer_stated_reason || 'none provided')}. This observation is separate from every explanation below.</p></div>
   </section>
-  <section class="drawer-section"><div class="drawer-section-title"><h3>Reasoning record</h3><span class="subtle">Support is evidential, not predictive</span></div>
+  <section class="drawer-section"><div class="drawer-section-title"><h3>Reasoning record</h3>${['rejected', 'ghosted'].includes(job.status) ? '<button class="secondary-button" type="button" data-review-action="hypothesis">Add or revise</button>' : '<span class="subtle">Available after a rejected or ghosted outcome</span>'}</div>
+    <div class="disclaimer">Support is evidential, not predictive. A retained lesson appears in a future preflight only when its recorded trigger applies there.</div>
     ${job.hypotheses.length ? job.hypotheses.map(item => `<article class="reason-card">
       <div class="reason-card-head"><div><strong>${h(item.id)} · ${h(item.cause_label)}</strong><div class="reason-meta">${item.revision_count} reasoning ${item.revision_count === 1 ? 'pass' : 'passes'} · ${Math.round((item.confidence || 0) * 100)}% evidence support</div></div><span class="reason-status ${String(item.status || '').toLowerCase()}">${h(titleCase(item.status))}</span></div>
       <p class="reason-summary">${h(item.summary)}</p>
@@ -797,8 +838,56 @@ function drawerReasoning(job) {
 
 function drawerTimeline(job) {
   return `<section class="drawer-section"><div class="drawer-section-title"><h3>Immutable event trail</h3><span class="subtle">Newest first</span></div>
-    <div class="timeline">${job.timeline.length ? job.timeline.map(event => `<article class="timeline-event"><strong>${h(titleCase(event.event))}${event.hypothesis_id ? ` · ${h(event.hypothesis_id)}` : ''}</strong><small>${h(dateTimeLabel(event.at))}${event.status ? ` · ${h(titleCase(event.status))}` : ''}</small></article>`).join('') : '<div class="empty-state"><strong>No lifecycle events yet.</strong></div>'}</div>
+    <div class="timeline">${job.timeline.length ? job.timeline.map(event => `<article class="timeline-event"><strong>${h(titleCase(event.event))}${event.hypothesis_id ? ` · ${h(event.hypothesis_id)}` : ''}</strong><small>${h(dateTimeLabel(event.at))}${event.status ? ` · ${h(titleCase(event.status))}` : ''}${event.corrected ? ' · superseded' : ''}${event.active && ['OUTCOME', 'OUTCOME_CORRECTED'].includes(event.event) ? ' · active observation' : ''}</small></article>`).join('') : '<div class="empty-state"><strong>No lifecycle events yet.</strong></div>'}</div>
   </section>`;
+}
+
+async function openAdvertReview(job) {
+  if (!job) return;
+  const form = $('#advert-review-form');
+  const status = $('#advert-review-status');
+  form.reset();
+  status.textContent = 'Loading the exact captured source…';
+  openDialog('#advert-review-dialog', job);
+  try {
+    const response = await fetch(`/api/advert-review?job=${encodeURIComponent(job.id)}`, {
+      cache: 'no-store',
+    });
+    const value = await response.json();
+    if (!response.ok) throw new Error(value.error || `Request returned ${response.status}`);
+    form.elements.company.value = value.subject.company || '';
+    form.elements.title.value = value.subject.title || '';
+    form.elements.url.value = value.subject.url || '';
+    form.elements.raw.value = value.raw || '';
+    status.textContent = value.confirmed
+      ? 'This exact advert is already confirmed.'
+      : 'Read the complete source, then confirm the identity fields.';
+  } catch (error) { status.textContent = error.message; }
+}
+
+async function submitAdvertReview(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const status = $('#advert-review-status');
+  const data = Object.fromEntries(new FormData(form));
+  if (!data.confirmed) { status.textContent = 'Confirm that you reviewed the complete advert.'; return; }
+  setFormBusy(form, true);
+  status.textContent = 'Binding your confirmation to this exact advert…';
+  try {
+    const result = await apiPost('/api/actions/advert-confirm', {
+      job_id: state.actionJob.id, company: data.company, title: data.title,
+      reviewer: data.reviewer,
+    });
+    status.textContent = result.result.message;
+    status.classList.add('good');
+    const jobId = state.actionJob.id;
+    await loadData();
+    setTimeout(async () => {
+      $('#advert-review-dialog').close();
+      await openPreflight(jobById(jobId));
+    }, 500);
+  } catch (error) { status.textContent = error.message; }
+  finally { setFormBusy(form, false); }
 }
 
 async function openPreflight(job) {
@@ -838,12 +927,19 @@ function renderPreflight(value) {
   } else {
     $('#preflight-decisions').innerHTML = decisions.map(row => {
       const saved = value.answers?.[row.id]?.decision || '';
+      const savedNote = value.answers?.[row.id]?.note || '';
       const options = (row.options || []).map(option => `<option value="${h(option.value)}" ${saved === option.value ? 'selected' : ''}>${h(option.label)}</option>`).join('');
+      const needsNote = (row.options || []).some(option => option.requires_note);
+      // Three parts, kept apart: what is true of this job, where the concern
+      // came from, and the one thing being asked.
+      const lead = row.finding || row.requirement || row.question;
+      const showQuestionAsLabel = row.finding && row.question;
       return `<article class="preflight-item" data-kind="${h(row.kind)}">
         <header><span>${h(row.id)}</span><strong>${h(row.title || titleCase(row.kind))}</strong></header>
-        ${row.requirement ? `<p>${h(row.requirement)}</p>` : `<p>${h(row.question)}</p>`}
+        <p>${h(lead)}</p>
         ${row.reason ? `<small>${h(row.reason)}</small>` : ''}
-        <label>Your decision<select name="${h(row.id)}" required ${value.complete ? 'disabled' : ''}><option value="">Choose…</option>${options}</select></label>
+        <label>${showQuestionAsLabel ? h(row.question) : 'Your decision'}<select name="${h(row.id)}" required ${value.complete ? 'disabled' : ''}><option value="">Choose…</option>${options}</select></label>
+        ${needsNote ? `<label>Reason when requested<textarea name="${h(row.id)}__note" rows="2" maxlength="2000" ${value.complete ? 'disabled' : ''} placeholder="Explain why this concern does not apply, or identify the evidence you will add.">${h(savedNote)}</textarea></label>` : ''}
         <div class="preflight-effects">${(row.options || []).map(option => `<span><strong>${h(option.label)}:</strong> ${h(option.consequence)}</span>`).join('')}</div>
       </article>`;
     }).join('');
@@ -868,11 +964,17 @@ async function submitPreflight(event) {
   if (!state.actionJob || !state.preflightState) return;
   const form = event.currentTarget;
   const status = $('#preflight-status');
-  const answers = Object.fromEntries(new FormData(form));
+  const fields = Object.fromEntries(new FormData(form));
+  const answers = Object.fromEntries((state.preflightState.questions || []).map(row => [
+    row.id, {decision: fields[row.id] || '', note: fields[`${row.id}__note`] || ''},
+  ]));
   const blocking = Object.entries(answers).find(([, value]) =>
-    ['ADD_NEW_EVIDENCE', 'ADD_NEW_CONTEXT'].includes(value));
+    ['ADD_NEW_EVIDENCE', 'ADD_NEW_CONTEXT'].includes(value.decision));
   if (blocking) {
-    status.textContent = `${blocking[0]} is paused for new evidence or context. Use “Clarify with Codex” to update ground truth; generation remains blocked.`;
+    status.textContent = `${blocking[0]} is paused for new evidence or context. Opening the governed career-truth workbench; generation remains blocked.`;
+    state.truthOrigin = {job_id: state.actionJob.id, question_id: blocking[0]};
+    $('#preflight-dialog').close();
+    await openTruthSetup();
     return;
   }
   setFormBusy(form, true);
@@ -898,7 +1000,7 @@ async function prepareApplication(job, source = null) {
   job = jobById(job.id) || job;
   const justCompleted = state.actionJob?.id === job.id && state.preflightState?.complete;
   if (!job.workflow?.preflight && !justCompleted) {
-    await openPreflight(job);
+    await openAdvertReview(job);
     return false;
   }
   if (job.workflow?.plan) {
@@ -1390,15 +1492,24 @@ function agentQuickAction(action) {
   }
 }
 
-function filePayload(file) {
+function filePayload(file, maxMb = 8) {
   if (!file || !file.size) return Promise.resolve(null);
-  if (file.size > 8 * 1024 * 1024) return Promise.reject(new Error('Screening evidence exceeds the 8 MB limit.'));
+  if (file.size > maxMb * 1024 * 1024) return Promise.reject(new Error(`Evidence exceeds the ${maxMb} MB limit.`));
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve({name: file.name, base64: String(reader.result).split(',', 2)[1] || ''});
     reader.onerror = () => reject(new Error('Screening evidence could not be read.'));
     reader.readAsDataURL(file);
   });
+}
+
+function filePayloads(fileList, maxMb = 8) {
+  const files = [...fileList];
+  const totalBytes = files.reduce((total, file) => total + file.size, 0);
+  if (totalBytes > 24 * 1024 * 1024) {
+    return Promise.reject(new Error('Selected evidence exceeds 24 MB combined; add it in smaller updates.'));
+  }
+  return Promise.all(files.map(file => filePayload(file, maxMb)));
 }
 
 function setTheme(theme) {
@@ -1430,27 +1541,84 @@ function populateSubmissionUpdate(job) {
   ensureSelectValue(form.elements.channel, job.channel || 'portal');
   const captured = job.screening_status === 'captured';
   const unavailable = job.screening_status === 'unavailable';
-  form.elements.screening_file.disabled = captured || unavailable;
+  form.elements.screening_file.disabled = unavailable;
   form.elements.screening_unavailable.disabled = captured;
   form.elements.screening_unavailable.checked = unavailable;
   $('#update-submission-bundle').innerHTML = `<strong>Immutable sent bundle</strong><br>CV: ${h(job.sent_file || 'not recorded')}<br>Cover letter: ${h(job.sent_cover_letter || 'not submitted')}<br>Portal answers: ${h(captured ? 'exact evidence captured' : unavailable ? 'unavailable — explicitly recorded' : 'not captured')}`;
 }
 
-function populateFeedbackResolution(job) {
+async function populateFeedback(job) {
+  const form = $('#feedback-form');
+  form.reset();
+  syncFeedbackClass(form);
+  $('#feedback-target-note').textContent = 'Loading exact current CV sentences…';
+  try {
+    const response = await fetch(`/api/feedback-targets?job=${encodeURIComponent(job.id)}`, {cache: 'no-store'});
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `Request returned ${response.status}`);
+    state.feedbackTargets = payload.targets || [];
+    form.elements.target_id.innerHTML = '<option value="">Not tied to a CV sentence</option>'
+      + state.feedbackTargets.map(row => `<option value="${h(row.id)}">${h(row.section)} · ${h(row.text)}</option>`).join('');
+    $('#feedback-target-note').textContent = state.feedbackTargets.length
+      ? 'Required for application wording; bound to this exact plan.'
+      : 'Generate the current CV before anchoring wording feedback.';
+  } catch (error) { $('#feedback-target-note').textContent = error.message; }
+}
+
+async function populateFeedbackResolution(job) {
   const form = $('#resolve-feedback-form');
   form.reset();
   const items = job.open_feedback || [];
   form.elements.feedback_id.innerHTML = items.map(item =>
-    `<option value="${h(item.id)}">${h(item.id)} · ${h(titleCase(item.scope))}</option>`
+    `<option value="${h(item.id)}">${h(item.id)} · ${h(titleCase(item.classification || item.scope))}</option>`
   ).join('');
+  try {
+    const response = await fetch(`/api/feedback-targets?job=${encodeURIComponent(job.id)}`, {cache: 'no-store'});
+    const payload = await response.json();
+    state.feedbackTargets = response.ok ? (payload.targets || []) : [];
+  } catch { state.feedbackTargets = []; }
   const renderItem = () => {
     const item = items.find(row => row.id === form.elements.feedback_id.value);
     $('#feedback-item-detail').innerHTML = item
-      ? `<strong>${h(item.id)} · ${h(titleCase(item.scope))}</strong><br>${h(item.note)}`
+      ? `<strong>${h(item.id)} · ${h(titleCase(item.classification || item.scope))} · ${h(item.status)}</strong><br>${h(item.note)}${item.selected_text ? `<br><br><strong>Selected:</strong> ${h(item.selected_text)}` : ''}${item.before_text ? `<br><br><strong>Before:</strong> ${h(item.before_text)}<br><strong>After:</strong> ${h(item.after_text)}` : ''}`
       : '<strong>No open feedback remains.</strong>';
+    const wording = item?.classification === 'APPLICATION_WORDING';
+    const governed = Boolean(item?.classification);
+    const directlyDecidable = ['REUSABLE_PREFERENCE', 'FACTUAL_CORRECTION'].includes(item?.classification);
+    const closeOnly = ['WORKFLOW_REQUEST', 'REJECTION'].includes(item?.classification);
+    $('#legacy-feedback-controls').hidden = governed;
+    $('#feedback-proposal-controls').hidden = !wording || item.status !== 'OPEN';
+    $('#feedback-decision-controls').hidden = !(wording && item.status === 'PROPOSED')
+      && !directlyDecidable && !closeOnly;
+    $('#feedback-decision-save').hidden = wording && item.status === 'OPEN';
+    form.elements.decision.innerHTML = (closeOnly
+      ? [['DEFER', 'Defer'], ['REJECT', 'Reject']]
+      : [['ACCEPT', 'Accept'], ['EDIT', 'Use another authorized variant'], ['REJECT', 'Reject'], ['DEFER', 'Defer']])
+      .map(([value, label]) => `<option value="${value}">${label}</option>`).join('');
+    if (wording) {
+      const target = state.feedbackTargets.find(row => row.id === item.target_id);
+      const alternatives = target?.alternatives?.filter(value => value !== item.selected_text) || [];
+      form.elements.after_text.innerHTML = alternatives.map(value => `<option value="${h(value)}">${h(value)}</option>`).join('');
+      if (item.after_text && ![...form.elements.after_text.options].some(option => option.value === item.after_text)) {
+        form.elements.after_text.add(new Option(item.after_text, item.after_text));
+      }
+      if (item.after_text) form.elements.after_text.value = item.after_text;
+    }
   };
   form.elements.feedback_id.onchange = renderItem;
   renderItem();
+}
+
+function syncFeedbackClass(form = $('#feedback-form')) {
+  const reusable = form.elements.classification.value === 'REUSABLE_PREFERENCE';
+  $('#feedback-preference-fields').hidden = !reusable;
+  form.elements.target_id.closest('label').hidden =
+    form.elements.classification.value !== 'APPLICATION_WORDING';
+  const type = form.elements.preference_type.value;
+  form.elements.preference_value.innerHTML = (type === 'TARGET_PAGES'
+    ? [['1', '1 page'], ['2', '2 pages'], ['3', '3 pages']]
+    : [['short', 'Short wording'], ['std', 'Standard wording'], ['long', 'Long wording']])
+    .map(([value, label]) => `<option value="${value}">${label}</option>`).join('');
 }
 
 function populateOutcome(job) {
@@ -1462,6 +1630,42 @@ function populateOutcome(job) {
   form.elements.response_date.value = job.responded_date || '';
   ensureSelectValue(form.elements.latency, job.response_latency?.band || 'unknown');
   form.elements.employer_reason.value = job.employer_stated_reason || '';
+  const active = (job.timeline || []).filter(event =>
+    event.active && ['OUTCOME', 'OUTCOME_CORRECTED'].includes(event.event)).slice(0, 1);
+  form.elements.correction_event_id.innerHTML = '<option value="">New observation</option>'
+    + active.map(event => `<option value="${h(event.id)}">Correct ${h(titleCase(event.status))} - ${h(dateTimeLabel(event.at))}</option>`).join('');
+  syncOutcomeCorrection(form);
+}
+
+function syncOutcomeCorrection(form = $('#outcome-form')) {
+  const correcting = Boolean(form.elements.correction_event_id.value);
+  $('#outcome-correction-reason').hidden = !correcting;
+  form.elements.correction_reason.required = correcting;
+}
+
+function populateHypothesis(job) {
+  const form = $('#hypothesis-form');
+  form.reset();
+  form.elements.hypothesis_id.innerHTML = '<option value="">New hypothesis</option>'
+    + (job.hypotheses || []).map(item => `<option value="${h(item.id)}">${h(item.id)} - ${h(item.cause_label)} - ${h(titleCase(item.status))}</option>`).join('');
+  form.elements.confidence.value = '0.5';
+  syncHypothesis(form, job);
+}
+
+function syncHypothesis(form = $('#hypothesis-form'), job = state.actionJob) {
+  const item = (job?.hypotheses || []).find(row => row.id === form.elements.hypothesis_id.value);
+  form.elements.cause.disabled = Boolean(item);
+  if (!item) return;
+  form.elements.cause.value = item.cause;
+  form.elements.status.value = item.status;
+  form.elements.confidence.value = item.confidence ?? 0.5;
+  form.elements.note.value = '';
+  form.elements.evidence_for.value = (item.evidence_for || []).join('\n');
+  form.elements.evidence_against.value = (item.evidence_against || []).join('\n');
+  form.elements.unknowns.value = (item.unknowns || []).join('\n');
+  form.elements.company_context.value = (item.company_context || []).join('\n');
+  form.elements.profile_factors.value = (item.profile_factors || []).join('\n');
+  form.elements.other_factors.value = (item.other_factors || []).join('\n');
 }
 
 async function submitIntake(event) {
@@ -1527,17 +1731,36 @@ async function submitFeedback(event) {
   const form = event.currentTarget;
   const status = $('#feedback-status');
   const data = Object.fromEntries(new FormData(form));
+  const scopes = {
+    APPLICATION_WORDING: 'content', FACTUAL_CORRECTION: 'truth',
+    REUSABLE_PREFERENCE: 'rule', WORKFLOW_REQUEST: 'workflow', REJECTION: 'content',
+  };
+  if (data.classification === 'APPLICATION_WORDING' && !data.target_id) {
+    status.textContent = 'Select the exact CV sentence for application wording feedback.';
+    return;
+  }
   setFormBusy(form, true);
-  status.textContent = 'Recording governed feedback…';
+  status.textContent = 'Recording typed feedback against the exact bundle…';
   try {
-    await apiPost('/api/actions/feedback', {
-      job_id: state.actionJob.id, scope: data.scope, note: data.note,
-      author: 'dashboard-user',
+    const response = await apiPost('/api/actions/feedback', {
+      job_id: state.actionJob.id, scope: scopes[data.classification], note: data.note,
+      author: 'dashboard-user', classification: data.classification,
+      target_id: data.target_id || null, requested_scope: data.requested_scope,
+      preference_type: data.preference_type, preference_value: data.preference_value,
     });
+    const jobId = state.actionJob.id;
     form.reset();
     $('#feedback-dialog').close();
     await loadData();
-    toast('Feedback recorded. Old presentation and approval are now stale.');
+    const job = jobById(jobId);
+    if (data.classification === 'FACTUAL_CORRECTION') {
+      state.truthOrigin = {job_id: jobId, feedback_id: response.result.item.id};
+      await openTruthSetup();
+    } else if (job) {
+      await populateFeedbackResolution(job);
+      openDialog('#resolve-feedback-dialog', job);
+    }
+    toast('Typed feedback recorded against the exact current bundle.');
   } catch (error) { status.textContent = error.message; }
   finally { setFormBusy(form, false); }
 }
@@ -1547,10 +1770,15 @@ async function submitFeedbackResolution(event) {
   const form = event.currentTarget;
   const status = $('#resolve-feedback-status');
   const data = Object.fromEntries(new FormData(form));
+  const item = state.actionJob.open_feedback.find(row => row.id === data.feedback_id);
   setFormBusy(form, true);
   status.textContent = 'Validating and appending the feedback decision…';
   try {
-    const result = await apiPost('/api/actions/resolve-feedback', {
+    const result = item?.classification ? await apiPost('/api/actions/feedback-decision', {
+      job_id: state.actionJob.id, feedback_id: data.feedback_id,
+      decision: data.decision, note: data.decision_note,
+      edited_text: data.decision === 'EDIT' ? data.after_text : null,
+    }) : await apiPost('/api/actions/resolve-feedback', {
       job_id: state.actionJob.id, feedback_id: data.feedback_id,
       status: data.status, implementation: data.implementation,
       validation: data.validation,
@@ -1562,12 +1790,39 @@ async function submitFeedbackResolution(event) {
     setTimeout(() => {
       form.reset();
       $('#resolve-feedback-dialog').close();
-      toast('Feedback decision recorded; review the refreshed bundle before approval.');
+      toast('Feedback decision recorded.');
       const job = jobById(jobId);
-      if (job) { openDrawer(job); state.tab = 'review'; renderDrawer(); }
+      if (item?.classification === 'APPLICATION_WORDING'
+          && ['ACCEPT', 'EDIT'].includes(data.decision) && job) {
+        prepareApplication(job);
+      } else if (job) { openDrawer(job); state.tab = 'review'; renderDrawer(); }
     }, 700);
   } catch (error) { status.textContent = error.message; }
   finally { setFormBusy(form, false); }
+}
+
+async function saveFeedbackProposal() {
+  const form = $('#resolve-feedback-form');
+  const status = $('#resolve-feedback-status');
+  const data = Object.fromEntries(new FormData(form));
+  const button = $('#feedback-propose');
+  button.disabled = true;
+  status.textContent = 'Binding the before/after proposal to its exact evidence…';
+  try {
+    const result = await apiPost('/api/actions/feedback-proposal', {
+      job_id: state.actionJob.id, feedback_id: data.feedback_id,
+      after_text: data.after_text,
+    });
+    await loadData();
+    const job = jobById(state.actionJob.id);
+    state.actionJob = job;
+    await populateFeedbackResolution(job);
+    form.elements.feedback_id.value = result.result.item.id;
+    form.elements.feedback_id.dispatchEvent(new Event('change'));
+    status.textContent = 'Proposal saved. Review the exact before/after, then decide.';
+    status.classList.add('good');
+  } catch (error) { status.textContent = error.message; }
+  finally { button.disabled = false; }
 }
 
 async function submitApproval(event) {
@@ -1606,7 +1861,7 @@ async function submitSubmission(event) {
   setFormBusy(form, true);
   status.textContent = 'Binding the exact submitted bundle…';
   try {
-    const screening = await filePayload(form.elements.screening_file.files[0]);
+    const screening = await filePayloads(form.elements.screening_file.files);
     const result = await apiPost('/api/actions/submit', {
       job_id: state.actionJob.id,
       cv_artifact_id: data.cv_artifact_id,
@@ -1628,15 +1883,15 @@ async function submitSubmissionUpdate(event) {
   const form = event.currentTarget;
   const status = $('#update-submission-status');
   const data = Object.fromEntries(new FormData(form));
-  const file = form.elements.screening_file.files[0];
-  if (file && data.screening_unavailable) {
+  const files = form.elements.screening_file.files;
+  if (files.length && data.screening_unavailable) {
     status.textContent = 'Attach portal answers or mark them unavailable, not both.';
     return;
   }
   setFormBusy(form, true);
   status.textContent = 'Verifying the exact submission and appending this correction…';
   try {
-    const screening = await filePayload(file);
+    const screening = await filePayloads(files);
     const result = await apiPost('/api/actions/update-submission', {
       job_id: state.actionJob.id,
       applied_date: data.applied_date || null,
@@ -1662,9 +1917,124 @@ async function submitSubmissionUpdate(event) {
     const captured = current?.screening_status === 'captured';
     const unavailable = current?.screening_status === 'unavailable'
       || form.elements.screening_unavailable.checked;
-    form.elements.screening_file.disabled = captured || unavailable;
+    form.elements.screening_file.disabled = unavailable;
     form.elements.screening_unavailable.disabled = captured;
   }
+}
+
+async function submitTruthUpload(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const status = $('#truth-upload-status');
+  const files = [...form.elements.files.files];
+  if (!files.length) { status.textContent = 'Select at least one career source.'; return; }
+  if (form.elements.supersedes_source_id.value && files.length !== 1) {
+    status.textContent = 'Select exactly one file when replacing a registered source.';
+    return;
+  }
+  setFormBusy(form, true);
+  status.textContent = 'Hashing, storing and extracting private source files…';
+  let completed = 0;
+  try {
+    for (const file of files) {
+      status.textContent = `Hashing, storing and extracting private source ${completed + 1} of ${files.length}…`;
+      const payload = await filePayload(file, 12);
+      await apiPost('/api/actions/truth-upload', {
+        kind: form.elements.kind.value, files: [payload],
+        supersedes_source_id: form.elements.supersedes_source_id.value || null,
+      });
+      completed += 1;
+    }
+    form.elements.files.value = '';
+    await refreshTruthWorkspace();
+    await loadData();
+    status.textContent = 'Source receipt saved. Review every extracted claim below.';
+    status.classList.add('good');
+  } catch (error) {
+    status.textContent = completed
+      ? `${completed} source(s) were saved and can be resumed. Next file failed: ${error.message}`
+      : error.message;
+  }
+  finally { setFormBusy(form, false); }
+}
+
+function truthDecisions() {
+  return $$('.truth-candidate').map(card => {
+    const value = field => card.querySelector(`[data-field="${field}"]`)?.value || '';
+    return {
+      candidate_id: card.dataset.candidate,
+      disposition: value('disposition'), type: value('type'),
+      fact: value('fact'), ownership: value('ownership'), role_id: value('role_id'),
+      org: value('org'), title: value('title'), start: value('start'), end: value('end'),
+      duplicate_of: value('duplicate_of'), reason: value('reason'),
+    };
+  });
+}
+
+async function submitTruthReview(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const status = $('#truth-review-status');
+  const data = Object.fromEntries(new FormData(form));
+  const decisions = truthDecisions();
+  const unanswered = decisions.find(row => !row.disposition);
+  if (unanswered) {
+    status.textContent = `${unanswered.candidate_id} still needs a disposition.`;
+    return;
+  }
+  setFormBusy(form, true);
+  status.textContent = 'Validating the proposed authority as one transaction…';
+  try {
+    await apiPost('/api/actions/truth-review', {
+      profile: {
+        name: data.name, based_in: data.based_in, email: data.email,
+        phone_primary: data.phone_primary, identity: data.identity,
+        identity_description: data.identity_description,
+        headline: data.headline, summary: data.summary,
+      }, decisions,
+    });
+    await refreshTruthWorkspace();
+    await loadData();
+    status.textContent = 'Review saved. No generation is allowed until the exact digest below is signed.';
+    status.classList.add('good');
+  } catch (error) { status.textContent = error.message; }
+  finally { setFormBusy(form, false); }
+}
+
+async function submitTruthSign(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const status = $('#truth-sign-status');
+  const data = Object.fromEntries(new FormData(form));
+  if (!data.confirmed) { status.textContent = 'Confirm the complete review before signing.'; return; }
+  setFormBusy(form, true);
+  status.textContent = 'Running integrity checks and binding the exact truth digest…';
+  try {
+    await apiPost('/api/actions/truth-sign', {
+      reviewer: data.reviewer,
+      confirmation: 'I reviewed the identity, sources, facts and boundaries',
+    });
+    await refreshTruthWorkspace();
+    await loadData();
+    $('#truth-workbench-dialog').close();
+    toast('Career truth signed. Job capture is now enabled.');
+    const origin = state.truthOrigin;
+    state.truthOrigin = null;
+    if (origin?.feedback_id) {
+      await apiPost('/api/actions/feedback-decision', {
+        job_id: origin.job_id, feedback_id: origin.feedback_id,
+        decision: 'ACCEPT', note: 'Completed through signed career truth.',
+      });
+      await loadData();
+    }
+    if (origin?.job_id) {
+      const job = jobById(origin.job_id);
+      if (job) await openPreflight(job);
+    } else if (!state.data.jobs.length) {
+      openIntake();
+    }
+  } catch (error) { status.textContent = error.message; }
+  finally { setFormBusy(form, false); }
 }
 
 async function submitOutcome(event) {
@@ -1672,20 +2042,25 @@ async function submitOutcome(event) {
   const form = event.currentTarget;
   const status = $('#outcome-status');
   const data = Object.fromEntries(new FormData(form));
-  if (String(data.response_text || '').trim() && !data.response_date) {
-    status.textContent = 'Give the response date when preserving exact employer text.';
+  if ((String(data.response_text || '').trim() || form.elements.response_files.files.length) && !data.response_date) {
+    status.textContent = 'Give the response date when preserving exact employer evidence.';
     return;
   }
   setFormBusy(form, true);
   status.textContent = 'Correlating the observation to the exact submitted application…';
   try {
-    const result = await apiPost('/api/actions/outcome', {
+    const responses = await filePayloads(form.elements.response_files.files);
+    const correcting = Boolean(data.correction_event_id);
+    const result = await apiPost(correcting ? '/api/actions/outcome-correction' : '/api/actions/outcome', {
       job_id: state.actionJob.id,
+      event_id: data.correction_event_id || null,
       status: data.status,
       response_date: data.response_date || null,
       latency: data.latency || 'unknown',
       employer_reason: data.employer_reason || null,
       response_text: data.response_text || null,
+      responses,
+      reason: data.correction_reason || null,
     });
     status.textContent = result.result.output;
     status.classList.add('good');
@@ -1694,10 +2069,47 @@ async function submitOutcome(event) {
     setTimeout(() => {
       form.reset();
       $('#outcome-dialog').close();
-      toast('Outcome recorded as an observation. Rejection explanations remain best guesses.');
+      toast(correcting ? 'Outcome correction recorded; the earlier event remains visibly superseded.' : 'Outcome recorded as an observation. Rejection explanations remain best guesses.');
       const job = jobById(jobId);
       if (job) openDrawer(job);
     }, 900);
+  } catch (error) { status.textContent = error.message; }
+  finally { setFormBusy(form, false); }
+}
+
+async function submitHypothesis(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const status = $('#hypothesis-status');
+  const data = Object.fromEntries(new FormData(form));
+  setFormBusy(form, true);
+  status.textContent = 'Validating this reasoning pass against the governed outcome record…';
+  try {
+    const result = await apiPost('/api/actions/hypothesis', {
+      job_id: state.actionJob.id,
+      hypothesis_id: data.hypothesis_id || null,
+      cause: data.cause || null,
+      status: data.status,
+      confidence: Number(data.confidence),
+      author: data.author,
+      note: data.note,
+      evidence_for: data.evidence_for,
+      evidence_against: data.evidence_against,
+      unknowns: data.unknowns,
+      company_context: data.company_context,
+      profile_factors: data.profile_factors,
+      other_factors: data.other_factors,
+    });
+    status.textContent = result.result.output;
+    status.classList.add('good');
+    const jobId = state.actionJob.id;
+    await loadData();
+    setTimeout(() => {
+      $('#hypothesis-dialog').close();
+      const job = jobById(jobId);
+      if (job) { openDrawer(job); state.tab = 'reasoning'; renderDrawer(); }
+      toast('Reasoning pass recorded without changing candidate truth.');
+    }, 700);
   } catch (error) { status.textContent = error.message; }
   finally { setFormBusy(form, false); }
 }
@@ -1724,14 +2136,140 @@ function openIntake() {
   $('#intake-dialog').showModal();
 }
 
-function openTruthSetup() {
+function renderTruthWorkspace() {
+  const workspace = state.truthWorkspace || {};
+  const pending = workspace.candidates || [];
+  const truthComments = workspace.truth_comments || [];
+  const openTruthComments = truthComments.filter(row => row.status === 'OPEN');
+  const sourceSelect = $('#truth-upload-form').elements.supersedes_source_id;
+  const priorSource = sourceSelect.value;
+  sourceSelect.innerHTML = '<option value="">Add as a new independent source</option>'
+    + (workspace.registered_source_rows || [])
+      .filter(row => row.lifecycle_status !== 'SUPERSEDED')
+      .map(row => `<option value="${h(row.id)}">Replace ${h(row.id)} · ${h(row.name || row.kind)}</option>`).join('');
+  if ([...sourceSelect.options].some(option => option.value === priorSource)) sourceSelect.value = priorSource;
+  const step = pending.length ? 2 : (workspace.registered_sources && workspace.facts?.length ? 3 : 1);
+  $('#truth-steps').innerHTML = [
+    ['Source evidence', 1], ['Claim review', 2], ['Digest sign-off', 3],
+  ].map(([label, number]) => `<span class="${number < step ? 'complete' : number === step ? 'active' : ''}">${number}. ${h(label)}</span>`).join('');
+  const form = $('#truth-review-form');
+  form.hidden = !pending.length;
+  const sign = $('#truth-sign-form');
+  sign.hidden = Boolean(pending.length || openTruthComments.length
+    || !workspace.registered_sources || !workspace.facts?.length);
+  const profile = workspace.profile || {};
+  const identity = Object.keys(profile.identities || {})[0] || '';
+  const positioning = workspace.positioning || {};
+  for (const [name, value] of Object.entries({
+    name: profile.name, email: profile.email, phone_primary: profile.phone_primary,
+    based_in: profile.based_in, identity,
+    identity_description: profile.identities?.[identity],
+    headline: profile.headlines?.[identity], summary: positioning.summary,
+  })) if (form.elements[name] && value) form.elements[name].value = value;
+  const sourceNames = Object.fromEntries((workspace.sources || []).map(row => [row.id, row.name]));
+  const roleOptions = [
+    ...pending.map(row => ({id: row.id, label: `${row.id} · staged role (select Role on that claim)`})),
+    ...(workspace.facts || []).filter(row => row.type === 'role').map(row => ({id: row.id, label: `${row.id} · ${row.fact}`})),
+  ];
+  const duplicateOptions = workspace.facts || [];
+  $('#truth-candidate-list').innerHTML = pending.map(row => {
+    const saved = row.draft_decision || {};
+    const type = saved.type || row.suggested_type || 'anchor';
+    return `<article class="truth-candidate" data-candidate="${h(row.id)}">
+      <header><strong>${h(row.id)} · ${h(sourceNames[row.source_id] || row.source_id)}</strong><span>${h(row.locator)} · proposal confidence ${Math.round((row.confidence || 0) * 100)}%</span></header>
+      <p class="source-proposal">${h(row.text)}</p>
+      <div class="truth-candidate-fields">
+        <label>Disposition<select data-field="disposition" required><option value="">Choose…</option>${['ADOPTED', 'DUPLICATE', 'REJECTED', 'UNRESOLVED'].map(value => `<option value="${value}" ${saved.disposition === value ? 'selected' : ''}>${titleCase(value)}</option>`).join('')}</select></label>
+        <label>Fact type<select data-field="type">${['anchor', 'role', 'skill', 'education', 'credential', 'publication', 'recognition'].map(value => `<option value="${value}" ${type === value ? 'selected' : ''}>${titleCase(value)}</option>`).join('')}</select></label>
+        <label class="wide">Candidate-approved wording<textarea data-field="fact" rows="2" maxlength="500">${h(saved.fact || row.text)}</textarea></label>
+        <label>Ownership<select data-field="ownership">${['exposed_to', 'supported', 'coordinated', 'managed', 'led', 'owned', 'accountable_for'].map(value => `<option value="${value}" ${value === (saved.ownership || 'supported') ? 'selected' : ''}>${titleCase(value)}</option>`).join('')}</select></label>
+        <label>Employment link<select data-field="role_id"><option value="">Not employment evidence</option>${roleOptions.map(option => `<option value="${h(option.id)}" ${saved.role_id === option.id ? 'selected' : ''}>${h(option.label)}</option>`).join('')}</select></label>
+        <label>Organisation (for Role)<input data-field="org" maxlength="200" value="${h(saved.org || '')}"></label>
+        <label>Role title (for Role)<input data-field="title" maxlength="200" value="${h(saved.title || '')}"></label>
+        <label>Role start (YYYY or YYYY-MM)<input data-field="start" maxlength="7" value="${h(saved.start || '')}"></label>
+        <label>Role end / blank if current<input data-field="end" maxlength="7" value="${h(saved.end || '')}"></label>
+        <label>Duplicate of<select data-field="duplicate_of"><option value="">Select existing fact</option>${duplicateOptions.map(option => `<option value="${h(option.id)}" ${saved.duplicate_of === option.id ? 'selected' : ''}>${h(option.id)} · ${h(option.fact)}</option>`).join('')}</select></label>
+        <label>Decision reason<input data-field="reason" maxlength="500" value="${h(saved.reason || '')}" placeholder="Required for rejected or unresolved claims"></label>
+      </div>
+    </article>`;
+  }).join('');
+  if (!pending.length) $('#truth-candidate-list').innerHTML = '';
+  $('#truth-summary').innerHTML = `
+    <span><strong>Identity:</strong> ${h(identity || 'review required')}</span>
+    <span><strong>Registered sources:</strong> ${h(workspace.registered_sources || 0)} · <strong>active facts:</strong> ${h(workspace.facts?.length || 0)}</span>
+    <span><strong>Conflicts:</strong> ${h(workspace.conflicts?.length || 0)} · <strong>boundary:</strong> ${h(workspace.boundary_summary?.rule || '')}</span>
+    <span><strong>Exact subject digest:</strong> <code>${h(workspace.subject_sha256 || 'not available')}</code></span>`;
+  if (profile.name) $('#truth-sign-form').elements.reviewer.value = profile.name;
+  if (profile.name && !$('#truth-comment-form').elements.author.value) {
+    $('#truth-comment-form').elements.author.value = profile.name;
+  }
+  $('#truth-comment-list').innerHTML = truthComments.length
+    ? truthComments.map(item => `<article class="feedback-card"><header><strong>${h(item.id)} · ${h(titleCase(item.scope))}</strong><span class="reason-status ${String(item.status || '').toLowerCase()}">${h(titleCase(item.status))}</span></header><p>${h(item.note)}</p><small>${h(item.author || '')} · ${h(dateTimeLabel(item.created_at))}</small>${item.implementation ? `<div class="feedback-resolution"><strong>Decision</strong><span>${h(item.implementation)}</span><strong>Validation</strong><span>${h(item.validation)}</span></div>` : ''}</article>`).join('')
+    : '<div class="empty-state"><strong>No career-truth comments.</strong></div>';
+  const resolveForm = $('#truth-comment-resolve-form');
+  resolveForm.hidden = !openTruthComments.length;
+  resolveForm.elements.item_id.innerHTML = openTruthComments
+    .map(item => `<option value="${h(item.id)}">${h(item.id)} · ${h(item.note)}</option>`).join('');
+}
+
+async function submitTruthComment(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const data = Object.fromEntries(new FormData(form));
+  setFormBusy(form, true);
+  try {
+    await apiPost('/api/actions/truth-comment', data);
+    form.elements.note.value = '';
+    form.elements.evidence.value = '';
+    await refreshTruthWorkspace();
+    await loadData();
+    toast('Career-truth comment recorded; sign-off remains blocked until resolution.');
+  } catch (error) { toast(error.message); }
+  finally { setFormBusy(form, false); }
+}
+
+async function submitTruthCommentResolution(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const status = $('#truth-comment-status');
+  const data = Object.fromEntries(new FormData(form));
+  setFormBusy(form, true);
+  try {
+    await apiPost('/api/actions/truth-comment-resolve', data);
+    form.reset();
+    await refreshTruthWorkspace();
+    await loadData();
+    status.textContent = 'Truth decision saved against the current exact digest.';
+    status.classList.add('good');
+  } catch (error) { status.textContent = error.message; }
+  finally { setFormBusy(form, false); }
+}
+
+async function refreshTruthWorkspace() {
+  const response = await fetch('/api/truth-workspace', {cache: 'no-store'});
+  const workspace = await response.json();
+  if (!response.ok) throw new Error(workspace.error || `Request returned ${response.status}`);
+  state.truthWorkspace = workspace;
+  renderTruthWorkspace();
+}
+
+async function openTruthSetup(forceWorkbench = false) {
   const entry = state.data?.entry || {};
-  const problems = (entry.problems || []).join('\n');
-  state.truthIntegrityDetail = entry.reason || '';
-  $('#truth-integrity-detail').textContent =
-    [entry.reason, problems].filter(Boolean).join('\n\n')
-    || 'Candidate truth is not ready for generation.';
-  $('#truth-integrity-dialog').showModal();
+  if (entry.state === 'TRUTH_BLOCKED' && !forceWorkbench) {
+    const problems = (entry.problems || []).join('\n');
+    state.truthIntegrityDetail = entry.reason || '';
+    $('#truth-integrity-detail').textContent =
+      [entry.reason, problems].filter(Boolean).join('\n\n')
+      || 'Candidate truth is not ready for generation.';
+    $('#truth-integrity-dialog').showModal();
+    return;
+  }
+  $('#truth-workbench-dialog').showModal();
+  $('#truth-upload-status').textContent = 'Loading private source ledger…';
+  try {
+    await refreshTruthWorkspace();
+    $('#truth-upload-status').textContent = '';
+  } catch (error) { $('#truth-upload-status').textContent = error.message; }
 }
 
 function handleActiveAction(event) {
@@ -1758,6 +2296,7 @@ function handleActiveAction(event) {
 function wireEvents() {
   $('#refresh-button').addEventListener('click', () => loadData(true));
   $('#theme-button').addEventListener('click', () => setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'));
+  $('#truth-pill').addEventListener('click', () => openTruthSetup());
   $('#new-job-button').addEventListener('click', () => openIntake());
   $('#active-job-list').addEventListener('click', handleActiveAction);
   $('#primary-action').addEventListener('click', event => {
@@ -1786,12 +2325,13 @@ function wireEvents() {
     if (!button || !state.selectedJob) return;
     const job = state.selectedJob;
     if (button.dataset.drawerAction === 'preflight') { closeDrawer(); openPreflight(job); }
+    if (button.dataset.drawerAction === 'advert-review') { closeDrawer(); openAdvertReview(job); }
     if (button.dataset.drawerAction === 'cautions') { state.tab = 'cautions'; renderDrawer(); }
     if (button.dataset.drawerAction === 'prepare') prepareApplication(job, button);
     if (button.dataset.drawerAction === 'build') buildApplication(job, button);
     if (button.dataset.drawerAction === 'codex') openAgent(job);
     if (button.dataset.drawerAction === 'review') { state.tab = 'review'; renderDrawer(); }
-    if (button.dataset.drawerAction === 'feedback') openDialog('#feedback-dialog', job);
+    if (button.dataset.drawerAction === 'feedback') { populateFeedback(job); openDialog('#feedback-dialog', job); }
     if (button.dataset.drawerAction === 'approve') openDialog('#approval-dialog', job);
     if (button.dataset.drawerAction === 'submit') { populateSubmission(job); openDialog('#submission-dialog', job); }
     if (button.dataset.drawerAction === 'update-submission') { populateSubmissionUpdate(job); openDialog('#update-submission-dialog', job); }
@@ -1802,7 +2342,12 @@ function wireEvents() {
     const reviewAction = event.target.closest('[data-review-action]')?.dataset.reviewAction;
     const artifactAction = event.target.closest('[data-artifact-action]')?.dataset.artifactAction;
     const evidenceAction = event.target.closest('[data-evidence-action]')?.dataset.evidenceAction;
+    const integrityAction = event.target.closest('[data-integrity-action]')?.dataset.integrityAction;
     const cautionAction = event.target.closest('[data-caution-action]')?.dataset.cautionAction;
+    if (integrityAction && state.selectedJob) {
+      handleIntegrityAction(integrityAction, state.selectedJob,
+        event.target.closest('button')); return;
+    }
     if (cautionAction === 'refresh' && state.selectedJob) {
       refreshJobAnalysis(state.selectedJob, event.target.closest('button')); return;
     }
@@ -1824,7 +2369,8 @@ function wireEvents() {
     if (action === 'cautions') { state.tab = 'cautions'; renderDrawer(); return; }
     if (action === 'codex') openAgent(state.selectedJob);
     if (action === 'prepare') prepareApplication(state.selectedJob, event.target);
-    if (action === 'feedback') openDialog('#feedback-dialog', state.selectedJob);
+    if (action === 'feedback') { populateFeedback(state.selectedJob); openDialog('#feedback-dialog', state.selectedJob); }
+    if (action === 'hypothesis') { populateHypothesis(state.selectedJob); openDialog('#hypothesis-dialog', state.selectedJob); }
     if (action === 'present') {
       const button = event.target.closest('button');
       button.disabled = true;
@@ -1857,6 +2403,10 @@ function wireEvents() {
       `Explain this exact deterministic ground-truth integrity failure and the safe user choices: ${state.truthIntegrityDetail}`,
       'integrity_review');
   });
+  $('#truth-integrity-replace').addEventListener('click', () => {
+    $('#truth-integrity-dialog').close();
+    openTruthSetup(true);
+  });
   $('#agent-quick-actions').addEventListener('click', event => {
     const action = event.target.closest('[data-agent-action]')?.dataset.agentAction;
     if (action) agentQuickAction(action);
@@ -1882,6 +2432,12 @@ function wireEvents() {
   });
   $$('.dialog-close').forEach(button => button.addEventListener('click', () => button.closest('dialog').close()));
   $('#intake-form').addEventListener('submit', submitIntake);
+  $('#advert-review-form').addEventListener('submit', submitAdvertReview);
+  $('#truth-upload-form').addEventListener('submit', submitTruthUpload);
+  $('#truth-review-form').addEventListener('submit', submitTruthReview);
+  $('#truth-comment-form').addEventListener('submit', submitTruthComment);
+  $('#truth-comment-resolve-form').addEventListener('submit', submitTruthCommentResolution);
+  $('#truth-sign-form').addEventListener('submit', submitTruthSign);
   $('#preflight-form').addEventListener('submit', submitPreflight);
   $('#preflight-prepare').addEventListener('click', () => prepareApplication(state.actionJob, $('#preflight-prepare')));
   $('#preflight-codex').addEventListener('click', () => {
@@ -1893,6 +2449,21 @@ function wireEvents() {
       'ask');
   });
   $('#feedback-form').addEventListener('submit', submitFeedback);
+  $('#feedback-propose').addEventListener('click', saveFeedbackProposal);
+  $('#feedback-form').elements.classification.addEventListener('change', () => syncFeedbackClass());
+  $('#feedback-form').elements.preference_type.addEventListener('change', () => syncFeedbackClass());
+  syncFeedbackClass();
+  $('#learning-list').addEventListener('click', async event => {
+    const preferenceId = event.target.closest('[data-preference-retire]')?.dataset.preferenceRetire;
+    if (!preferenceId) return;
+    const reason = window.prompt('Why should this preference stop affecting future plans?');
+    if (!reason) return;
+    try {
+      await apiPost('/api/actions/preference-retire', {preference_id: preferenceId, reason});
+      await loadData();
+      toast(`Preference ${preferenceId} retired.`);
+    } catch (error) { toast(error.message); }
+  });
   $('#resolve-feedback-form').addEventListener('submit', submitFeedbackResolution);
   $('#approval-form').addEventListener('submit', submitApproval);
   $('#submission-form').addEventListener('submit', submitSubmission);
@@ -1908,6 +2479,9 @@ function wireEvents() {
     }
   });
   $('#outcome-form').addEventListener('submit', submitOutcome);
+  $('#outcome-form').elements.correction_event_id.addEventListener('change', () => syncOutcomeCorrection());
+  $('#hypothesis-form').addEventListener('submit', submitHypothesis);
+  $('#hypothesis-form').elements.hypothesis_id.addEventListener('change', () => syncHypothesis());
   document.addEventListener('keydown', event => {
     if (event.key === 'Escape' && state.selectedJob) closeDrawer();
     if (event.key === 'Escape' && !$('#agent-workspace').hidden) closeAgent();
