@@ -23,6 +23,7 @@ Every command is a thin shell over core/. If something misbehaves, the state it
 acted on is a flat file you can open and read.
 """
 import sys, os, argparse, re, json, csv, shutil, subprocess, tempfile
+from types import SimpleNamespace
 
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, 'reconfigure'):
@@ -35,7 +36,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from core import (store, vec, match, build, preview, gates, render, casefile,
                   integrity, release, learning, feedback, employer_response,
                   cover_letter, employer_review, preflight, truth_review,
-                  dashboard_actions, dashboard as dashboard_ui)
+                  bootstrap, dashboard_actions, dashboard as dashboard_ui)
 
 FAIL_CATS = ['HARD_GATE', 'SENIORITY_MISMATCH', 'DOMAIN_TRANSLATION', 'ATS_KEYWORD',
              'EVIDENCE_DEPTH', 'NARRATIVE_COHERENCE', 'LOCATION_VISA', 'COMPENSATION',
@@ -147,7 +148,147 @@ def cmd_init(args):
         say("  never use demo output for a real application")
     else:
         say("  empty real workspace created; generation is BLOCKED pending onboarding")
-        say("  next: use Codex with $joblooper to review sources into atomic truth")
+        # Do not send a first-time user to a tool they may not have installed.
+        # `setup` prints its own next steps, so it suppresses these.
+        if not getattr(args, 'quiet_next', False):
+            say("  next: run `python jl.py setup` for a guided first run, or open"
+                " the workspace with `python jl.py dashboard`")
+            say("       career truth must be reviewed and signed before any"
+                " document can be generated")
+
+
+_WELCOME = """
+Joblooper — an evidence-governed job-application system that runs entirely on
+your own machine.
+
+WHAT IT IS
+  You approve one record of your career once. Joblooper maps a real job advert
+  against that record, drafts a CV and cover letter using only wording you have
+  approved, shows you the complete text before any file exists, and refuses to
+  build anything you have not signed off. It then remembers exactly what you
+  sent and what the employer did about it.
+
+  It will not invent experience, guess at an advert it cannot read, or claim a
+  requirement your evidence does not cover. When something is missing it tells
+  you what is missing and stops.
+
+THE LIFECYCLE, END TO END
+  1  Career truth   Review your CV and evidence into approved facts, then sign
+                    them. Nothing can be generated until you do. Facts are the
+                    only thing a document may be built from.
+  2  Capture        Paste a job link. The exact advert is stored, never a
+                    summary and never a search snippet.
+  3  Preflight      Joblooper answers what your approved truth already covers
+                    and asks you only about genuine gaps. You decide whether to
+                    proceed with a gap recorded, or to stop and add evidence.
+  4  Draft          A CV and cover letter are assembled from approved wording.
+  5  Review         You read the complete documents. Comments are recorded and
+                    must be resolved before sign-off.
+  6  Approve/build  Only after sign-off do DOCX and PDF files exist, in one
+                    dated folder per application.
+  7  Submit         You upload to the employer yourself. Joblooper records the
+                    exact files you sent and their fingerprints.
+  8  Outcome        Record what the employer did. Explanations are kept as
+                    challenged hypotheses, never as facts, and only a lesson
+                    that survives that challenge influences a later application.
+
+WHAT IT IS NOT
+  It does not apply on your behalf, log in to any portal, score you against
+  other candidates, or predict a hiring decision. There is no analytics and no
+  account. Your data stays in a folder you choose.
+"""
+
+_NEXT_STEPS = """
+WHAT HAPPENS NEXT
+  The dashboard opens on career-truth setup, because a job advert is only
+  useful once Joblooper knows which facts it may use. Job capture stays
+  unavailable until you have reviewed and signed that record.
+
+  Your data lives in {data_root}
+  It is outside this installed copy, so updating Joblooper never touches it.
+
+  Useful commands:
+    python jl.py dashboard     reopen this workspace
+    python jl.py doctor        re-check the installation
+    python jl.py jobs          list applications and their exact folders
+"""
+
+
+def _ask_yes_no(question, assume_yes=False):
+    """Explicit approval. Anything other than an affirmative means no."""
+    if assume_yes:
+        say(f"{question} [y/N] y (pre-approved)")
+        return True
+    try:
+        answer = input(f"{question} [y/N] ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        say('')
+        return False
+    return answer in {'y', 'yes'}
+
+
+def cmd_setup(args):
+    """Guided first run: explain, check the machine, install, then launch."""
+    classification = store.read_repository_policy().get('classification')
+    say(_WELCOME.rstrip())
+
+    say('\nENVIRONMENT')
+    rows = bootstrap.detect()
+    for row in rows:
+        state = 'ok' if row['present'] else ('MISSING' if row['blocking'] else '--')
+        say(f"  [{state:7}] {row['name']:14} {row['detail']}")
+
+    blocking = [row for row in rows if row['blocking'] and not row['present']]
+    if blocking:
+        say('\nJoblooper cannot start:')
+        for row in blocking:
+            say(f"  {row['name']}: {row['consequence']}")
+            say(f"    {row['manual']}")
+        return 1
+
+    optional = [row for row in rows if not row['present'] and row['package']]
+    if optional and not args.no_install:
+        say('\nOPTIONAL COMPONENTS')
+        say('  Joblooper runs without these. Nothing is installed unless you '
+            'approve it, and the exact command is shown first.')
+        for row in optional:
+            command = bootstrap.install_command(row['package'])
+            say(f"\n  {row['name']} is not installed.")
+            say(f"    {row['consequence']}")
+            if not command:
+                say(f"    No automatic installer available here. {row['manual']}")
+                continue
+            say(f"    Would run: {' '.join(command)}")
+            if not _ask_yes_no(f"    Install {row['name']} now?", args.yes):
+                say(f"    Skipped. {row['manual']}")
+                continue
+            say(f"    Installing {row['name']}...")
+            ok, output = bootstrap.run_install(command)
+            if ok:
+                say(f"    {row['name']} installed.")
+            else:
+                say(f"    Install did not complete. {row['manual']}")
+                for line in (output or '').splitlines()[-4:]:
+                    say(f"      {line}")
+
+    initialized = os.path.isfile(store.p('truth', 'anchors.jsonl'))
+    if initialized:
+        say(f"\nWORKSPACE\n  Existing workspace found at {store.DATA_ROOT}")
+        if classification == 'PERSONAL_PRIVATE':
+            say('  This is a personal source checkout with governed data; '
+                'setup leaves it untouched.')
+    else:
+        say(f"\nWORKSPACE\n  Creating an empty workspace at {store.DATA_ROOT}")
+        say('  It starts blocked for generation: no career facts exist yet, and '
+            'Joblooper will not invent any.')
+        cmd_init(SimpleNamespace(demo=False, quiet_next=True))
+
+    say(_NEXT_STEPS.format(data_root=store.DATA_ROOT).rstrip())
+    if args.no_launch:
+        say('\nRun `python jl.py dashboard` when you are ready.')
+        return 0
+    say('\nOpening the dashboard. Press Ctrl+C in this window to stop it.\n')
+    return dashboard_ui.serve(port=args.port, open_browser=not args.no_open)
 
 
 def cmd_doctor(args):
@@ -1895,6 +2036,15 @@ def main():
     s.add_argument('--demo', action='store_true',
                    help='install fictional starter data explicitly; never for real applications')
     s.set_defaults(fn=cmd_init)
+    s = sub.add_parser('setup', help='guided first run: explain, check, install, launch')
+    s.add_argument('--no-install', action='store_true',
+                   help='report missing optional components without offering to install')
+    s.add_argument('--yes', action='store_true',
+                   help='pre-approve every offered install (non-interactive)')
+    s.add_argument('--no-launch', action='store_true', help='do not open the dashboard')
+    s.add_argument('--no-open', action='store_true', help='start the dashboard without a browser')
+    s.add_argument('--port', type=int, default=8765)
+    s.set_defaults(fn=cmd_setup)
     s = sub.add_parser('doctor'); s.set_defaults(fn=cmd_doctor)
 
     s = sub.add_parser('onboard')

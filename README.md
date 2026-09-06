@@ -1,11 +1,67 @@
 # Joblooper
 
-Evidence-backed, JD-tailored CV and cover-letter lifecycle for Codex.
+An evidence-governed job-application system that runs entirely on your own
+machine. You approve one record of your career; Joblooper tailors a CV and cover
+letter to a real advert using only wording you have approved, and refuses to
+build anything you have not signed off.
 
-Joblooper does not generate from chat memory or search old CVs at run time. It
-loads one reviewed truth registry, maps it to the captured job description,
-assembles only approved wording, shows the complete CV and letter in chat, and
-creates sendable files only after explicit sign-off.
+It will not invent experience, guess at an advert it cannot read, or claim a
+requirement your evidence does not cover. When something is missing it says what
+is missing and stops.
+
+## Install and run
+
+Python 3.10 or newer is the only requirement; the engine has no third-party
+runtime dependency.
+
+```bash
+git clone https://github.com/razaumair2203-ux/Pub-JobLooper.git joblooper
+cd joblooper
+python jl.py setup
+```
+
+`setup` is the guided first run. It explains the system, checks what your
+machine has, offers to install optional components — showing the exact command
+and installing nothing without your approval — creates your workspace outside
+this folder, and opens the dashboard.
+
+Everything else is optional. Joblooper works fully without them:
+
+| Component | What it adds if present |
+|---|---|
+| Microsoft Word or LibreOffice | PDF export. Without it, CVs still build as DOCX (`--no-pdf`). |
+| Node.js and the Codex CLI | The optional in-app assistant for reasoning about a job. |
+| Git | Updating Joblooper itself. |
+
+Use `python jl.py setup --no-install` to see the report without any offer, or
+`python jl.py doctor` to re-check later. Your data is stored outside this
+checkout, so updating Joblooper never touches it.
+
+## How the whole thing fits together
+
+```text
+ 1 Career truth   Review your CV and evidence into approved facts, then sign them.
+                  Nothing can be generated until you do.
+ 2 Capture        Paste a job link. The exact advert is stored — never a summary.
+ 3 Preflight      Joblooper answers what your truth already covers and asks only
+                  about real gaps. You choose: proceed with the gap recorded, or
+                  stop and add evidence.
+ 4 Draft          CV and cover letter assembled from approved wording only.
+ 5 Review         You read the complete documents. Comments block sign-off until
+                  they are resolved.
+ 6 Approve/build  Only after sign-off do DOCX and PDF files exist.
+ 7 Submit         You upload to the employer. Joblooper records the exact files
+                  sent and their fingerprints.
+ 8 Outcome        Record what the employer did. Explanations stay challenged
+                  hypotheses, never facts.
+```
+
+Each step refuses to run until the one before it is genuinely complete, and
+every refusal names what is missing.
+
+**What it is not.** It does not apply on your behalf, log in to any portal,
+score you against other candidates, or predict a hiring decision. There is no
+analytics and no account.
 
 ## Why use AI here?
 
@@ -22,36 +78,14 @@ over multiple passes, and surfaces materially similar prior outcomes before the
 next CV is generated. The result is continuity and accountable learning rather
 than starting again from chat memory.
 
-## Start here
+## Reference
 
-- **Install:** [installation and portability](references/installation.md)
 - **Use Joblooper:** [user guide](USER-GUIDE.md)
+- **Install details and portability:** [installation](references/installation.md)
 - **Codex operating rules:** [SKILL.md](SKILL.md)
 - **Privacy boundary:** [SECURITY.md](SECURITY.md)
 - **Contribute:** [CONTRIBUTING.md](CONTRIBUTING.md)
 
-## Repository status
-
-`repo-policy.json` is authoritative. Joblooper has two deliberately separate
-repositories. `Pvt-JobLooper` is the authoritative `PERSONAL_PRIVATE` source and
-may keep governed `.joblooper/` data in
-explicitly private Git. A `PUBLIC_SKILL` checkout contains no candidate runtime
-data and stores each user's data outside the installed skill. Never change a
-personal repository's visibility or publish its history.
-
-Maintainers create the public edition only as a sanitized, allowlisted tree
-with new Git history:
-
-```powershell
-python tools/export_public.py D:\path\to\new-Pub-JobLooper
-cd D:\path\to\new-Pub-JobLooper
-python tools/check_repo.py --public-tree .
-git init
-```
-
-The exporter copies an allowlist, excludes candidate data and binary evidence,
-checks known direct identifiers, and refuses an existing target. Human review is
-still required before publishing the mirror.
 
 ## First run: establish career truth
 
@@ -308,6 +342,29 @@ append-only hypotheses with evidence, counter-evidence and unknowns. Only
 retained, challenged lessons influence future review. Interview, progression
 and offer outcomes also surface for sufficiently similar future jobs, but only
 as observations of what advanced—not as claims about why it advanced.
+
+## Repository status
+
+`repo-policy.json` is authoritative. Joblooper has two deliberately separate
+repositories. `Pvt-JobLooper` is the authoritative `PERSONAL_PRIVATE` source and
+may keep governed `.joblooper/` data in
+explicitly private Git. A `PUBLIC_SKILL` checkout contains no candidate runtime
+data and stores each user's data outside the installed skill. Never change a
+personal repository's visibility or publish its history.
+
+Maintainers create the public edition only as a sanitized, allowlisted tree
+with new Git history:
+
+```powershell
+python tools/export_public.py D:\path\to\new-Pub-JobLooper
+cd D:\path\to\new-Pub-JobLooper
+python tools/check_repo.py --public-tree .
+git init
+```
+
+The exporter copies an allowlist, excludes candidate data and binary evidence,
+checks known direct identifiers, and refuses an existing target. Human review is
+still required before publishing the mirror.
 
 ## Skill installation and verification
 
