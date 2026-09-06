@@ -168,6 +168,26 @@ def main():
                        and semantic_state['current'] is False
                        and semantic_state['detected_count']
                        < semantic_state['stored_count']))
+        # Improving a gate rule must not make a stored advert read as changed:
+        # match_jd re-derives hard_gate and gate_type on every run, so a refresh
+        # could not alter a single word of the advert.
+        reclassified = {
+            **jd_record,
+            'requirements': [{**row,
+                              'hard_gate': not row.get('hard_gate'),
+                              'gate_type': 'behavioural'}
+                             for row in jd_record.get('requirements') or []],
+        }
+        checks.append(('an engine taxonomy change does not demand a JD refresh',
+                       dashboard._analysis_state(
+                           active_job['id'], reclassified, raw_advert)[0]['current']))
+        dropped = {**jd_record,
+                   'requirements': (jd_record.get('requirements') or [])[:-1]}
+        checks.append(('a genuinely changed advert still demands a refresh',
+                       (jd_record.get('requirements') or [])
+                       and not dashboard._analysis_state(
+                           active_job['id'], dropped, raw_advert)[0]['current']))
+
         crlf_advert = raw_advert.replace('\n', '\r\n')
         checks.append(('advert normalization keeps byte-exact provenance separate',
                        store.sha256_text(raw_advert) != store.sha256_text(crlf_advert)

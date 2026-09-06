@@ -293,10 +293,17 @@ def _hypotheses(app):
 
 
 def _requirement_signature(jd):
+    """What the advert says, for deciding whether a stored analysis is current.
+
+    Deliberately excludes `hard_gate` and `gate_type`. Both are the engine's
+    classification of a requirement rather than anything the advert states, and
+    `match_jd` already re-derives them on every run so a captured JD benefits
+    from corrected taxonomy without rewriting its source. Including them meant
+    that improving a gate rule made every stored advert read as changed, and
+    demanded a refresh that could not alter a single word of it.
+    """
     return [{
         'n': row.get('n'), 'text': row.get('text'), 'kind': row.get('kind'),
-        'hard_gate': bool(row.get('hard_gate')),
-        'gate_type': row.get('gate_type'),
     } for row in jd.get('requirements') or []]
 
 
@@ -960,7 +967,18 @@ def build_snapshot(include_private=False):
                     'Preflight is complete. Generate the review bundle from the exact JD and approved truth.',
                     'Generate review bundle', 'prepare')
         elif job['phase'] == 'review':
-            if not workflow.get('plan'):
+            if not workflow.get('plan') and not workflow.get('preflight'):
+                # Prepare refuses while preflight is incomplete, so offering
+                # "refresh the bundle" here would hand the user a control that
+                # fails when clicked. Route to the decision that unblocks it --
+                # new decisions appear here when a retained lesson from an
+                # earlier application newly applies to this one.
+                add_attention(
+                    job, 'preflight', 'Review outstanding fit decisions',
+                    '; '.join(workflow.get('preflight_errors') or [])
+                    or 'Decisions are outstanding for the current JD and truth.',
+                    'Review decisions', 'preflight')
+            elif not workflow.get('plan'):
                 add_attention(
                     job, 'prepare', 'Refresh the CV and cover letter',
                     '; '.join(workflow.get('plan_errors') or [])

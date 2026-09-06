@@ -102,6 +102,26 @@ def main():
               and stale_plan['workflow']['plan'] is False
               and stale_plan['workflow']['can_approve'] is False
               and stale_plan['touchpoints'][2]['status'] == 'current', results)
+        # A stale plan whose preflight is still complete is refreshed directly.
+        check('a stale plan with complete decisions offers the refresh',
+              next(item for item in dashboard.build_snapshot()['attention']
+                   if item['job_id'] == job_id)['route'] == 'prepare', results)
+        # But when the decisions themselves are outstanding -- which is what
+        # happens when a retained lesson from an earlier application newly
+        # applies here -- prepare would refuse, so offering "refresh the bundle"
+        # would hand the user a control that fails when clicked.
+        held = store.read_json(preflight_path)
+        os.unlink(preflight_path)
+        undecided = dashboard.build_snapshot()['jobs'][0]
+        undecided_item = next(item for item in dashboard.build_snapshot()['attention']
+                              if item['job_id'] == job_id)
+        check('outstanding decisions route to preflight, not to a control that fails',
+              undecided['workflow']['preflight'] is False
+              and undecided['workflow']['plan'] is False
+              and undecided_item['kind'] == 'preflight'
+              and undecided_item['route'] == 'preflight', results)
+        store.write_json(preflight_path, held)
+
         # Being told only that a plan is stale is not actionable. why-stale must
         # name the governance reason rather than restating the symptom.
         stale_report = io.StringIO()
