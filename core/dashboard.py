@@ -45,8 +45,9 @@ ATTENTION_KIND_RANK = {
     'truth_integrity': 0, 'integrity': 1, 'jd_analysis': 2, 'feedback': 3,
     'preflight': 4, 'prepare': 5, 'gate_blocked': 6, 'approve': 7, 'review': 8,
     'build': 9, 'submission_reconcile': 10, 'submit': 11,
-    'submission_metadata': 12, 'outcome_date': 13, 'next_stage': 14,
-    'reasoning': 15,
+    'submission_metadata': 12, 'outcome_date': 13, 'silent_application': 14,
+    'next_stage': 15,
+    'reasoning': 16,
 }
 # The single definition of the lifecycle vocabulary. `dashboard/app.js` reads
 # these from the snapshot so the browser cannot hold a divergent copy.
@@ -114,8 +115,21 @@ WORK_ARTIFACTS = {
 }
 
 
+# How long an application may sit unanswered before the workspace asks what
+# happened. Long enough not to nag, short enough that the detail is recallable.
+GHOSTING_PROMPT_DAYS = 30
+
+
 def _normalise_status(value):
     return str(value or '').strip().lower().replace(' ', '_')
+
+
+def _days_since(date_text):
+    try:
+        applied = datetime.strptime(str(date_text)[:10], '%Y-%m-%d').date()
+    except (TypeError, ValueError):
+        return None
+    return (datetime.now().date() - applied).days
 
 
 def _work_state(directory):
@@ -1009,6 +1023,19 @@ def build_snapshot(include_private=False):
                     'Missing ' + ' and '.join(missing)
                     + '; add exact data or mark historical portal answers unavailable.',
                     'Update record', 'submission_metadata', 'warning')
+        # Silence is the commonest outcome of all, and it was the only one that
+        # never entered the record: an application sat in `applied` forever and
+        # its evidence never reached the learning loop. This asks; it never
+        # records a ghosting the user did not observe.
+        if job['phase'] == 'applied' and job.get('applied_date'):
+            waiting = _days_since(job['applied_date'])
+            if waiting is not None and waiting >= GHOSTING_PROMPT_DAYS:
+                add_attention(
+                    job, 'silent_application', 'Record the outcome of a silent application',
+                    f'Submitted {waiting} days ago with no recorded response. '
+                    'Record the observed outcome, or mark it ghosted, so this '
+                    'application can inform later ones. Nothing is assumed for you.',
+                    'Record outcome', 'outcome', 'warning')
         if job['phase'] in {'progressed', 'rejected'} and not job.get('responded_date'):
             add_attention(
                 job, 'outcome_date', 'Add the observed response date',

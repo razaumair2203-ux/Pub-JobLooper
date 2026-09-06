@@ -67,14 +67,16 @@ def legacy_questions(jd, mapping, identity):
     from . import learning
     current_slug = jd.get('_slug')
     for n, lesson in enumerate(
-            learning.relevant_lessons(jd, exclude_slug=current_slug, top=2), 1):
+            learning.relevant_lessons(jd, exclude_slug=current_slug, top=2,
+                                      mapping=mapping), 1):
         rows.append({
             'id': f'PRIOR-REJECTION-{n}', 'kind': 'PRIOR_OUTCOME_CONTEXT',
             'question': (
-                f"A {lesson['similarity']:.2f}-similar application to "
-                f"{lesson.get('company')} retained the {lesson.get('cause')} hypothesis: "
-                f"{lesson.get('summary')} Review whether new evidence changes this risk; "
-                "do not treat the hypothesis as an employer-stated fact."),
+                f"An earlier application to {lesson.get('company')} retained the "
+                f"{lesson.get('cause')} hypothesis: {lesson.get('summary')} "
+                f"It is raised here because {lesson.get('trigger') or 'the advert is similar'}. "
+                "Review whether new evidence changes this risk; do not treat the "
+                "hypothesis as an employer-stated fact."),
         })
     for n, outcome in enumerate(
             learning.relevant_positive_outcomes(jd, exclude_slug=current_slug, top=2), 1):

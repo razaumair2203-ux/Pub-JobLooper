@@ -649,7 +649,7 @@ def cmd_plan(args):
         'decision': preflight_record['decision'],
         'reviewer': preflight_record['reviewer'],
     }
-    m['learning_signals'] = learning.relevant_lessons(jd, exclude_slug=slug)
+    m['learning_signals'] = learning.relevant_lessons(jd, exclude_slug=slug, mapping=m)
     m['positive_outcome_signals'] = learning.relevant_positive_outcomes(
         jd, exclude_slug=slug)
     m['_inputs'] = store.generation_fingerprint(jd)

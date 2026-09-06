@@ -372,6 +372,33 @@ def main():
             'status': 'applied',
         }])
         applied = dashboard.build_snapshot()
+        # Silence is the commonest outcome and was the only one that never
+        # entered the record: an application sat in `applied` forever and its
+        # evidence never reached the learning loop.
+        import datetime as _dt
+
+        def _silence_kinds(days):
+            store.write_jsonl(store.data_p('index', 'applications.jsonl'), [{
+                'app_id': snapshot['jobs'][0]['id'], 'company': 'Example Aerospace',
+                'role': 'Senior Systems Engineer', 'status': 'applied',
+                'applied': (_dt.date.today() - _dt.timedelta(days=days)).isoformat(),
+            }])
+            return [item['kind'] for item in dashboard.build_snapshot()['attention']]
+
+        quiet = _silence_kinds(dashboard.GHOSTING_PROMPT_DAYS - 1)
+        overdue = _silence_kinds(dashboard.GHOSTING_PROMPT_DAYS)
+        overdue_item = next(item for item in dashboard.build_snapshot()['attention']
+                            if item['kind'] == 'silent_application')
+        checks.append(('a long-silent application is asked about, never assumed',
+                       'silent_application' not in quiet
+                       and 'silent_application' in overdue
+                       and overdue_item['route'] == 'outcome'
+                       and overdue_item['severity'] == 'warning'
+                       and 'Nothing is assumed for you' in overdue_item['detail']))
+        checks.append(('a silent application is never auto-recorded as ghosted',
+                       all(row.get('status') == 'applied'
+                           for row in store.applications())))
+
         checks.append(('submitted and awaiting-response work remains visible without a false task',
                        applied['jobs'][0]['phase'] == 'applied'
                        and applied['kpis']['submitted'] == 1

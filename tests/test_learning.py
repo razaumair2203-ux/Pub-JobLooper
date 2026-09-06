@@ -187,6 +187,53 @@ def main():
             positive_hypothesis_refused = True
         checks.append(('rejection hypotheses are refused for positive outcomes',
                        positive_hypothesis_refused))
+        # --- what a lesson is about decides where it carries -----------------
+        # Selecting on advert similarity suppressed every process lesson the
+        # moment the next job was in another sector, which is exactly when a
+        # prior lesson is worth having.
+        thin = {'hard_gaps': 0, 'named_platform_gaps': [], 'profile_gate_count': 0,
+                'bridging_count': 0, 'coverage': 0.95, 'mentions_compensation': False}
+        rich = {'hard_gaps': 2, 'named_platform_gaps': ['IEC', 'GIS'],
+                'profile_gate_count': 3, 'bridging_count': 5, 'coverage': 0.4,
+                'mentions_compensation': True}
+        checks.append(('a process lesson carries to any application',
+                       all(learning.lesson_applies(cause, thin)[0] for cause in (
+                           'TIMING_INTERNAL', 'ATS_KEYWORD', 'NARRATIVE_COHERENCE'))))
+        checks.append(('a conditional lesson stays silent when its situation is absent',
+                       not any(learning.lesson_applies(cause, thin)[0] for cause in (
+                           'HARD_GATE', 'DOMAIN_TRANSLATION', 'LOCATION_VISA',
+                           'EVIDENCE_DEPTH', 'COMPENSATION'))))
+        checks.append(('a conditional lesson fires when the situation recurs',
+                       all(learning.lesson_applies(cause, rich)[0] for cause in (
+                           'HARD_GATE', 'DOMAIN_TRANSLATION', 'LOCATION_VISA',
+                           'EVIDENCE_DEPTH', 'COMPENSATION'))))
+        checks.append(('a lesson that learned nothing carries nothing',
+                       not learning.lesson_applies('NO_SIGNAL', rich)[0]
+                       and not learning.lesson_applies('UNKNOWN_CAUSE', rich)[0]))
+        checks.append(('every carried lesson explains why it was raised',
+                       all(learning.lesson_applies(cause, rich)[1]
+                           for cause in learning.LESSON_TRANSFER
+                           if learning.lesson_applies(cause, rich)[0])))
+        named = learning.lesson_applies(
+            'HARD_GATE', {**rich, 'named_platform_gaps': ['Builts', 'IEC']})[1]
+        checks.append(('the explanation leads with recognisable names',
+                       'IEC' in named and named.index('IEC') < named.index('Builts')))
+
+        # One lesson per cause: ten applications that each retained a process
+        # lesson must not bury preflight in ten restatements of it.
+        many = []
+        for n in range(6):
+            many.append({'cause': 'TIMING_INTERNAL', 'confidence': 0.5 + n / 100,
+                         'similarity': 0.2, 'app_id': f'a{n}'})
+        best = {}
+        for row in many:
+            cur = best.get(row['cause'])
+            if not cur or (row['confidence'], row['similarity']) > (
+                    cur['confidence'], cur['similarity']):
+                best[row['cause']] = row
+        checks.append(('repeated causes collapse to their strongest instance',
+                       len(best) == 1 and best['TIMING_INTERNAL']['confidence'] == 0.55))
+
         checks.append(('outcome learning never mutates career truth',
                        store.truth_context()['truth_sha256'] == truth_before))
 

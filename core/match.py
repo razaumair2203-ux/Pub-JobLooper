@@ -749,7 +749,13 @@ def match_jd(jd, identity):
             if r['n'] not in exact_usage:
                 exact_usage.append(r['n'])
 
-        row = {**r, 'match': cls, 'best': best, 'anchors': scored}
+        row = {**r, 'match': cls, 'best': best, 'anchors': scored,
+               # Structured alongside the prose note so downstream consumers --
+               # outcome learning in particular -- can test what this advert
+               # actually demands without parsing an English sentence.
+               'unmatched_named': list(unknown),
+               'unevidenced': list(unevidenced),
+               'gate_type': gate_type}
         if note:
             row['note'] = note
         rows.append(row)
@@ -791,6 +797,17 @@ def match_jd(jd, identity):
         'hard_gate_gaps': hard_unresolved,
         'hard_gate_unresolved': hard_unresolved,
         'mandatory_risks': [x for x in by_kind['mandatory'] if x['match'] != 'DIRECT'],
+        # What this advert demands that the corpus has never seen, and which
+        # requirements are answered from the profile. Outcome learning tests
+        # these to decide whether a past lesson is about the situation in hand.
+        'named_platform_gaps': sorted({
+            name for row in rows for name in (row.get('unmatched_named') or [])}),
+        'profile_gate_count': sum(
+            1 for row in rows if row.get('gate_type') == 'profile'),
+        'bridging_count': sum(
+            1 for row in rows
+            if row.get('kind') == 'mandatory'
+            and row.get('match') in {'TRANSFERABLE', 'PARTIAL', 'GAP'}),
     }
 
 
