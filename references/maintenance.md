@@ -12,6 +12,15 @@ Never implement a feature independently in both repositories. Make and test the
 change once in `Pvt-JobLooper`, then regenerate `Pub-JobLooper` with the sanitized
 export. This prevents functional drift while keeping the privacy boundary real.
 
+Because the two are kept in step by hand, drift is checked rather than
+remembered. `python tools/export_public.py <target>` records a digest of every
+allowlisted file in `.joblooper/index/public_export.json`, and
+`python tools/check_repo.py --mirror-drift` — part of the `mirror` and `full`
+check scopes — fails once the private source has moved ahead of that baseline.
+Digests ignore line-ending style, so two checkouts of identical source never
+report false drift. Only publishing writes the baseline: exporting to a scratch
+directory for an audit leaves it untouched.
+
 ## Living dashboard contract
 
 Treat dashboard feedback as product evidence, not an automatic code instruction.

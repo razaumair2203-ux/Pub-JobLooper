@@ -35,7 +35,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from core import (store, vec, match, build, preview, gates, render, casefile,
                   integrity, release, learning, feedback, employer_response,
                   cover_letter, employer_review, preflight, truth_review,
-                  dashboard as dashboard_ui)
+                  dashboard_actions, dashboard as dashboard_ui)
 
 FAIL_CATS = ['HARD_GATE', 'SENIORITY_MISMATCH', 'DOMAIN_TRANSLATION', 'ATS_KEYWORD',
              'EVIDENCE_DEPTH', 'NARRATIVE_COHERENCE', 'LOCATION_VISA', 'COMPENSATION',
@@ -332,6 +332,7 @@ def cmd_ingest(args):
                         job_reference=reference)
     jd['_slug'] = slug
     jd['raw_sha256'] = store.sha256_text(raw)
+    jd['raw_normalized_sha256'] = store.sha256_advert(raw)
     store.write_json(os.path.join(d, 'jd.json'), jd)
     store.write_text(os.path.join(d, 'jd.raw.md'), raw)
     store.append_application_event({
@@ -379,10 +380,12 @@ def cmd_refresh_jd(args):
     refreshed['_slug'] = slug
     refreshed['ingested'] = previous.get('ingested') or refreshed.get('ingested')
     refreshed['raw_sha256'] = store.sha256_text(raw)
+    refreshed['raw_normalized_sha256'] = store.sha256_advert(raw)
     old_signature = _requirement_signature(previous)
     new_signature = _requirement_signature(refreshed)
     if (old_signature == new_signature
-            and previous.get('raw_sha256') == refreshed.get('raw_sha256')):
+            and previous.get('raw_normalized_sha256')
+            == refreshed.get('raw_normalized_sha256')):
         say(f"analysis current  {slug}")
         say(f"  {len(new_signature)} structured requirements; nothing changed")
         return 0
@@ -1801,6 +1804,85 @@ def cmd_verify(args):
     return 0
 
 
+_STALENESS_LABELS = (
+    ('truth/', 'candidate truth'),
+    ('templates/', 'document style'),
+    ('engine/', 'engine code'),
+)
+
+
+def _input_label(name):
+    for prefix, label in _STALENESS_LABELS:
+        if name.startswith(prefix):
+            return label
+    return {'jd': 'captured job description',
+            'truth_context': 'candidate truth'}.get(name, 'generation input')
+
+
+def cmd_why_stale(args):
+    """Name the exact inputs that invalidated a plan, presentation or approval.
+
+    Staleness is deliberately aggressive — a truth edit, a style change or an
+    engine change all invalidate an approval the reviewer already gave. Being
+    told only that something is stale is not actionable, so this reports which
+    input actually changed since the plan was built.
+    """
+    slug = store.resolve_job(args.job)
+    d = store.job_dir(slug)
+    state = dashboard_actions.plan_state(slug)
+    if not state['available']:
+        say(f"no plan  {slug}")
+        for problem in state['errors']:
+            say(f"  - {problem}")
+        say(f"  next: jl preflight {slug} && jl plan {slug}")
+        return 0
+    if state['current']:
+        say(f"current  {slug}")
+        say('  The plan matches the exact truth, JD, style, engine and preflight '
+            'decisions it was built from.')
+        return 0
+
+    say(f"stale    {slug}")
+    mapping = store.read_json(os.path.join(d, 'match.json'), {}) or {}
+    planned = ((mapping.get('_inputs') or {}).get('files') or {})
+    jd = store.read_json(os.path.join(d, 'jd.json'), {}) or {}
+    changed = []
+    if planned and jd:
+        jd['_slug'] = slug
+        current = store.generation_fingerprint(jd).get('files') or {}
+        for name in sorted(set(planned) | set(current)):
+            before, after = planned.get(name), current.get(name)
+            if before != after:
+                changed.append((name, before, after))
+    if changed:
+        say(f"  {len(changed)} generation input(s) changed since the plan was built:")
+        for name, before, after in changed:
+            state_text = ('added' if not before else
+                          'removed' if not after else 'changed')
+            say(f"    {_input_label(name):<26} {name}  ({state_text})")
+    elif planned:
+        say('  Every generation input still matches; the plan is stale for a '
+            'governance reason below.')
+    else:
+        say('  This plan predates per-input fingerprints, so the exact changed '
+            'input cannot be named. Regenerate to restore traceability.')
+
+    governance = [problem for problem in state['errors']
+                  if 'stale relative to' not in problem]
+    if governance:
+        say('  governance:')
+        for problem in governance:
+            say(f"    - {problem}")
+    open_feedback = [row for row in feedback.current(slug)
+                     if row.get('status') == 'OPEN']
+    if open_feedback:
+        say(f"  open feedback: {len(open_feedback)} unresolved comment(s) "
+            f"({', '.join(row['id'] for row in open_feedback)})")
+    say(f"  next: jl plan {slug}"
+        + ('  (resolve feedback first)' if open_feedback else ''))
+    return 0
+
+
 # ---------------------------------------------------------------- cli
 
 def main():
@@ -1971,6 +2053,8 @@ def main():
     s = sub.add_parser('check'); s.set_defaults(fn=cmd_check)
     s = sub.add_parser('context'); s.add_argument('--refresh', action='store_true')
     s.set_defaults(fn=cmd_context)
+    s = sub.add_parser('why-stale', help='name the inputs that invalidated a plan')
+    s.add_argument('job'); s.set_defaults(fn=cmd_why_stale)
     s = sub.add_parser('verify'); s.add_argument('job')
     s.set_defaults(fn=cmd_verify)
 

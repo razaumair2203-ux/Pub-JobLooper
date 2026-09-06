@@ -14,6 +14,12 @@ from collections import Counter
 from . import store
 
 _WORD = re.compile(r"[a-z0-9][a-z0-9&+.#/-]*")
+# Sentence punctuation that can never be part of a token. The character class
+# above deliberately admits '.' so "node.js", "a320.1" and ".net" survive, which
+# also meant every sentence-final word became its own token: "silos." never
+# matched "silos". Trailing separators are stripped; '#' and '+' are not, because
+# "c#" and "c++" end in them legitimately.
+_EDGE_PUNCTUATION = './-,'
 
 _ALIAS_CACHE = None
 
@@ -45,25 +51,77 @@ def _alias_tables():
         _ALIAS_CACHE = (term2groups, stop, al)
     return _ALIAS_CACHE
 
+def _words(text):
+    """Word tokens with sentence punctuation stripped from their edges."""
+    return [w.strip(_EDGE_PUNCTUATION)
+            for w in _WORD.findall((text or '').lower())
+            if w.strip(_EDGE_PUNCTUATION)]
+
+
+def _compound_forms(word):
+    """A hyphenated or slashed compound, plus the words it is made of.
+
+    "project-management" is written as one token but means the same as "project
+    management". Without the parts it matched neither, so an advert asking for a
+    "Project-management certification" retrieved a product-certification anchor
+    on the shared word "certification" while the candidate's actual Project
+    Leader credential ranked nowhere. Emitting both keeps the exact compound
+    matchable and stops a collision standing in for the real evidence.
+    """
+    parts = [p for p in re.split(r'[-/]', word) if len(p) > 2]
+    return [word] + parts if len(parts) > 1 else [word]
+
+
+# Applied longest-first and repeatedly, so "commissioning" and "commission"
+# reduce to one form. 'ation' is deliberately absent: with 'ing' present it
+# would split integration/integrating apart again.
+_MORPH_SUFFIXES = ('ment', 'ing', 'ion', 'ed')
+_MIN_STEM = 4
+
+
 def _stem(w):
-    """Light suffix normalisation so singular and plural are one token.
+    """Suffix normalisation so one concept is one token.
 
     Without this "avionic" and "avionics" are unrelated strings: an advert
     asking for "extensive aircraft avionic experience" scored GAP against an
-    18-year avionics career, because every anchor says "avionics". Same class of
-    miss for drawing/drawings, regulation/regulations, activity/activities.
+    18-year avionics career, because every anchor says "avionics".
 
-    Deliberately crude -- no linguistic stemmer, just the three suffixes that
-    actually cost matches here. Aggressive stemming would collide unrelated
-    terms, which is worse than missing a plural.
+    Plurals alone are not enough. Job adverts write responsibilities as gerunds
+    -- "Integrating engineering activities", "Commissioning", "Managing" --
+    while evidence is registered as nouns: integration, commission, management.
+    A plural-only stemmer therefore failed on the exact grammatical form that
+    every responsibility section is written in, which is why those requirements
+    could not reach DIRECT however strong the underlying evidence was.
+
+    Still deliberately conservative. Suffixes are stripped only while at least
+    four characters remain, so "ring" and "being" are left alone, and the set
+    excludes endings whose removal would merge genuinely different words.
     """
+    # Only English words are stemmed. Identifiers carry digits or punctuation --
+    # "node.js", "a320", "iso9001", "c#" -- and are not morphological forms of
+    # anything, so plural stripping there only corrupts them ("node.js" lost its
+    # trailing 's' and became "node.j").
+    if not w.isalpha():
+        return w
     if len(w) > 4:
         if w.endswith('ies'):
-            return w[:-3] + 'y'
-        if w.endswith('sses') or w.endswith('ss'):
-            return w
-        if w.endswith('s'):
-            return w[:-1]
+            w = w[:-3] + 'y'
+        elif w.endswith('sses') or w.endswith('ss'):
+            pass
+        elif w.endswith('s'):
+            w = w[:-1]
+    # Iterate to a fixed point: "commissioning" -> "commission" -> "commiss",
+    # which is also where "commission" lands.
+    for _ in range(3):
+        for suffix in _MORPH_SUFFIXES:
+            if w.endswith(suffix) and len(w) - len(suffix) >= _MIN_STEM:
+                w = w[:-len(suffix)]
+                break
+        else:
+            break
+    # "procurement" -> "procure" -> "procur" meets "procure" -> "procur".
+    if len(w) > _MIN_STEM and w.endswith('e'):
+        w = w[:-1]
     return w
 
 
@@ -71,13 +129,14 @@ def tokens(text):
     """Lowercase word tokens, stopwords removed, lightly stemmed."""
     _, stop, _ = _alias_tables()
     out = []
-    for w in _WORD.findall((text or '').lower()):
-        if w in stop or len(w) < 2:
-            continue
-        s = _stem(w)
-        if s in stop:
-            continue
-        out.append(s)
+    for w in _words(text):
+        for form in _compound_forms(w):
+            if form in stop or len(form) < 2:
+                continue
+            s = _stem(form)
+            if s in stop:
+                continue
+            out.append(s)
     return out
 
 def expand(text):
@@ -87,11 +146,10 @@ def expand(text):
     a unit before its words are considered individually.
     """
     term2groups, stop, _ = _alias_tables()
-    low = (text or '').lower()
     out = Counter(tokens(text))
 
-    words = [_stem(w) for w in _WORD.findall(low)]
-    raw = _WORD.findall(low)
+    raw = _words(text)
+    words = [_stem(w) for w in raw]
     for n in (4, 3, 2):
         for i in range(len(words) - n + 1):
             for seq in (' '.join(words[i:i + n]), ' '.join(raw[i:i + n])):

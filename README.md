@@ -53,9 +53,34 @@ The exporter copies an allowlist, excludes candidate data and binary evidence,
 checks known direct identifiers, and refuses an existing target. Human review is
 still required before publishing the mirror.
 
+## First run: establish career truth
+
+A job advert is only useful once Joblooper knows which candidate facts it is
+allowed to use, so **capture is not the first action**. On a cold install the
+dashboard opens on career-truth setup and refuses job capture until the exact
+truth digest is signed.
+
+`python jl.py init` creates an empty workspace blocked from generation. It never
+installs a fictional identity as real data. Follow
+[candidate onboarding](references/onboarding.md), review the truth with the
+candidate, then explicitly finalize it:
+
+```powershell
+python jl.py init
+python jl.py onboard status
+python jl.py onboard finalize --reviewer "Name" --confirm-reviewed
+```
+
+`python jl.py init --demo` is only for fictional testing.
+
+Once the digest is signed, the dashboard opens on working applications instead,
+and a later audit or material truth change returns only the affected truth to
+review.
+
 ## Fast path
 
 Python 3.10+ is required; the engine has no third-party runtime dependency.
+Everything below assumes signed candidate truth.
 
 ```powershell
 python jl.py doctor
@@ -118,20 +143,6 @@ a fast outcome can be investigated without reconstructing portal answers.
 use `--screening-unavailable` when historical portal answers cannot be recovered.
 It never changes the hash-bound CV or cover letter.
 
-## First-time candidate setup
-
-`python jl.py init` creates an empty workspace blocked from generation. It never
-installs a fictional identity as real data. Follow
-[candidate onboarding](references/onboarding.md), review the truth with the
-candidate, then explicitly finalize it:
-
-```powershell
-python jl.py onboard status
-python jl.py onboard finalize --reviewer "Name" --confirm-reviewed
-```
-
-`python jl.py init --demo` is only for fictional testing.
-
 ## Ground-truth contract
 
 ```text
@@ -156,7 +167,9 @@ candidate’s review establishes whether its claims are true.
 
 Every generation fingerprint covers authoritative truth, JD, style, relevant
 engine code and feedback. Any material change makes an old plan, presentation
-or approval stale.
+or approval stale. `python jl.py why-stale <exact-job-key>` names which of those
+inputs actually changed, so a withdrawn approval is explainable rather than
+merely asserted.
 
 Ground-truth sign-off is separately bound to the exact authoritative truth
 digest. Use `python jl.py truth comment|resolve|audit` for incremental review;

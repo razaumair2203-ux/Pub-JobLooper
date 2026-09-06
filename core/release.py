@@ -986,8 +986,41 @@ def update_submission_metadata(slug, applied_date=None, channel=None,
     return package, manifest, receipt, changed
 
 
+def _tolerated_unsent_labels(manifest, receipt):
+    """Manifest labels whose drift cannot affect what the employer received.
+
+    Only employer-facing derivatives qualify, and never the exact CV or cover
+    letter that was actually sent. Evidence, ATS text, previews and gate audits
+    are deliberately excluded: a change there is a real integrity problem even
+    though nothing was posted to the employer.
+    """
+    selected = set()
+    for label, info in (manifest.get('files') or {}).items():
+        if info.get('file') in {receipt.get('sent_file'),
+                                receipt.get('sent_cover_letter')}:
+            selected.add(label)
+    return EMPLOYER_FACING_LABELS - selected
+
+
+def _split_package_errors(package_errors, tolerated_unsent):
+    """Separate fatal package errors from tolerated unsent-derivative drift."""
+    fatal, tolerated = [], []
+    for error in package_errors:
+        label = error.split(':', 1)[0]
+        (tolerated if label in tolerated_unsent else fatal).append(error)
+    return fatal, tolerated
+
+
 def verify_submission(slug):
-    """Verify the approved package and its exact sent-file receipt."""
+    """Verify the exact sent-file receipt, independent of unsent derivatives.
+
+    What the employer received is fixed at submission time. Re-rendering an
+    unsent derivative — the DOCX when the PDF was sent, for example — must not
+    invalidate that history, so drift confined to an unsent employer-facing file
+    no longer refuses the receipt. Callers still see that drift through
+    ``verify_release``. Any error touching a file that was actually sent, or any
+    non-employer-facing record, remains fatal.
+    """
     package, manifest = load_release(slug)
     if not package or not manifest:
         return None, ['approved artefact package not found']
@@ -1008,19 +1041,17 @@ def verify_submission(slug):
         if receipt.get('manifest_sha256') != manifest.get('manifest_sha256'):
             problems.append('submission receipt does not match the package manifest')
         _, current_package_errors = verify_release(slug)
-        selected_labels = set()
-        for label, info in (manifest.get('files') or {}).items():
-            if info.get('file') in {
-                    receipt.get('sent_file'), receipt.get('sent_cover_letter')}:
-                selected_labels.add(label)
-        tolerated_unsent = EMPLOYER_FACING_LABELS - selected_labels
+        tolerated_unsent = _tolerated_unsent_labels(manifest, receipt)
+        fatal, tolerated = _split_package_errors(
+            current_package_errors, tolerated_unsent)
+        problems.extend(fatal)
+        # A confirmed external submission records the exceptions that existed
+        # when the user identified the sent files. Anything new appeared after
+        # that confirmation and is not covered by it.
         recorded_exceptions = set(
             receipt.get('unsent_package_integrity_exceptions') or [])
-        for error in current_package_errors:
-            label = error.split(':', 1)[0]
-            if label not in tolerated_unsent:
-                problems.append(error)
-            elif error not in recorded_exceptions:
+        for error in tolerated:
+            if error not in recorded_exceptions:
                 problems.append('new unsent package integrity exception: ' + error)
         try:
             sent_name, _, sent_sha = _confirmed_submission_file(
@@ -1051,10 +1082,11 @@ def verify_submission(slug):
                 problems.append('screening-answer evidence digest mismatch')
         return receipt, problems
 
-    manifest, errors = verify_release(slug)
-    if errors:
-        return None, errors
-    problems = []
+    manifest, package_errors = verify_release(slug)
+    if not manifest:
+        return None, package_errors
+    tolerated_unsent = _tolerated_unsent_labels(manifest, receipt)
+    problems, _tolerated = _split_package_errors(package_errors, tolerated_unsent)
     if receipt.get('app_id') != slug:
         problems.append('submission receipt belongs to a different application')
     if receipt.get('manifest_sha256') != manifest.get('manifest_sha256'):

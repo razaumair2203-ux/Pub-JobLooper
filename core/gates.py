@@ -435,6 +435,14 @@ def g7_coverage(m, cv=None):
         for requirement in m.get('requirements', []):
             if requirement.get('match') != 'DIRECT':
                 continue
+            # Profile-class requirements -- work authorisation, language,
+            # location, mobility -- are answered from profile.json and carry no
+            # anchors at all, so no CV line can ever cite supporting evidence
+            # for them. Demanding one blocked every application whose advert
+            # asked for fluency in a language or the right to work somewhere.
+            if (requirement.get('gate_type') == 'profile'
+                    or requirement.get('resolved_from') == 'profile.json'):
+                continue
             number = requirement.get('n')
             support_ids = {
                 aid for aid, numbers in (m.get('anchor_usage') or {}).items()

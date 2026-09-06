@@ -1,16 +1,20 @@
 """One observable dashboard journey from captured JD to recorded outcome."""
+import contextlib
 import copy
 import base64
+import io
 import os
 import shutil
 import sys
 import tempfile
+from types import SimpleNamespace
 
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FIXTURE = os.path.join(ROOT, 'examples', 'starter')
 sys.path.insert(0, ROOT)
 
+import jl
 from core import dashboard, dashboard_actions, match, preflight, release, store, vec
 
 
@@ -98,7 +102,21 @@ def main():
               and stale_plan['workflow']['plan'] is False
               and stale_plan['workflow']['can_approve'] is False
               and stale_plan['touchpoints'][2]['status'] == 'current', results)
+        # Being told only that a plan is stale is not actionable. why-stale must
+        # name the governance reason rather than restating the symptom.
+        stale_report = io.StringIO()
+        with contextlib.redirect_stdout(stale_report):
+            stale_result = jl.cmd_why_stale(SimpleNamespace(job=job_id))
+        stale_text = stale_report.getvalue()
+        check('why-stale names the reason a plan was invalidated',
+              stale_result == 0 and 'stale' in stale_text
+              and 'preflight' in stale_text.lower(), results)
         store.write_json(preflight_path, original_preflight)
+        current_report = io.StringIO()
+        with contextlib.redirect_stdout(current_report):
+            jl.cmd_why_stale(SimpleNamespace(job=job_id))
+        check('why-stale reports a restored plan as current, not stale',
+              current_report.getvalue().startswith('current'), results)
 
         cv_path = os.path.join(store.job_dir(job_id), 'cv.json')
         original_cv = store.read_json(cv_path)
@@ -169,6 +187,17 @@ def main():
               and release.load_release(job_id)[1]['manifest_sha256'] == manifest_digest
               and not release.verify_release(job_id)[1], results)
 
+        # Give the package unsent employer-facing derivatives so the exact
+        # submission can later be proven independent of them (JF-05).
+        directory = store.job_dir(job_id)
+        dummy_pdf = os.path.join(directory, 'journey-CV.pdf')
+        dummy_letter_pdf = os.path.join(directory, 'journey-COVER-LETTER.pdf')
+        store.write_text(dummy_pdf, '%PDF-1.4\n/Type /Page\n')
+        store.write_text(dummy_letter_pdf, '%PDF-1.4\n/Type /Page\n')
+        release.attach_pdfs(
+            job_id, {'pdf': dummy_pdf, 'letter_pdf': dummy_letter_pdf},
+            layout={'cv_pages': 1, 'cover_letter_pages': 1})
+
         release.record_submission(
             job_id, registry[(job_id, 'manifest-docx')],
             registry[(job_id, 'manifest-letter_docx')], channel='portal')
@@ -200,6 +229,28 @@ def main():
               and submitted['touchpoints'][7]['status'] == 'waiting'
               and not dashboard.build_snapshot()['attention'], results)
 
+        # JF-05: re-rendering the unsent PDF must not retract a single completed
+        # gate, invent a task, or unbind the exact files the employer received.
+        package_dir, _ = release.load_release(job_id)
+        unsent_pdf = os.path.join(package_dir, 'CV.pdf')
+        unsent_original = open(unsent_pdf, 'rb').read()
+        with open(unsent_pdf, 'ab') as stream:
+            stream.write(b' unsent derivative re-render')
+        drifted = dashboard.build_snapshot()['jobs'][0]
+        check('unsent derivative drift cannot retract completed submitted gates',
+              drifted['exact_submission'] is True
+              and drifted['workflow']['submission'] is True
+              and drifted['workflow']['preflight'] is True
+              and drifted['workflow']['approval'] is True
+              and drifted['workflow']['package'] is False
+              and drifted['touchpoints'][6]['status'] == 'complete'
+              and drifted['integrity_state'] == 'submission_verified_with_exception'
+              and any(error.startswith('pdf:')
+                      for error in drifted['integrity_exceptions'])
+              and not dashboard.build_snapshot()['attention'], results)
+        with open(unsent_pdf, 'wb') as stream:
+            stream.write(unsent_original)
+
         dashboard_actions.record_outcome(
             job_id, 'rejected', latency='under_24h')
         outcome = dashboard.build_snapshot()['jobs'][0]
@@ -209,6 +260,32 @@ def main():
               and outcome['touchpoints'][7]['status'] == 'complete'
               and all(row['status'] == 'complete'
                       for row in outcome['touchpoints']), results)
+
+        # JF-07: an integrity failure used to `continue` past every other task
+        # for the job, hiding independent record work behind it.
+        evidence_label, evidence_info = next(
+            (label, info) for label, info
+            in release.load_release(job_id)[1]['files'].items()
+            if label not in release.EMPLOYER_FACING_LABELS)
+        evidence_path = os.path.join(package_dir, evidence_info['file'])
+        evidence_original = open(evidence_path, 'rb').read()
+        with open(evidence_path, 'ab') as stream:
+            stream.write(b'\ntamper')
+        concurrent = dashboard.build_snapshot()
+        job_items = [item for item in concurrent['attention']
+                     if item['job_id'] == job_id]
+        kinds = [item['kind'] for item in job_items]
+        check('a package-integrity failure never hides independent record tasks',
+              {'integrity', 'outcome_date', 'reasoning'} <= set(kinds)
+              and kinds.index('integrity') < kinds.index('outcome_date')
+              and job_items[0]['severity'] == 'critical', results)
+        with open(evidence_path, 'wb') as stream:
+            stream.write(evidence_original)
+        restored = [item['kind'] for item in dashboard.build_snapshot()['attention']
+                    if item['job_id'] == job_id]
+        check('restoring the artefact clears only the integrity task',
+              'integrity' not in restored
+              and set(restored) == {'outcome_date', 'reasoning'}, results)
 
     for name, ok in results:
         print(f"  {'ok  ' if ok else 'FAIL'} {name}")

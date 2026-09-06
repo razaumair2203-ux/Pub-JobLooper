@@ -219,6 +219,50 @@ def main():
                        and submitted_manifest['manifest_sha256'] == manifest['manifest_sha256']))
         _, errors = release.verify_submission(slug)
         checks.append(('submission receipt and package verify together', not errors))
+
+        # JF-05: what the employer received is fixed at submission time. Drift in
+        # an unsent derivative must not invalidate that exact history, but drift
+        # in a sent file or any non-employer-facing record still must.
+        unsent_pdf = os.path.join(package, 'CV.pdf')
+        unsent_backup = unsent_pdf + '.orig'
+        shutil.copy2(unsent_pdf, unsent_backup)
+        with open(unsent_pdf, 'ab') as stream:
+            stream.write(b' unsent derivative re-render')
+        unsent_receipt, unsent_errors = release.verify_submission(slug)
+        checks.append(('unsent derivative drift preserves the exact submission receipt',
+                       bool(unsent_receipt) and not unsent_errors
+                       and unsent_receipt['sent_file'] == 'CV.docx'
+                       and any(error.startswith('pdf:')
+                               for error in release.verify_release(slug)[1])))
+        shutil.copy2(unsent_backup, unsent_pdf)
+
+        sent_backup = sent + '.orig'
+        shutil.copy2(sent, sent_backup)
+        with open(sent, 'ab') as stream:
+            stream.write(b' sent file tamper')
+        tampered_receipt, tampered_errors = release.verify_submission(slug)
+        checks.append(('drift in the exact sent file still fails verification',
+                       tampered_receipt is None or bool(tampered_errors)))
+        shutil.copy2(sent_backup, sent)
+
+        evidence_label, evidence_info = next(
+            (label, info) for label, info in submitted_manifest['files'].items()
+            if label not in release.EMPLOYER_FACING_LABELS)
+        evidence_path = os.path.join(package, evidence_info['file'])
+        evidence_backup = evidence_path + '.orig'
+        shutil.copy2(evidence_path, evidence_backup)
+        with open(evidence_path, 'ab') as stream:
+            stream.write(b'\ntamper')
+        _, evidence_errors = release.verify_submission(slug)
+        checks.append(('non-employer-facing record drift is never tolerated',
+                       any(error.startswith(evidence_label + ':')
+                           for error in evidence_errors)))
+        shutil.copy2(evidence_backup, evidence_path)
+        for path in (unsent_backup, sent_backup, evidence_backup):
+            os.remove(path)
+        checks.append(('restored package verifies cleanly again',
+                       not release.verify_submission(slug)[1]))
+
         store.write_jsonl(store.data_p('index', 'applications.jsonl'), [{
             'app_id': slug, 'company': jd['company'], 'role': jd['title'],
             'status': 'applied',

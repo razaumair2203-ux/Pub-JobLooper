@@ -22,13 +22,18 @@ must be discoverable; copying only `SKILL.md` is not a functional installation.
    onboarding is blocked, follow [candidate onboarding](references/onboarding.md)
    and [ground-truth governance](references/ground-truth-governance.md); obtain
    explicit user review before enabling generation.
-2. When the user supplies a job URL, do not ask them to retype fields that can
-   be verified from the official page. Use dashboard URL intake: bounded direct
-   extraction first, then the `intake_url` Codex fallback for blocked or
-   JavaScript-only pages. Capture only when the full employer name, exact title
-   and complete JD are accessible. Search snippets are not an exact JD; if both
-   routes fail, ask the user to paste the advert manually. For supplied text,
-   use `python jl.py ingest`. Use the unique application key returned.
+2. Job capture is reachable only from the `TRUTH_READY` entry state. A cold
+   workspace opens on career-truth setup, and `ingest`/`ingest_url` refuse until
+   the exact truth digest is signed; never work around that gate by writing
+   candidate facts from an advert or from chat.
+   Once truth is ready and the user supplies a job URL, do not ask them to
+   retype fields that can be verified from the official page. Use dashboard URL
+   intake: bounded direct extraction first, then the `intake_url` Codex fallback
+   for blocked or JavaScript-only pages. Capture only when the full employer
+   name, exact title and complete JD are accessible. Search snippets are not an
+   exact JD; if both routes fail, ask the user to paste the advert manually. For
+   supplied text, use `python jl.py ingest`. Use the unique application key
+   returned.
 3. Run `python jl.py preflight <key>` before planning. It must resolve the exact
    JD against approved truth first: omit facts already answered, then present
    only remaining known gaps or application decisions. Record each decision in
@@ -84,56 +89,54 @@ must be discoverable; copying only `SKILL.md` is not a functional installation.
    outcome and exact package—never invent a success cause. Follow the protocol
    in [outcome learning](references/rejection-learning.md). Use `metrics` for
    descriptive lifecycle KPIs; never present them as hiring probabilities.
-9. Use `python jl.py dashboard` as the applicant-facing workspace when the user
-   wants to paste a JD, work with Codex, review or comment on a bundle, approve,
-   find exact artefacts, record submission evidence, capture an outcome, or
-   inspect KPIs. Dashboard actions must call the same deterministic CLI gates;
-   never create parallel state or let chat imply approval or external portal
-   submission. Its optional Codex App Server bridge handles contextual reasoning
-   and surfaces every command/file approval to the user. Codex turns use the
-   user's configured OpenAI service; the loopback UI itself has no analytics.
+9. Use `python jl.py dashboard` as the applicant-facing workspace whenever the
+   user wants to set up career truth, capture a JD, work with Codex, review or
+   comment on a bundle, approve, find exact artefacts, record submission
+   evidence, capture an outcome or inspect KPIs. The dashboard opens on
+   career-truth setup until truth is signed, and on working applications
+   afterwards.
+
+   Five rules are normative here; everything else about its controls, journeys
+   and claims is defined in the [dashboard contract](references/dashboard.md),
+   which you must read before changing or explaining them.
+
+   - **One authority.** Dashboard actions call the same deterministic CLI gates.
+     Never create parallel state, and never let chat imply candidate truth,
+     approval or external portal submission. Codex turns use the user's
+     configured OpenAI service and surface every command/file approval; the
+     loopback UI itself has no analytics.
+   - **Durable over transient.** Every lifecycle touchpoint publishes its
+     expected output beside the durable state actually observed, and active
+     applications stay in the first workspace below the command bar. A chat
+     panel is never the only proof that work exists. Missing analysis or
+     documents are labelled `not assessed` or `not created`, never implied by a
+     progress message. Re-read the projection after any mutation.
+   - **Retries reconcile, never duplicate.** Prepare reopens a current plan,
+     Build reuses a current approval, Submit completes a missing ledger write
+     from the exact existing receipt. A repeated action is a verified no-op or
+     exposes one explicit recovery state. A failed Codex turn ends the streaming
+     state, exposes any durable partial output, and offers a safe resume that
+     re-reads the gate and repeats no completed mutation.
+   - **Fail visibly.** Project deterministic output-gate blockers into Review,
+     Evidence and Attention before sign-off; never expose approval for a bundle
+     the CLI would refuse to build. If generation returns without both CV and
+     cover-letter records, fail the action visibly. Treat Attention as a
+     completing task inbox: every item explains why it exists and opens the
+     exact control that resolves it, and no item hides another.
+   - **Proportional effort.** Route deterministic facts directly and size Codex
+     effort to the decision: a small integrity explanation stays bounded and
+     read-only; CV/JD positioning may reason more deeply because it changes
+     application impact.
+
    The canonical launch stops only the authenticated prior Joblooper instance,
    starts the current installed code on the same address and opens a fresh page;
    never kill an unrelated process merely because it occupies the port.
-   After changing any tracked Joblooper source, skill, test or dashboard file,
-   validate the affected behavior and, before the final response, silently run
-   `python jl.py dashboard --port 8765`. This replaces the authenticated prior
-   instance and opens the current page; a compatible already-open client also
-   detects the new instance, preserves its active job/draft and reloads. Do not
-   ask the user to restart or announce a successful routine handoff. Report only
-   if the verified replacement fails; never leave older code as the visible page.
-   Read the [dashboard contract](references/dashboard.md) when changing or
-   explaining its controls, journeys or claims.
-   Route deterministic facts directly; size Codex effort to the decision. A
-   small integrity explanation must stay bounded and read-only, while CV/JD
-   positioning may use deeper reasoning because it changes application impact.
-   Treat Attention as a completing task inbox: every item must explain why it
-   exists and open the exact control that resolves it. Metadata corrections are
-   append-only and must never alter the hash-bound files that were submitted.
-   Keep active applications in the first dashboard workspace below the command
-   bar. After URL capture, Codex completion, refresh or restart, the user must
-   still see the exact job, durable gate, next action, evidence/gap state,
-   document state, comments and direct artefact controls. Never use a transient
-   chat panel as the only proof that application work exists. Missing analysis
-   or documents must be labelled `not assessed` or `not created`, never implied
-   by a progress message. A successful Codex URL fallback must bind the newly
-   captured job and continue through the same scoped preflight as direct intake.
-   A failed Codex turn must end the streaming state, refresh governed files,
-   expose any durable partial output (including prepared preflight decisions),
-   and offer safe resume plus direct workspace access. Resume must re-read the
-   current gate and repeat no completed mutation; it never implies approval.
-   Every lifecycle touchpoint must publish its expected output and observed
-   durable state in the job workspace. After any mutation, re-read the
-   dashboard projection; never keep a pre-action snapshot as the visible gate.
-   If generation returns without both CV and cover-letter records, fail the
-   action visibly instead of reporting preparation complete.
-   Treat retries as reconciliation, not new work: Prepare reopens a current
-   plan, Build reuses a current approval, and Submit completes a missing ledger
-   write from the exact existing receipt. A repeated action must be a verified
-   no-op or expose one explicit recovery state.
-   Project deterministic output-gate blockers into Review, Evidence and
-   Attention before sign-off; never expose approval for a bundle the CLI would
-   already refuse to build.
+   After changing tracked Joblooper source, skill, test or dashboard files,
+   validate the affected behavior. If a dashboard is running and the change
+   affects it, offer to relaunch with `python jl.py dashboard --port 8765` and
+   say so in the final response — do not hot-replace a server the user may be
+   using without telling them. Never leave older code as the visible page
+   without saying that it is stale.
 
 Treat the dashboard as a living product: turn user feedback into a specific
 journey problem and acceptance check, improve the authoritative private source,
@@ -146,21 +149,11 @@ When helping a person operate or onboard the system, use the concise
 [user guide](USER-GUIDE.md); do not replace the approval gates with informal
 chat confirmation.
 
-## Quality gauge
-
-- **Lean:** one governed truth load, deterministic matching/selection/rendering,
-  no default web research, no parallel prose pipeline.
-- **Clean:** one shallow dated folder per approved application, direct links,
-  immutable submitted bundles and no circulating versions.
-- **Mean:** lead with the strongest verified differentiators, bridge them to the
-  employer's stated problem and remove generic material; never compete through
-  hype or fabricated familiarity.
-- **Accurate:** every factual line is cited, wording authority is bounded,
-  ambiguity stops correlation, and freshness/hash gates fail closed.
-- **Impactful:** preserve the chronological career argument, quantified outcomes
-  and full-spectrum ownership while removing duplication.
-
 Apply user feedback through the append-only feedback workflow. Rejected feedback
 requires a rationale; adopted feedback cannot be marked resolved until a changed
 plan digest proves that it was implemented. Promote a lesson to a reusable rule
 only after its implementation and validation are recorded.
+
+The review judgment aids — Lean, Clean, Mean, Accurate, Impactful — are in
+[the quality gauge](references/quality.md). They guide review; they are not
+gates and cannot authorize a claim the deterministic gates would refuse.

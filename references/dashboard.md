@@ -1,26 +1,43 @@
 # Dashboard product and control contract
 
-> This file documents the currently implemented application dashboard. The
-> dashboard-first ground-truth journey, complete control audit, and prioritized
-> remediation plan are defined in
-> [`user-journey-control-audit.md`](user-journey-control-audit.md). Where this
-> contract begins with job capture, the target first-run journey establishes and
-> signs candidate truth before job intake.
+> This file is the control contract for the application loop — capture through
+> learning. The dashboard-first ground-truth journey that runs *before* the
+> loop, its complete control audit and the prioritized remediation plan are
+> defined in [`user-journey-control-audit.md`](user-journey-control-audit.md);
+> that document is authoritative wherever the two disagree about first-run
+> behaviour.
 
 ## Applicant persona
 
 The primary user is an experienced applicant pursuing a small number of
-high-value roles. They want to apply through one surface and should never need
-to know application keys, hashes, commands, release names or folder internals.
-They are willing to review evidence and make decisions, but expect the system to
-remember exact artefacts and to refuse unsupported claims.
+high-value roles. They want to work through one surface and should not need to
+know application keys, hashes, commands, release names or folder internals to
+complete the primary journey. The CLI remains available as a recovery and
+automation surface, not a prerequisite. They are willing to review evidence and
+make decisions, but expect the system to remember exact artefacts and to refuse
+unsupported claims.
+
+### Two entry states
+
+The dashboard opens in one of two states, decided by ground-truth readiness —
+never straight into job capture on a cold install:
+
+- **First run / truth not ready** — the entry surface is *Set up career truth*:
+  seed one base CV, add optional supporting evidence, review cited fact
+  candidates, resolve conflicts, and sign the exact truth digest. Job capture is
+  not offered until a signed digest exists. See the audit for the full journey.
+- **Returning / truth ready** — the entry surface is the working-applications
+  list below. A periodic audit or a material truth change returns *only* the
+  affected truth to review; it never forces a full rebuild and never hides
+  in-progress applications.
 
 The workspace must answer these questions without reconstruction:
 
 1. What job am I working on, and what is the next real decision?
 2. What exact JD, CV, letter and portal evidence belong to it?
 3. What has Codex proposed, what did I approve, and what remains blocked?
-4. What was submitted and what outcome was observed?
+4. What was submitted and what outcome was observed — and every stage it passed
+   through, even if a later stage was negative?
 5. Which rejection explanations are only best guesses, and which lesson—if any—
    survived evidence challenge for future preflight?
 
@@ -50,6 +67,10 @@ artefacts, outcomes and reasoning remain in the same append-only or hash-bound
 records used by the CLI.
 
 ## Essential journey controls
+
+These are the controls of the **application loop**. The loop is reachable only
+from the `TRUTH_READY` entry state; Capture is step 1 of the loop, never step 1
+of a first run.
 
 | Journey step | Applicant interaction | Controller and proof of completion | Fail-closed behaviour |
 |---|---|---|---|

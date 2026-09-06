@@ -10,7 +10,12 @@ deterministic, evidence-preserving and portable.
 5. Keep truth-schema changes backward compatible or provide a migration.
 6. Prefer the standard library; a dependency must justify its portability and
    audit cost.
-7. Run `run_checks.ps1` or `run_checks.sh` before committing.
+7. Run `run_checks.ps1` or `run_checks.sh` before committing (both delegate to
+   `tools/run_checks.py`; `python -m pytest -q` runs the same checks). CI runs
+   the full scope on every push.
+8. After changing anything in the public allowlist, re-export the mirror.
+   `python tools/check_repo.py --mirror-drift` reports when the private source
+   has moved ahead of the last published mirror.
 
 Personal runtime data is valid only when policy is `PERSONAL_PRIVATE`; it must
 never cross into public work. A `PUBLIC_SKILL` checkout accepts fictional test

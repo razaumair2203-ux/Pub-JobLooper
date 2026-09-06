@@ -1,5 +1,7 @@
 """Dashboard projection, privacy boundary and local-server invariants."""
 import base64
+import contextlib
+import io
 import json
 import os
 import shutil
@@ -9,14 +11,16 @@ import threading
 import urllib.error
 import urllib.parse
 import urllib.request
+from types import SimpleNamespace
 
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FIXTURE = os.path.join(ROOT, 'examples', 'starter')
 sys.path.insert(0, ROOT)
 
+import jl
 from core import (codex_bridge, dashboard, dashboard_actions, dashboard_runtime,
-                  feedback, integrity, job_fetch, store, vec)
+                  feedback, integrity, job_fetch, store, truth_review, vec)
 
 
 def fetch(url):
@@ -135,6 +139,40 @@ def main():
                        and 'Open captured JD' in app_script
                        and 'CV and letter not created' in app_script
                        and 'not an ATS score' in app_script))
+        # A re-saved advert page says the same thing. Withdrawing an approved CV
+        # decision over line endings trains users to ignore real refresh alerts.
+        jd_record = store.read_json(
+            os.path.join(store.job_dir(active_job['id']), 'jd.json'))
+        raw_advert = store.read_text(
+            os.path.join(store.job_dir(active_job['id']), 'jd.raw.md'))
+        jd_record['raw_sha256'] = store.sha256_text(raw_advert)
+        jd_record['raw_normalized_sha256'] = store.sha256_advert(raw_advert)
+        cosmetic = {
+            'CRLF line endings': raw_advert.replace('\n', '\r\n'),
+            'trailing whitespace': '\n'.join(
+                line + '   ' for line in raw_advert.split('\n')),
+            'collapsed blank lines': raw_advert.replace('\n\n', '\n\n\n'),
+            'leading and trailing padding': '\n\n' + raw_advert + '\n\n',
+        }
+        cosmetic_ok = all(
+            dashboard._analysis_state(active_job['id'], jd_record, text)[0]['current']
+            for text in cosmetic.values())
+        emptied = '\n'.join(line for line in raw_advert.split('\n')
+                            if not line.strip().startswith('-'))
+        semantic_state, _ = dashboard._analysis_state(
+            active_job['id'], jd_record, emptied)
+        checks.append(('a cosmetically re-saved advert does not withdraw the CV decision',
+                       cosmetic_ok
+                       and dashboard._analysis_state(
+                           active_job['id'], jd_record, raw_advert)[0]['current']
+                       and semantic_state['current'] is False
+                       and semantic_state['detected_count']
+                       < semantic_state['stored_count']))
+        crlf_advert = raw_advert.replace('\n', '\r\n')
+        checks.append(('advert normalization keeps byte-exact provenance separate',
+                       store.sha256_text(raw_advert) != store.sha256_text(crlf_advert)
+                       and store.sha256_advert(raw_advert)
+                       == store.sha256_advert(crlf_advert)))
         checks.append(('internal cautions are visible before employer document review',
                        'data-tab="cautions"' in page_source
                        and page_source.index('data-tab="cautions"')
@@ -688,6 +726,42 @@ def main():
                        snapshot['kpis']['jobs'] == 0
                        and snapshot['jobs'] == []
                        and snapshot['truth']['ready'] is False))
+        # JF-01: capture is not a first-run action. An unreadable workspace is
+        # TRUTH_BLOCKED, never silently treated as ready, and either way the
+        # dashboard must refuse to tailor against facts nobody has reviewed.
+        entry = snapshot['entry']
+        checks.append(('an unonboarded workspace never reports capture-ready truth',
+                       entry['state'] in truth_review.ENTRY_STATES
+                       and entry['state'] != 'TRUTH_READY'
+                       and entry['can_capture'] is False
+                       and bool(entry['reason']) and bool(entry['next_action'])))
+        try:
+            dashboard_actions.ingest(
+                'Fictional advert body for gating.', 'Example Aerospace',
+                'Senior Systems Engineer')
+            capture_refused = False
+        except ValueError as error:
+            capture_refused = 'before capturing a job' in str(error)
+        checks.append(('unsigned candidate truth refuses job capture',
+                       capture_refused))
+        checks.append(('the browser routes an ungated capture to truth setup',
+                       'function openIntake()' in app_script
+                       and 'entry.can_capture === false' in app_script
+                       and 'data-active-action="truth"' in app_script))
+
+    # A real first run initializes the workspace before anything else. It must
+    # route to career-truth setup, not to a job link.
+    with tempfile.TemporaryDirectory(prefix='joblooper-dashboard-init-') as fresh:
+        workspace = os.path.join(fresh, 'workspace')
+        store.configure(workspace)
+        vec.reset_caches()
+        with contextlib.redirect_stdout(io.StringIO()):
+            jl.cmd_init(SimpleNamespace(demo=False))
+        first_run = truth_review.entry_state()
+        checks.append(('a fresh workspace opens on career truth, not job capture',
+                       first_run['state'] == 'UNINITIALIZED'
+                       and first_run['can_capture'] is False
+                       and 'career truth' in first_run['next_action'].lower()))
 
     for name, ok in checks:
         print(f"  {'ok  ' if ok else 'FAIL'} {name}")

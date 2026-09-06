@@ -39,6 +39,22 @@ ATTENTION_ROUTES = frozenset({
     'preflight', 'review_bundle', 'submission', 'submission_metadata',
     'truth_integrity',
 })
+# A job may raise several independent tasks at once. Ranking them explicitly
+# keeps the queue order intentional instead of an accident of insertion order.
+ATTENTION_KIND_RANK = {
+    'truth_integrity': 0, 'integrity': 1, 'jd_analysis': 2, 'feedback': 3,
+    'preflight': 4, 'prepare': 5, 'gate_blocked': 6, 'approve': 7, 'review': 8,
+    'build': 9, 'submission_reconcile': 10, 'submit': 11,
+    'submission_metadata': 12, 'outcome_date': 13, 'next_stage': 14,
+    'reasoning': 15,
+}
+# The single definition of the lifecycle vocabulary. `dashboard/app.js` reads
+# these from the snapshot so the browser cannot hold a divergent copy.
+LIFECYCLE_PHASES = ('captured', 'review', 'approved', 'applied', 'progressed',
+                    'rejected', 'closed')
+# "In progress" means the applicant still owns the next action, or the employer
+# has been given the application and no outcome has been observed yet.
+ACTIVE_PHASES = ('captured', 'review', 'approved', 'applied')
 ARTIFACT_LABELS = {
     'pdf': ('CV · submitted format', 'Application'),
     'docx': ('CV · editable', 'Application'),
@@ -284,12 +300,18 @@ def _analysis_state(slug, jd, raw):
     candidate['_slug'] = slug
     candidate['ingested'] = jd.get('ingested') or candidate.get('ingested')
     candidate['raw_sha256'] = store.sha256_text(raw)
+    candidate['raw_normalized_sha256'] = store.sha256_advert(raw)
     stored = _requirement_signature(jd)
     detected = _requirement_signature(candidate)
-    # Legacy records predate raw_sha256 but can still be proven structurally
-    # current by an exact parser-owned requirement signature.
-    raw_current = (not jd.get('raw_sha256')
-                   or jd.get('raw_sha256') == candidate.get('raw_sha256'))
+    # Currency is compared on the advert's meaning, not its bytes: a page
+    # re-saved with different line endings or trailing spaces says the same
+    # thing, and withdrawing an approved CV decision over that is a false alarm.
+    # Records written before normalized hashing, and legacy records with no
+    # digest at all, are proven current by the parser-owned requirement
+    # signature that `current` already requires below.
+    raw_current = (not jd.get('raw_normalized_sha256')
+                   or jd.get('raw_normalized_sha256')
+                   == candidate.get('raw_normalized_sha256'))
     current = bool(raw_current and stored == detected)
     message = ('Structured analysis matches the exact captured advert.' if current else
                f'The saved analysis has {len(stored)} items; the current parser detects '
@@ -409,8 +431,11 @@ def _job_snapshot(slug, applications, events):
     artifacts = _artifacts(slug, directory, package, manifest, submission)
     hypotheses = _hypotheses(app)
 
+    # The exact sent-file receipt is verified independently of the current
+    # package. Gating this on `package_ready` meant one re-rendered unsent
+    # derivative erased a submitted application's whole completed history.
     submission_receipt, submission_errors = (
-        release.verify_submission(slug) if app and package_ready else (None, []))
+        release.verify_submission(slug) if app and submission else (None, []))
     if submission and not app:
         submission_errors = [
             *submission_errors,
@@ -464,6 +489,7 @@ def _job_snapshot(slug, applications, events):
             'best': row.get('best'),
         })
     correlated_ids = {slug, *(jd.get('_legacy_slugs') or [])}
+    milestones = learning.milestones_reached(correlated_ids, events, app)
     timeline = []
     for event in events:
         if event.get('app_id') not in correlated_ids:
@@ -695,6 +721,10 @@ def _job_snapshot(slug, applications, events):
         'reference': jd.get('job_reference') or 'Not recorded',
         'official_url': jd.get('url'),
         'phase': phase,
+        # `phase` is the current state and is overwritten; `milestones_reached`
+        # is append-only history, so a later rejection cannot erase an interview.
+        'milestones_reached': milestones,
+        'best_positive_milestone': learning.best_positive_milestone(milestones),
         'source_state': work_state,
         'updated_at': updated_at,
         'next_action': next_action,
@@ -772,8 +802,11 @@ def build_snapshot(include_private=False):
         row['company'].casefold(), row['role'].casefold()))
 
     outcomes = [row for row in app_rows if row.get('status') not in {None, 'applied'}]
-    positive = [row for row in outcomes
-                if row.get('status') in learning.POSITIVE_OUTCOMES]
+    # "Progressed" is a milestone the application reached, not its current state:
+    # an interview followed by a rejection is both progressed and rejected.
+    positive = [row for row in app_rows
+                if learning.best_positive_milestone(
+                    learning.milestones_reached(row.get('app_id'), events, row))]
     negative = [row for row in outcomes
                 if row.get('status') in learning.NEGATIVE_OUTCOMES]
     exact = sum(learning._exact_submission(row) for row in app_rows)
@@ -787,15 +820,21 @@ def build_snapshot(include_private=False):
     immediate = sum(
         (row.get('response_latency') or {}).get('band') == 'under_24h'
         for row in outcomes)
-    phases = {name: sum(job['phase'] == name for job in jobs) for name in (
-        'captured', 'review', 'approved', 'applied', 'progressed', 'rejected', 'closed')}
+    phases = {name: sum(job['phase'] == name for job in jobs)
+              for name in LIFECYCLE_PHASES}
+    # Counted from each job's append-only milestone history rather than its
+    # current phase, so an application that advanced and was later rejected is
+    # still counted at every stage it actually reached.
     milestones = {
         'captured': len(jobs),
         'reviewed': sum(bool(store.read_json(os.path.join(
             store.job_dir(job['id']), release.PRESENTATION_NAME), {}))
+                        or 'reviewed' in (job.get('milestones_reached') or [])
                         or job['phase'] in {'approved', 'applied', 'progressed', 'rejected', 'closed'}
                         for job in jobs),
-        'approved': sum(bool(job.get('workflow', {}).get('approval')) for job in jobs),
+        'approved': sum(bool(job.get('workflow', {}).get('approval'))
+                        or 'approved' in (job.get('milestones_reached') or [])
+                        for job in jobs),
         'applied': len(app_rows),
         'progressed': len(positive),
         'rejected': len(negative),
@@ -827,6 +866,7 @@ def build_snapshot(include_private=False):
             'errors': 1, 'warnings': 0, 'problems': [str(error)],
             'integrity_errors': [str(error)], 'integrity_warnings': [],
         }
+    entry = truth_review.entry_state()
 
     lessons = []
     for row in learning.confirmed_lessons():
@@ -874,15 +914,21 @@ def build_snapshot(include_private=False):
                 job, 'integrity', 'Resolve package integrity errors',
                 'Inspect the exact artefact and digest exceptions before doing anything else.',
                 'Inspect', 'artifacts', 'critical')
-            continue
-        if not workflow.get('analysis_current') and not job.get('exact_submission'):
+        analysis_stale = (not workflow.get('analysis_current')
+                          and not job.get('exact_submission'))
+        if analysis_stale:
             add_attention(
                 job, 'jd_analysis', 'Refresh incomplete job analysis',
                 job.get('cautions', {}).get('analysis_message')
                 or 'The structured JD no longer matches the exact captured advert.',
                 'Review cautions', 'cautions', 'critical')
-            continue
-        if workflow.get('open_feedback'):
+        # Lifecycle-gate tasks are computed from the structured analysis, so a
+        # stale analysis makes them the wrong work and they wait for the
+        # refresh. A package-integrity failure suppresses nothing: the record
+        # tasks below are independent of it and must stay visible.
+        if analysis_stale:
+            pass
+        elif workflow.get('open_feedback'):
             add_attention(
                 job, 'feedback', 'Resolve open application feedback',
                 'Current presentation and approval remain stale until the comment is resolved.',
@@ -969,7 +1015,10 @@ def build_snapshot(include_private=False):
                 'Update the existing outcome; do not infer a date from when it was entered.',
                 'Update outcome', 'outcome', 'warning')
     severity_rank = {'critical': 0, 'action': 1, 'warning': 2, 'info': 3}
-    attention.sort(key=lambda row: (severity_rank.get(row['severity'], 9), row['company']))
+    attention.sort(key=lambda row: (
+        severity_rank.get(row['severity'], 9),
+        ATTENTION_KIND_RANK.get(row['kind'], 99),
+        row['company'], row['job_id'] or ''))
 
     companies = {str(row.get('company') or '').strip().casefold() for row in app_rows}
     snapshot = {
@@ -984,7 +1033,7 @@ def build_snapshot(include_private=False):
         'truth': truth_data,
         'kpis': {
             'jobs': len(jobs),
-            'in_progress': sum(phases[name] for name in ('captured', 'review', 'approved', 'applied')),
+            'in_progress': sum(phases[name] for name in ACTIVE_PHASES),
             'submitted': len(app_rows), 'progressed': len(positive),
             'rejected': len(negative), 'exact_submissions': exact,
             'screening_captured': screening,
@@ -996,7 +1045,15 @@ def build_snapshot(include_private=False):
             'outcome_denominator': len(outcomes),
             'small_sample': len(app_rows) < 10 or len(companies) < 3,
         },
+        # Which surface the dashboard opens on. Job capture is not a first-run
+        # action: it is gated on a signed career-truth digest.
+        'entry': entry,
         'phases': phases, 'milestones': milestones,
+        'lifecycle': {
+            'phases': list(LIFECYCLE_PHASES),
+            'active_phases': list(ACTIVE_PHASES),
+            'milestone_order': list(learning.MILESTONE_ORDER),
+        },
         'jobs': [{key: value for key, value in job.items() if key != '_artifacts'}
                  for job in jobs],
         'lessons': lessons, 'attention': attention,

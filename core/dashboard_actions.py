@@ -11,7 +11,7 @@ import tempfile
 import threading
 import urllib.parse
 
-from . import job_fetch, learning, match, preflight, release, store
+from . import job_fetch, learning, match, preflight, release, store, truth_review
 
 
 _ACTION_LOCK = threading.RLock()
@@ -40,7 +40,22 @@ def _run_cli(arguments, timeout=300):
     }
 
 
+def require_capture_ready():
+    """Refuse job capture until candidate truth is signed.
+
+    An advert can only be tailored against facts the system is allowed to use,
+    so capture is gated on the entry state rather than being the first-run
+    action. This fails closed for the same reason every other gate does.
+    """
+    entry = truth_review.entry_state()
+    if not entry['can_capture']:
+        raise ValueError(
+            f"{entry['next_action']} before capturing a job — {entry['reason']}")
+    return entry
+
+
 def ingest(raw, company, title, url=None):
+    require_capture_ready()
     raw = str(raw or '').strip()
     company = str(company or '').strip()
     title = str(title or '').strip()
@@ -89,6 +104,7 @@ def ingest(raw, company, title, url=None):
 
 def ingest_url(url):
     """Extract and capture a public advert without asking for duplicate fields."""
+    require_capture_ready()
     requested_url = str(url or '').strip()
     extracted = job_fetch.fetch(requested_url)
     result = ingest(

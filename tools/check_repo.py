@@ -145,6 +145,25 @@ def content_problems(root, files, scope):
     return problems
 
 
+def file_digest(path):
+    """Digest one file, ignoring line-ending style for text.
+
+    Two checkouts of identical source differ byte-for-byte when Git applies
+    different `core.autocrlf` settings. Hashing raw bytes made equivalent trees
+    report drift (audit JF-11), so text is normalized to LF first. Binary files
+    are hashed exactly.
+    """
+    with open(path, 'rb') as stream:
+        content = stream.read()
+    if not path.lower().endswith(BINARY_SUFFIXES):
+        try:
+            content = content.decode('utf-8').replace(
+                '\r\n', '\n').replace('\r', '\n').encode('utf-8')
+        except UnicodeDecodeError:
+            pass
+    return hashlib.sha256(content).hexdigest()
+
+
 def release_fingerprint(root):
     digest = hashlib.sha256()
     for base, dirs, names in os.walk(root):
@@ -155,11 +174,66 @@ def release_fingerprint(root):
             if relative == 'repo-policy.json':
                 continue
             digest.update(relative.encode('utf-8') + b'\0')
-            with open(path, 'rb') as stream:
-                for block in iter(lambda: stream.read(1024 * 1024), b''):
-                    digest.update(block)
+            digest.update(file_digest(path).encode('ascii'))
             digest.update(b'\0')
     return digest.hexdigest()
+
+
+EXPORT_RECORD = os.path.join('.joblooper', 'index', 'public_export.json')
+
+
+def allowlist_digests(root, allow_files):
+    """Digest every allowlisted file, keyed by public-tree relative path."""
+    digests = {}
+    for name in sorted(allow_files):
+        source = os.path.join(root, name)
+        if os.path.isfile(source):
+            digests[name] = file_digest(source)
+            continue
+        for base, dirs, names in os.walk(source):
+            dirs[:] = sorted(d for d in dirs if d not in {'.git', '__pycache__'})
+            for filename in sorted(names):
+                path = os.path.join(base, filename)
+                relative = os.path.relpath(path, root).replace('\\', '/')
+                if relative.endswith('.pyc'):
+                    continue
+                digests[relative] = file_digest(path)
+    return digests
+
+
+def mirror_drift_problems(root):
+    """Report allowlisted files changed since the last public export.
+
+    The two repositories are deliberately separate code lines kept in step by
+    hand, which is exactly the situation where drift goes unnoticed. This turns
+    "remember to re-export" into a check. An absent record is reported but is
+    not a failure: it only means no export has been made from this checkout yet.
+    """
+    record_path = os.path.join(root, EXPORT_RECORD)
+    if not os.path.isfile(record_path):
+        return [], ['no recorded public export; run tools/export_public.py to '
+                    'establish the mirror baseline']
+    try:
+        with open(record_path, encoding='utf-8') as stream:
+            record = json.load(stream)
+    except (OSError, ValueError) as error:
+        return [f'public export record is unreadable: {error}'], []
+
+    exported = record.get('files') or {}
+    try:
+        import export_public
+    except ImportError:
+        from . import export_public
+    current = allowlist_digests(root, export_public.ALLOW_FILES)
+    problems = []
+    for name in sorted(set(exported) | set(current)):
+        before, after = exported.get(name), current.get(name)
+        if before == after:
+            continue
+        state = 'added' if not before else 'removed' if not after else 'changed'
+        problems.append(f'public mirror is behind: {name} ({state} since '
+                        f"export {record.get('exported_at', 'unknown')})")
+    return problems, []
 
 
 def _normal_url(value):
@@ -213,8 +287,28 @@ def main():
                         help='also scan every reachable historical blob for secrets')
     parser.add_argument('--public-tree', metavar='PATH',
                         help='audit a generated public mirror directory instead of this repo')
+    parser.add_argument('--mirror-drift', action='store_true',
+                        help='report allowlisted files changed since the last public export')
     args = parser.parse_args()
     root = os.path.abspath(args.public_tree or ROOT)
+    if args.mirror_drift:
+        if args.public_tree:
+            print('mirror drift is measured from the personal source repository')
+            return 2
+        drift, notes = mirror_drift_problems(root)
+        for note in notes:
+            print(f'mirror drift: {note}')
+        if drift:
+            print(f'{len(drift)} public mirror drift problem(s):')
+            for problem in drift[:60]:
+                print(f'  - {problem}')
+            if len(drift) > 60:
+                print(f'  - ...and {len(drift) - 60} more')
+            print('Re-export with tools/export_public.py and review the diff.')
+            return 1
+        if not notes:
+            print('public mirror is in step with the personal source')
+        return 0
     problems = []
     repo_policy = policy(root)
     public = bool(args.public_tree) or repo_policy.get('classification') == 'PUBLIC_SKILL'

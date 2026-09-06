@@ -15,6 +15,69 @@ NEGATIVE_OUTCOMES = {'rejected', 'ghosted'}
 POSITIVE_OUTCOMES = {'interview', 'progressed', 'offer'}
 MINIMUM_RELEVANT_SIMILARITY = 0.35
 
+# An application's `status` field is its *current* state and is overwritten in
+# place. The append-only event ledger is the only record of what it passed
+# through, so a later rejection cannot erase an earlier interview.
+MILESTONE_EVENTS = {
+    'JOB_INGESTED': 'captured',
+    'JOB_REKEYED': 'captured',
+    'PREFLIGHT_RECORDED': 'preflight',
+    'PLAN_CREATED': 'planned',
+    'CV_PRESENTED_IN_CHAT': 'reviewed',
+    'APPLICATION_BUNDLE_PRESENTED_IN_CHAT': 'reviewed',
+    'PLAN_APPROVED': 'approved',
+    'CANDIDATE_BUILT': 'built',
+    'APPROVED_ARTEFACTS_BUILT': 'built',
+    'SUBMITTED': 'applied',
+    'APPLICATION_RECORDED': 'applied',
+    'EXTERNAL_SUBMISSION_SEALED': 'applied',
+    'EXTERNAL_SUBMISSION_CONFIRMED': 'applied',
+}
+MILESTONE_ORDER = (
+    'captured', 'preflight', 'planned', 'reviewed', 'approved', 'built',
+    'applied', 'interview', 'progressed', 'offer', 'rejected', 'ghosted',
+    'withdrawn',
+)
+POSITIVE_RANK = {'offer': 3, 'interview': 2, 'progressed': 1}
+
+
+def milestones_reached(app_ids, events=None, app=None):
+    """Every stage this application has ever reached, in lifecycle order.
+
+    Derived from the append-only ledger rather than the mutable latest status,
+    so an application that reached interview and was later rejected still
+    reports both. Milestones are additive history; they never rewrite `status`.
+    """
+    if isinstance(app_ids, str):
+        app_ids = {app_ids}
+    app_ids = {value for value in app_ids if value}
+    reached = set()
+    for event in (store.application_events() if events is None else events):
+        if event.get('app_id') not in app_ids:
+            continue
+        stage = MILESTONE_EVENTS.get(event.get('event'))
+        if stage:
+            reached.add(stage)
+        if event.get('event') == 'OUTCOME':
+            status = str(event.get('status') or '').lower()
+            if status in MILESTONE_ORDER:
+                reached.add(status)
+    if app:
+        # Ledgers written before the event schema existed, and any outcome
+        # recorded without a matching event, still count as reached.
+        status = str(app.get('status') or '').lower()
+        if status in MILESTONE_ORDER:
+            reached.add(status)
+        if _exact_submission(app):
+            reached.add('applied')
+    return [stage for stage in MILESTONE_ORDER if stage in reached]
+
+
+def best_positive_milestone(milestones):
+    """The strongest positive stage in a milestone list, or None."""
+    positives = [stage for stage in milestones if stage in POSITIVE_RANK]
+    return max(positives, key=POSITIVE_RANK.__getitem__) if positives else None
+
 
 def _application(slug):
     apps = store.applications()
@@ -216,25 +279,37 @@ def relevant_positive_outcomes(jd, exclude_slug=None, top=3):
                      + [r.get('text', '') for r in jd.get('requirements', [])])
     by_app = {a.get('app_id'): a for a in store.applications()
               if not a.get('exclude_from_analytics')}
+    events = store.application_events()
     rows = []
     for slug, similarity in bm.normed(query, top=12):
         if slug == exclude_slug or similarity < MINIMUM_RELEVANT_SIMILARITY:
             continue
         app = by_app.get(slug)
-        status = str((app or {}).get('status') or '').lower()
-        if not app or not _exact_submission(app) or status not in POSITIVE_OUTCOMES:
+        if not app or not _exact_submission(app):
             continue
+        # Read the reached stage from the ledger: an application that was
+        # interviewed and later rejected still evidences that it advanced.
+        milestones = milestones_reached(slug, events, app)
+        reached = best_positive_milestone(milestones)
+        if not reached:
+            continue
+        current = str(app.get('status') or '').lower()
+        observation = (f"The exact submitted application reached {reached}; "
+                       "the employer's causal reasoning is unknown.")
+        if current and current != reached:
+            observation = (f"The exact submitted application reached {reached} and "
+                           f"its latest recorded status is {current}; "
+                           "the employer's causal reasoning is unknown.")
         rows.append({
             'app_id': slug, 'company': app.get('company'), 'role': app.get('role'),
-            'similarity': similarity, 'status': status,
+            'similarity': similarity, 'status': reached,
+            'current_status': current or None, 'milestones': milestones,
             'responded': app.get('responded'), 'days': app.get('days'),
             'identity': app.get('identity'), 'coverage': app.get('coverage'),
             'submitted_manifest_sha256': app.get('release_manifest_sha256'),
-            'observation': (f"The exact submitted application reached {status}; "
-                            "the employer's causal reasoning is unknown."),
+            'observation': observation,
         })
-    rank = {'offer': 3, 'interview': 2, 'progressed': 1}
-    rows.sort(key=lambda row: (-row['similarity'], -rank[row['status']],
+    rows.sort(key=lambda row: (-row['similarity'], -POSITIVE_RANK[row['status']],
                                str(row.get('responded') or '')))
     return rows[:top]
 

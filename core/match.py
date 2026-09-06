@@ -63,18 +63,84 @@ _PROFILE_GATE = re.compile(
 # uncovered can drag a strong match down dramatically, which is not honesty but
 # noise. They are listed separately in PREVIEW and excluded from the coverage
 # denominator.
-_BEHAVIOURAL = re.compile(
-    r'\b(interpersonal|communication skills?|team ?work\w*|collaborat\w*|'
-    r'ability to communicate|influenc\w*|mediat\w*|facilitat\w*|'
-    r'self[- ]motivat\w*|proactive|attention to detail|work independently|'
-    r'flexible|adaptab\w*|enthusias\w*|can[- ]do|professional manner|'
-    r'promote a? ?culture|dependable relationship)\b', re.I)
+#
+# Dispositions, matched as concepts through the ordinary stemmer rather than as
+# surface phrases. The previous regex hand-reimplemented stemming with '\w*'
+# suffixes -- 'collaborat\w*', 'influenc\w*', 'adaptab\w*' -- so semantically
+# identical requirements landed in different classes depending on the advert's
+# grammar: "communication skills" was behavioural while "communicating
+# effectively" was scored as evidence, and "fostering a collaborative team
+# environment" was behavioural while "inspiring team members" was a GAP.
+#
+# The list stays explicit and small on purpose. Corpus statistics cannot make
+# this call: measured across the captured adverts, unfalsifiable statements and
+# genuine gaps such as Arabic fluency, Saudi utility experience and financial
+# process knowledge occupy the same concept-coverage range. Inferring the class
+# would silently drop real gaps out of the denominator and inflate coverage,
+# which is the one direction this system must never fail in.
+# Written as ordinary words and stemmed on use, so the list stays readable and
+# stays correct if the stemmer changes. Variants that do not share a stem
+# (collaborative/collaboration) are both listed rather than stemmed together:
+# merging '-ive' would also merge 'objective' into 'object'.
+#
+# Unambiguous dispositions: in an engineering advert these only ever describe a
+# person.
+_BEHAVIOURAL_WORDS = frozenset({
+    'interpersonal', 'teamwork', 'collaborative', 'collaboration',
+    'mediate', 'facilitate', 'proactive', 'adaptable', 'enthusiasm',
+    'motivated', 'inspiring', 'purposeful', 'rapport', 'diligence',
+    'judgment', 'judgement',
+})
+# Words with an engineering sense as well as a personal one. The original regex
+# used whole phrases ("communication skills") precisely to disambiguate these,
+# and dropping that was a real regression: "Technical Compliance & Integrity:
+# ensuring all engineering deliverables comply..." became BEHAVIOURAL on the
+# word 'integrity' and left the coverage denominator entirely. They now count
+# only alongside a word that makes the subject a person.
+_AMBIGUOUS_DISPOSITIONS = frozenset({
+    'communication', 'communicating', 'communicate', 'integrity', 'commitment',
+    'initiative', 'resilience', 'flexible', 'influence',
+})
+# Matched against the raw word list, not tokens(): 'ability' and 'manner' are
+# governed stopwords, so checking the stopworded stream silently lost every
+# "Ability to communicate at all organisational levels".
+_PERSONAL_CONTEXT = frozenset({
+    'skills', 'ability', 'abilities', 'manner', 'attitude', 'mindset',
+    'interpersonal', 'personal', 'behaviour', 'behavior', 'colleagues',
+    'peers', 'rapport', 'stakeholders',
+})
+_BEHAVIOURAL_PHRASES = re.compile(
+    r'\b(attention to detail|work independently|can[- ]do|'
+    r'professional manner|promote a? ?culture|dependable relationship|'
+    r'team ?work\w*|self[- ]motivat\w*|'
+    # "remain flexible" is a disposition; "flexible design" is not.
+    r'(?:remain|be|being|stay|stays?) flexible|flexible (?:approach|attitude))\b',
+    re.I)
+_BEHAVIOURAL_STEMS = None
+
+
+def _behavioural_concepts(body):
+    """Disposition concepts a requirement asserts, via the shared stemmer."""
+    global _BEHAVIOURAL_STEMS
+    if _BEHAVIOURAL_STEMS is None:
+        _BEHAVIOURAL_STEMS = tuple(
+            frozenset(vec._stem(word) for word in group)
+            for group in (_BEHAVIOURAL_WORDS, _AMBIGUOUS_DISPOSITIONS,
+                          _PERSONAL_CONTEXT))
+    plain, ambiguous, context = _BEHAVIOURAL_STEMS
+    stems = set(vec.tokens(body))
+    found = stems & plain
+    # Stopwords are removed from tokens(), so the personal-context test reads
+    # the unfiltered words.
+    if {vec._stem(word) for word in vec._words(body)} & context:
+        found |= stems & ambiguous
+    return found
 
 
 def _gate_type(body):
     if _PROFILE_GATE.search(body):
         return 'profile'
-    if _BEHAVIOURAL.search(body):
+    if _BEHAVIOURAL_PHRASES.search(body) or _behavioural_concepts(body):
         return 'behavioural'
     return 'evidence'
 
@@ -142,15 +208,21 @@ def _is_hard_gate(body, kind='preferred'):
        the bullet body hid exactly the disqualifying credentials this exists to
        surface.
 
-    Errs toward flagging: a false hard gate costs one line in the preview, a
-    missed one costs a wasted application.
+    A forcing word alone is not enough. Adverts phrase ordinary duties
+    forcefully -- "Must ensure designs comply with client specifications",
+    "Ensuring deliverables adhere to all mandatory national standards" -- and
+    treating those as gates is not a cheap false positive: G7 refuses to build
+    any package with an unresolved hard gate, so a misread duty blocks the
+    application outright. The original rationale, that a false hard gate costs
+    one line in the preview, stopped being true when that consumer was added.
+    A gate must therefore name a gate subject: a credential, legal status, year
+    count or language, exactly as this docstring describes.
     """
     if kind == 'mandatory' and _GATE_SUBJECT.search(body):
         return True
     if not _GATE_FORCE.search(body):
         return False
-    return bool(_GATE_SUBJECT.search(body)) or bool(
-        re.search(r'\b(must|mandatory|is required|are required)\b', body, re.I))
+    return bool(_GATE_SUBJECT.search(body))
 
 
 def parse_jd(raw, title=None, company=None, url=None, job_reference=None):
@@ -263,6 +335,24 @@ def pick_identity(jd, override=None):
     }
 
 
+# Concept-coverage bands. BROAD: nearly every concept is evidenced somewhere,
+# so a low single-anchor score reflects breadth rather than absence. THIN: most
+# concepts are absent from the corpus entirely, so a lexically flattering
+# neighbour must not stand as the verdict.
+CONCEPT_BROAD, CONCEPT_THIN = 0.75, 0.40
+_CLASS_ORDER = ('GAP', 'PARTIAL', 'TRANSFERABLE', 'DIRECT')
+
+
+def _promote(cls):
+    i = _CLASS_ORDER.index(cls) if cls in _CLASS_ORDER else None
+    return _CLASS_ORDER[min(i + 1, len(_CLASS_ORDER) - 1)] if i is not None else cls
+
+
+def _demote(cls):
+    i = _CLASS_ORDER.index(cls) if cls in _CLASS_ORDER else None
+    return _CLASS_ORDER[max(i - 1, 0)] if i is not None else cls
+
+
 def _classify(score):
     if score >= DIRECT:
         return 'DIRECT'
@@ -319,6 +409,72 @@ def _employer_context(jd):
     return ctx
 
 
+def _inline_acronyms(text):
+    """Acronyms the requirement defines itself, e.g. 'Quality, Cost, Time (QCT)'.
+
+    An advert that expands its own acronym in the same sentence is not naming a
+    product the candidate must have used; it is labelling the phrase it just
+    wrote. Treating those as unknown platforms both produced noise notes and
+    demoted otherwise DIRECT requirements to PARTIAL.
+    """
+    defined = set()
+    for hit in re.finditer(r'\(([A-Z]{2,6})s?\)', text):
+        acronym = hit.group(1).upper()
+        letters = list(acronym)
+        # The expansion always precedes the acronym, so read the words before it
+        # and compare their tail: in "project Quality, Cost, and Time (QCT)" only
+        # the last three content words count.
+        words = [w for w in re.findall(r'[A-Za-z]+', text[:hit.start()])
+                 if w.lower() not in _ACRONYM_GLUE]
+        initials = [w[0].upper() for w in words[-len(letters):]]
+        if initials == letters:
+            defined.add(acronym)
+    return defined
+
+
+_ACRONYM_GLUE = {'and', 'or', 'of', 'the', 'for', 'a', 'an', 'to', 'in', 'on', 'with'}
+
+
+def _concept_coverage(text, bm):
+    """Fraction of a requirement's concepts evidenced ANYWHERE in the corpus.
+
+    The per-requirement score is the similarity of the single closest anchor,
+    which structurally penalises breadth: a responsibility spanning procurement,
+    construction and commissioning spreads its meaning across several anchors,
+    so every individual overlap is diluted and none clears the threshold even
+    when the union is nearly complete.
+
+    This asks the complementary question the retrieval score cannot -- is each
+    concept evidenced somewhere? -- and returns the terms that are not, so the
+    reviewer sees exactly what is missing instead of a bare GAP. It deliberately
+    does not judge which unsupported terms matter: 'construction' and 'seamless'
+    are indistinguishable to the engine, and guessing would hide real gaps.
+    Weighting mirrors vec.token_coverage so alias tags cannot mask a noun.
+    """
+    query = vec.expand(text)
+    # Report the words the reviewer actually wrote, not their stems: "seamle"
+    # and "deliverabl" are unreadable in a caution that a person has to judge.
+    surface = {}
+    for word in vec._words(text):
+        surface.setdefault(vec._stem(word), word)
+    # An acronym the advert expands itself adds no concept of its own -- the
+    # words it abbreviates are already counted -- so it belongs in neither the
+    # denominator nor the residue.
+    self_defined = {vec._stem(a.lower()) for a in _inline_acronyms(text)}
+    total = hit = 0.0
+    missing = []
+    for term, freq in query.items():
+        if term in self_defined:
+            continue
+        weight = (0.45 if term.startswith('~g') else 1.0) * min(freq, 2)
+        total += weight
+        if bm.df.get(term):
+            hit += weight
+        elif not term.startswith('~g'):
+            missing.append(surface.get(term, term))
+    return (round(hit / total, 3) if total else 1.0), sorted(missing)
+
+
 def _unmatched_proper_nouns(text, bm, ctx=()):
     """Named products/platforms in the requirement that appear in NO anchor.
 
@@ -334,6 +490,10 @@ def _unmatched_proper_nouns(text, bm, ctx=()):
     # sentence-initial capital as a missing product.
     for grp in re.findall(r'\(([^)]{3,80})\)', text) + re.findall(r'\b((?:[A-Z][a-z]+/){1,}[A-Z][a-z]+)\b', text):
         cands |= set(re.findall(r'\b([A-Z][A-Za-z0-9]{2,})\b', grp))
+    # An acronym the advert expands itself is a label for the phrase it just
+    # wrote, not a product to have used. Removed last, because the parenthetical
+    # sweep above would otherwise put "(QCT)" straight back.
+    cands -= _inline_acronyms(text)
 
     out = []
     for c in cands:
@@ -496,8 +656,12 @@ def match_jd(jd, identity):
     for r in jd.get('requirements', []):
         # Re-evaluate the route from current deterministic rules so a captured
         # JD benefits from corrected gate taxonomy without rewriting its source
-        # record. The original parsed field remains preserved in the JD.
+        # record. The original parsed fields remain preserved in the JD.
+        # `hard_gate` is derived from the same text by the same kind of rule and
+        # decides whether G7 will refuse to build, so it is refreshed here too
+        # rather than staying frozen at whatever the parser concluded.
         gate_type = _gate_type(r['text'])
+        r = {**r, 'hard_gate': _is_hard_gate(r['text'], r.get('kind', 'preferred'))}
         if gate_type == 'profile':
             cls, note = _resolve_profile_gate(r['text'], prof)
             rows.append({**r, 'gate_type': gate_type,
@@ -557,6 +721,21 @@ def match_jd(jd, identity):
                    f"no evidence for {', '.join(unknown[:4])} — specific-platform gap"
         elif unknown:
             note = (note + '; ' if note else '') + f"unmatched: {', '.join(unknown[:4])}"
+
+        # Concept coverage adjusts the single-anchor verdict by at most one
+        # class, in whichever direction the corpus supports, and always names
+        # the residue. It is a second opinion on the same evidence, never a
+        # licence to claim more than the anchors carry: G1 still refuses any CV
+        # line whose wording is not traceable to a cited anchor.
+        concept_ratio, unevidenced = _concept_coverage(r['text'], bm)
+        if cls != 'BEHAVIOURAL' and not forbidden and not exact_cls:
+            if concept_ratio >= CONCEPT_BROAD and cls != 'DIRECT':
+                cls = _promote(cls)
+            elif concept_ratio <= CONCEPT_THIN and cls != 'GAP':
+                cls = _demote(cls)
+        if unevidenced:
+            note = (note + '; ' if note else '') + \
+                'no registered evidence for: ' + ', '.join(unevidenced[:5])
 
         for s in scored:
             if s['score'] >= PARTIAL and cls != 'GAP':

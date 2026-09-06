@@ -9,7 +9,7 @@ import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
-from tools import export_public, prepare_public_release
+from tools import check_repo, export_public, prepare_public_release, run_checks
 
 
 def main():
@@ -54,11 +54,23 @@ def main():
         windows_checks = stream.read()
     with open(os.path.join(ROOT, 'run_checks.sh'), encoding='utf-8') as stream:
         unix_checks = stream.read()
+    # Both entry points are thin wrappers; the scope definition itself lives in
+    # tools/run_checks.py so the two can no longer drift apart.
+    full_scope = run_checks.checks_for('full')
+    dashboard_scope = run_checks.checks_for('dashboard')
+    mirror_scope = run_checks.checks_for('mirror')
     checks.append(('verification runner has proportional dashboard and mirror scopes',
-                   "'dashboard'" in windows_checks
-                   and "'mirror'" in windows_checks
-                   and 'full|dashboard|mirror' in unix_checks
-                   and 'ALL %s CHECKS PASS' in unix_checks))
+                   set(run_checks.SCOPES) == {'full', 'dashboard', 'mirror'}
+                   and 0 < len(dashboard_scope) < len(full_scope)
+                   and 0 < len(mirror_scope) < len(full_scope)
+                   and 'tools/run_checks.py' in windows_checks
+                   and 'tools/run_checks.py' in unix_checks))
+    checks.append(('every declared check is reachable from the full scope',
+                   all(scopes & set(run_checks.SCOPES)
+                       and 'full' in scopes for _, _, scopes in run_checks.CHECKS)))
+    checks.append(('pytest runs the suite without importing standalone scripts',
+                   os.path.isfile(os.path.join(ROOT, 'conftest.py'))
+                   and os.path.isfile(os.path.join(ROOT, 'tests', 'test_suite.py'))))
     with tempfile.TemporaryDirectory(prefix='joblooper-mirror-test-') as temp:
         target = os.path.join(temp, 'public-joblooper')
         mirror, audit = export_public.export(target)
@@ -84,6 +96,35 @@ def main():
                            'dashboard/styles.css', 'dashboard/app.js'))))
         checks.append(('public mirror passes its own audit',
                        'sanitized public mirror OK' in audit))
+        # The two repositories are separate code lines kept in step by hand,
+        # which is exactly where drift goes unnoticed. Digests must be
+        # line-ending independent so equivalent checkouts do not report false
+        # drift (audit JF-11), while a real edit must still be caught.
+        baseline = check_repo.allowlist_digests(ROOT, export_public.ALLOW_FILES)
+        crlf_tree = os.path.join(temp, 'crlf-clone')
+        os.makedirs(crlf_tree)
+        for name in ('jl.py', 'SKILL.md'):
+            with open(os.path.join(ROOT, name), encoding='utf-8') as stream:
+                text = stream.read()
+            with open(os.path.join(crlf_tree, name), 'w', encoding='utf-8',
+                      newline='') as stream:
+                stream.write(text.replace('\r\n', '\n').replace('\n', '\r\n'))
+        crlf_digests = check_repo.allowlist_digests(crlf_tree, {'jl.py', 'SKILL.md'})
+        checks.append(('equivalent checkouts do not report false mirror drift',
+                       all(crlf_digests[name] == baseline[name]
+                           for name in ('jl.py', 'SKILL.md'))))
+        edited = os.path.join(crlf_tree, 'jl.py')
+        with open(edited, 'a', encoding='utf-8') as stream:
+            stream.write('\n# a real source change\n')
+        checks.append(('a real source change is reported as mirror drift',
+                       check_repo.allowlist_digests(crlf_tree, {'jl.py'})['jl.py']
+                       != baseline['jl.py']))
+        checks.append(('mirror drift is measured only from the private source',
+                       subprocess.run(
+                           [sys.executable, os.path.join(ROOT, 'tools', 'check_repo.py'),
+                            '--mirror-drift', '--public-tree', mirror],
+                           cwd=ROOT, text=True, stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT).returncode == 2))
         probe = os.path.join(mirror, 'privacy-probe.txt')
         with open(probe, 'w', encoding='utf-8') as stream:
             stream.write('private candidate identifier')

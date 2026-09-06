@@ -183,6 +183,23 @@ _supported_cv = cv([('Led systems integration and verification.', 'SYS-001')])
 _supported_cv['sections'][0]['items'][0]['bullets'][0]['_serves'] = [1]
 check('G7', 'DIRECT supporting evidence is cited and visible', 'LEGITIMATE',
       gates.g7_coverage(_invisible, _supported_cv)[0], 'PASS')
+# Work authorisation, language, location and mobility are answered from
+# profile.json and carry no anchors at all, so no CV line can ever cite
+# supporting evidence for them. Requiring one blocked every application whose
+# advert asked for a language or the right to work somewhere.
+_profile = {'gaps': [], 'hard_gate_gaps': [], 'requirements': [{
+    'n': 1, 'text': 'Professional fluency in English.', 'kind': 'mandatory',
+    'hard_gate': True, 'match': 'DIRECT', 'anchors': [],
+    'gate_type': 'profile', 'resolved_from': 'profile.json'}]}
+check('G7', 'profile-resolved eligibility needs no CV bullet', 'LEGITIMATE',
+      gates.g7_coverage(_profile, _invisible_cv)[0], 'PASS')
+_unresolved_profile = {'gaps': [], 'hard_gate_gaps': [], 'requirements': [{
+    'n': 1, 'text': 'Professional fluency in Arabic.', 'kind': 'mandatory',
+    'hard_gate': True, 'match': 'PARTIAL', 'anchors': [],
+    'gate_type': 'profile', 'resolved_from': 'profile.json'}]}
+_unresolved_profile['hard_gate_gaps'] = _unresolved_profile['requirements']
+check('G7', 'an unmet profile gate is still a blocking hard gate', 'EXPLOIT',
+      gates.g7_coverage(_unresolved_profile, _invisible_cv)[0], 'BLOCK')
 
 # ---------------------------------------------------------------- G8
 check('G8', 'XML-illegal control character', 'EXPLOIT',

@@ -146,6 +146,31 @@ def main():
                        'PRIOR POSITIVE OUTCOMES' in positive_preview
                        and 'causal reasoning is unknown' in positive_preview
                        and 'PRIOR LEARNING SIGNALS' not in positive_preview))
+        # JF-04: `status` is overwritten in place, so only the append-only event
+        # ledger can prove the application ever advanced. A later rejection must
+        # not erase the interview it actually reached.
+        store.append_application_event({
+            'event': 'OUTCOME', 'app_id': slug, 'status': 'interview',
+            'responded': '2026-01-10',
+        })
+        rejected_later = dict(current, status='rejected', responded='2026-02-01')
+        store.write_jsonl(store.p('index', 'applications.jsonl'), [rejected_later])
+        reached = learning.milestones_reached(slug, None, rejected_later)
+        surviving = learning.relevant_positive_outcomes(future_jd)
+        checks.append(('a later rejection cannot erase an earlier interview',
+                       'interview' in reached and 'rejected' in reached
+                       and learning.best_positive_milestone(reached) == 'interview'
+                       and bool(surviving)
+                       and surviving[0]['status'] == 'interview'
+                       and surviving[0]['current_status'] == 'rejected'
+                       and 'reached interview' in surviving[0]['observation']
+                       and 'unknown' in surviving[0]['observation']))
+        checks.append(('milestone history is ordered and never claims a cause',
+                       reached == [stage for stage in learning.MILESTONE_ORDER
+                                   if stage in set(reached)]
+                       and 'because' not in surviving[0]['observation']))
+        store.write_jsonl(store.p('index', 'applications.jsonl'), [current])
+
         positive_questions = preflight.questions(
             future_jd, {'requirements': []},
             {'primary': 'systems_engineer', 'ranked': [('systems_engineer', 1.0)]})

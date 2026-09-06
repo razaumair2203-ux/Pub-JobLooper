@@ -97,6 +97,77 @@ def readiness():
     }
 
 
+ENTRY_STATES = ('UNINITIALIZED', 'SOURCES_REQUIRED', 'TRUTH_REVIEW',
+                'TRUTH_READY', 'TRUTH_BLOCKED')
+
+
+def entry_state():
+    """Decide which surface the dashboard must open on.
+
+    A job advert is only useful once the system knows which candidate facts it
+    is allowed to use, so job capture is not a first-run action: it is gated on
+    a signed truth digest. A returning user whose truth is current goes straight
+    to their working applications.
+
+    A contradictory or unreadable workspace is TRUTH_BLOCKED, never silently
+    reset, and never TRUTH_READY.
+    """
+    try:
+        context = store.truth_context()
+        state = readiness()
+        errors, _warnings, _stats = integrity.check_truth()
+    except (OSError, ValueError, RuntimeError) as error:
+        return {
+            'state': 'TRUTH_BLOCKED', 'can_capture': False,
+            'reason': str(error),
+            'next_action': 'Repair the governed truth workspace before applying',
+            'problems': [str(error)],
+        }
+
+    stats = context.get('stats') or {}
+    problems = list(dict.fromkeys(list(state.get('problems') or []) + list(errors)))
+    if errors:
+        return {
+            'state': 'TRUTH_BLOCKED', 'can_capture': False,
+            'reason': errors[0],
+            'next_action': 'Resolve the ground-truth integrity failure',
+            'problems': problems,
+        }
+    if not stats.get('sources'):
+        state_name = 'UNINITIALIZED' if not stats.get('records') else 'SOURCES_REQUIRED'
+        return {
+            'state': state_name, 'can_capture': False,
+            'reason': 'No reviewed career source is registered.',
+            'next_action': 'Set up career truth from a base CV',
+            'problems': problems,
+        }
+    if not stats.get('active_records'):
+        return {
+            'state': 'SOURCES_REQUIRED', 'can_capture': False,
+            'reason': 'No active candidate fact is registered.',
+            'next_action': 'Set up career truth from a base CV',
+            'problems': problems,
+        }
+    if not state.get('ready'):
+        return {
+            'state': 'TRUTH_REVIEW', 'can_capture': False,
+            'reason': (problems[0] if problems
+                       else 'Candidate truth is not signed off.'),
+            'next_action': 'Review and sign the exact career-truth digest',
+            'problems': problems,
+        }
+    return {
+        'state': 'TRUTH_READY', 'can_capture': True,
+        'reason': 'Candidate truth is signed and current.',
+        'next_action': ('Review the affected career truth'
+                        if state.get('audit_overdue')
+                        else 'Continue with working applications'),
+        'problems': problems,
+        'audit_overdue': bool(state.get('audit_overdue')),
+        'audit_due': state.get('audit_due'),
+    }
+
+
 def audit():
     """Return actionable bloat, provenance and protected-inventory signals."""
     errors, warnings, stats = integrity.check_truth()

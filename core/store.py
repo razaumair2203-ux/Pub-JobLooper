@@ -188,6 +188,32 @@ def sha256_text(text):
     return hashlib.sha256(str(text).encode('utf-8')).hexdigest()
 
 
+def normalize_advert(text):
+    """Reduce a captured advert to the form that can change its meaning.
+
+    Used only to decide whether a stored JD analysis is still current. A job
+    page re-saved with different line endings, trailing spaces or padding says
+    exactly the same thing, and withdrawing an approved CV decision over that
+    is a false alarm that trains users to ignore real ones. Byte-exact
+    provenance is kept separately by `raw_sha256`; this never replaces it.
+    """
+    text = str(text or '').replace(' ', ' ')
+    lines = [line.rstrip() for line in text.replace('\r\n', '\n')
+             .replace('\r', '\n').split('\n')]
+    normalized = []
+    for line in lines:
+        # Collapse runs of blank lines: paragraph spacing is not meaning.
+        if not line and normalized and not normalized[-1]:
+            continue
+        normalized.append(line)
+    return '\n'.join(normalized).strip()
+
+
+def sha256_advert(text):
+    """Digest of an advert's meaning-bearing text, for currency comparison."""
+    return sha256_text(normalize_advert(text))
+
+
 def sha256_file(path):
     h = hashlib.sha256()
     with open(path, 'rb') as f:

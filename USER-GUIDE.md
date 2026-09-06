@@ -5,6 +5,17 @@ description into a traceable CV and cover-letter package. It does not search
 old CVs while drafting and does not create employer-facing files before you
 approve the complete text in chat.
 
+**The dashboard (`python jl.py dashboard`) is the primary surface.** Everything
+below can be done there without knowing an application key, a hash or a folder
+path. The commands are shown because they are the recovery and automation
+surface — useful when something is interrupted, when you are scripting, or when
+you want to see exactly which gate refused — not because you need them.
+
+The dashboard has two entry states. Until your career truth is signed it opens
+on truth setup and will not capture a job, because Joblooper will not tailor an
+application against facts you have not reviewed. Once signed, it opens on your
+working applications.
+
 ## 1. Install and initialize
 
 Follow [installation and portability](references/installation.md). In a public

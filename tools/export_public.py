@@ -1,5 +1,6 @@
 """Create a new-history, allowlisted public Joblooper skill mirror."""
 import argparse
+import datetime
 import hashlib
 import json
 import os
@@ -15,7 +16,8 @@ PUBLIC_REPOSITORY_NAME = 'Pub-JobLooper'
 PUBLIC_REPOSITORY_URL = 'https://github.com/razaumair2203-ux/Pub-JobLooper'
 ALLOW_FILES = {
     '.gitattributes', '.gitignore', 'CONTRIBUTING.md', 'LICENSE', 'README.md',
-    'SECURITY.md', 'SKILL.md', 'USER-GUIDE.md', 'agents', 'core', 'dashboard', 'examples', 'jl.py',
+    'SECURITY.md', 'SKILL.md', 'USER-GUIDE.md', 'agents', 'conftest.py', 'core',
+    'dashboard', 'examples', 'jl.py',
     'references', 'repo-policy.json', 'run_checks.ps1', 'run_checks.sh',
     'templates', 'tests', 'tools',
 }
@@ -136,7 +138,16 @@ def _identifier_problems(root, tokens=None):
 
 
 def release_fingerprint(root):
-    """Hash the complete distributable tree, excluding its generated policy."""
+    """Hash the complete distributable tree, excluding its generated policy.
+
+    Delegates to check_repo.file_digest so the fingerprint is independent of
+    line-ending style: two checkouts of identical source used to produce
+    different fingerprints and report false mirror drift (audit JF-11).
+    """
+    try:
+        import check_repo
+    except ImportError:
+        from . import check_repo
     digest = hashlib.sha256()
     for base, dirs, names in os.walk(root):
         dirs[:] = sorted(name for name in dirs if name not in {'.git', '__pycache__'})
@@ -146,14 +157,19 @@ def release_fingerprint(root):
             if relative == 'repo-policy.json':
                 continue
             digest.update(relative.encode('utf-8') + b'\0')
-            with open(path, 'rb') as stream:
-                for block in iter(lambda: stream.read(1024 * 1024), b''):
-                    digest.update(block)
+            digest.update(check_repo.file_digest(path).encode('ascii'))
             digest.update(b'\0')
     return digest.hexdigest()
 
 
-def export(target):
+def export(target, record_baseline=False):
+    """Create the sanitized mirror.
+
+    ``record_baseline`` writes the drift baseline into the private source and is
+    therefore an act of publishing, not of exporting: an audit or a test that
+    exports to a scratch directory must not silently move the baseline that
+    `check_repo.py --mirror-drift` compares against.
+    """
     target = os.path.abspath(target)
     if os.path.exists(target):
         raise ValueError('target already exists; choose a new empty path')
@@ -191,10 +207,43 @@ def export(target):
             raise ValueError('public-mirror audit failed:\n' + result.stdout)
         os.replace(staging, target)
         staging = None
+        if record_baseline:
+            _record_export(target)
         return target, result.stdout.strip()
     finally:
         if staging and os.path.isdir(staging):
             shutil.rmtree(staging, ignore_errors=True)
+
+
+def _record_export(target):
+    """Record what was exported so later drift is detectable.
+
+    The two repositories are separate code lines kept in step by hand. Without a
+    baseline nothing notices when the private source moves ahead of the public
+    mirror, so `check_repo.py --mirror-drift` compares against this record.
+    Failure here must not invalidate a successful export.
+    """
+    try:
+        import check_repo
+    except ImportError:
+        from . import check_repo
+    try:
+        record = {
+            '_schema': 'joblooper.public-export.v1',
+            'exported_at': datetime.datetime.now().astimezone().isoformat(
+                timespec='seconds'),
+            # Deliberately no target path: where a maintainer staged the mirror
+            # on their machine is not useful and does not belong in Git.
+            'release_fingerprint': release_fingerprint(target),
+            'files': check_repo.allowlist_digests(ROOT, ALLOW_FILES),
+        }
+        path = os.path.join(ROOT, check_repo.EXPORT_RECORD)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, 'w', encoding='utf-8', newline='\n') as stream:
+            json.dump(record, stream, ensure_ascii=False, indent=2)
+            stream.write('\n')
+    except (OSError, ValueError) as error:
+        print(f'  note: public-export baseline not recorded ({error})')
 
 
 def main():
@@ -202,7 +251,7 @@ def main():
     parser.add_argument('target', help='new directory; it must not already exist')
     args = parser.parse_args()
     try:
-        target, audit = export(args.target)
+        target, audit = export(args.target, record_baseline=True)
     except ValueError as error:
         print(f'PUBLIC EXPORT REFUSED — {error}')
         return 1

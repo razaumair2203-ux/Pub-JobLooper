@@ -212,8 +212,20 @@ function render() {
   renderLearning();
 }
 
+// The lifecycle vocabulary is served by core/dashboard.py so the browser cannot
+// hold a copy that disagrees with the governed projection. The literal is only a
+// fallback for a snapshot served by an older instance.
+function activePhases() {
+  return state.data.lifecycle?.active_phases
+    || ['captured', 'review', 'approved', 'applied'];
+}
+
+function isActivePhase(phase) {
+  return activePhases().includes(phase);
+}
+
 function activeJobs() {
-  return state.data.jobs.filter(job => ['captured', 'review', 'approved', 'applied'].includes(job.phase));
+  return state.data.jobs.filter(job => isActivePhase(job.phase));
 }
 
 function workflowProgress(job) {
@@ -251,7 +263,15 @@ function activePrimary(job) {
 
 function renderActiveWorkspace() {
   const jobs = activeJobs();
+  const entry = state.data.entry;
   $('#active-count').textContent = jobs.length;
+  // A job advert is only useful once the system knows which candidate facts it
+  // may use, so capture is gated on a signed truth digest rather than being the
+  // first thing a new user is asked to do.
+  if (entry && entry.can_capture === false) {
+    $('#active-job-list').innerHTML = `<div class="active-empty entry-gate"><div><strong>Set up your career truth first.</strong><span>${h(entry.reason || '')} Joblooper will not tailor an application against facts you have not reviewed and signed.</span></div><button class="primary-button" type="button" data-active-action="truth">${h(entry.next_action || 'Set up career truth')}</button></div>`;
+    return;
+  }
   if (!jobs.length) {
     $('#active-job-list').innerHTML = '<div class="active-empty"><div><strong>No active applications.</strong><span>Paste an official job link to create one governed workspace.</span></div><button class="primary-button" type="button" data-active-action="new">+ New application</button></div>';
     return;
@@ -392,7 +412,7 @@ function filterCounts() {
   const jobs = state.data.jobs;
   return {
     all: jobs.length,
-    in_progress: jobs.filter(x => ['captured', 'review', 'approved', 'applied'].includes(x.phase)).length,
+    in_progress: jobs.filter(x => isActivePhase(x.phase)).length,
     applied: jobs.filter(x => x.phase === 'applied').length,
     progressed: jobs.filter(x => x.phase === 'progressed').length,
     rejected: jobs.filter(x => x.phase === 'rejected').length,
@@ -411,7 +431,7 @@ function filteredJobs() {
   const query = state.search.trim().toLowerCase();
   return state.data.jobs.filter(job => {
     const filterMatch = state.filter === 'all'
-      || (state.filter === 'in_progress' && ['captured', 'review', 'approved', 'applied'].includes(job.phase))
+      || (state.filter === 'in_progress' && isActivePhase(job.phase))
       || job.phase === state.filter;
     const haystack = `${job.company} ${job.role} ${job.reference} ${job.id}`.toLowerCase();
     return filterMatch && (!query || haystack.includes(query));
@@ -1695,11 +1715,31 @@ function trapFocus(event, root) {
   }
 }
 
+// Job capture is gated on a signed truth digest. The browser refuses locally so
+// the user gets an explanation instead of a server error, but core/dashboard_actions
+// re-checks the same gate: this is convenience, never the authority.
+function openIntake() {
+  const entry = state.data?.entry;
+  if (entry && entry.can_capture === false) { openTruthSetup(); return; }
+  $('#intake-dialog').showModal();
+}
+
+function openTruthSetup() {
+  const entry = state.data?.entry || {};
+  const problems = (entry.problems || []).join('\n');
+  state.truthIntegrityDetail = entry.reason || '';
+  $('#truth-integrity-detail').textContent =
+    [entry.reason, problems].filter(Boolean).join('\n\n')
+    || 'Candidate truth is not ready for generation.';
+  $('#truth-integrity-dialog').showModal();
+}
+
 function handleActiveAction(event) {
   const control = event.target.closest('[data-active-action]');
   if (!control) return;
   const action = control.dataset.activeAction;
-  if (action === 'new') { $('#intake-dialog').showModal(); return; }
+  if (action === 'truth') { openTruthSetup(); return; }
+  if (action === 'new') { openIntake(); return; }
   const job = jobById(control.dataset.job);
   if (!job) return;
   if (action === 'active-turn') { openAgent(job); return; }
@@ -1718,7 +1758,7 @@ function handleActiveAction(event) {
 function wireEvents() {
   $('#refresh-button').addEventListener('click', () => loadData(true));
   $('#theme-button').addEventListener('click', () => setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'));
-  $('#new-job-button').addEventListener('click', () => $('#intake-dialog').showModal());
+  $('#new-job-button').addEventListener('click', () => openIntake());
   $('#active-job-list').addEventListener('click', handleActiveAction);
   $('#primary-action').addEventListener('click', event => {
     const actions = state.data?.attention || [];

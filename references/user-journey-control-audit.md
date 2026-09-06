@@ -288,20 +288,45 @@ shell behavior; they do not replace domain controls.
 
 ## Material defect register
 
-| ID | Priority | Verified defect | Consequence |
-|---|---|---|---|
-| JF-01 | P0 | Dashboard begins at job intake and has no source-to-truth onboarding | The primary persona cannot establish generation authority without developer/manual work |
-| JF-02 | P0 | Preflight evidence/context choices have no completing dashboard route | A truthful user choice blocks generation and strands the journey |
-| JF-03 | P0 | Feedback records and resolves prose but cannot propose/apply/verify the requested document change | User feedback is governed as a log, not incorporated as a product workflow |
-| JF-04 | P0 | Learning reads one mutable latest application status | Later rejection can erase evidence that the exact application previously progressed |
-| JF-05 | P0 | Historical completion depends on current package verification before exact-submission verification is attempted | A changed unsent derivative can make completed preflight/review/approval look incomplete |
-| JF-06 | P1 | Package-integrity Attention opens artefacts but has no restore/exception/repair completion | Critical tasks become inspection dead ends |
-| JF-07 | P1 | Integrity Attention short-circuits all other tasks for the job | Missing dates, screening state, or outcome work can be hidden |
-| JF-08 | P1 | URL extraction is committed without an applicant confirmation screen | Incorrect metadata or incomplete extraction can enter the workflow before correction |
-| JF-09 | P1 | One screening file and pasted-text-only employer response are narrower than real portal evidence | Users must preprocess evidence outside the product or omit it |
-| JF-10 | P1 | Truth audit due state and truth comments have no completing dashboard journey | Ground truth can be correctly blocked but operationally unmaintainable |
-| JF-11 | P2 | Public release fingerprint changes across otherwise equivalent checkouts | Mirror checks can report false drift, likely from byte/line-ending sensitivity |
-| JF-12 | P3 | No packaged launcher icon, Start Menu/Desktop shortcut, favicon, or app manifest | Discoverability is weaker, but core job functionality is unaffected |
+| ID | Priority | Status | Verified defect | Consequence |
+|---|---|---|---|---|
+| JF-01 | P0 | Partly fixed | Dashboard begins at job intake and has no source-to-truth onboarding | The primary persona cannot establish generation authority without developer/manual work |
+| JF-02 | P0 | Open | Preflight evidence/context choices have no completing dashboard route | A truthful user choice blocks generation and strands the journey |
+| JF-03 | P0 | Open | Feedback records and resolves prose but cannot propose/apply/verify the requested document change | User feedback is governed as a log, not incorporated as a product workflow |
+| JF-04 | P0 | Fixed | Learning reads one mutable latest application status | Later rejection can erase evidence that the exact application previously progressed |
+| JF-05 | P0 | Fixed | Historical completion depends on current package verification before exact-submission verification is attempted | A changed unsent derivative can make completed preflight/review/approval look incomplete |
+| JF-06 | P1 | Open | Package-integrity Attention opens artefacts but has no restore/exception/repair completion | Critical tasks become inspection dead ends |
+| JF-07 | P1 | Fixed | Integrity Attention short-circuits all other tasks for the job | Missing dates, screening state, or outcome work can be hidden |
+| JF-08 | P1 | Open | URL extraction is committed without an applicant confirmation screen | Incorrect metadata or incomplete extraction can enter the workflow before correction |
+| JF-09 | P1 | Open | One screening file and pasted-text-only employer response are narrower than real portal evidence | Users must preprocess evidence outside the product or omit it |
+| JF-10 | P1 | Open | Truth audit due state and truth comments have no completing dashboard journey | Ground truth can be correctly blocked but operationally unmaintainable |
+| JF-11 | P2 | Fixed | Public release fingerprint changes across otherwise equivalent checkouts | Mirror checks can report false drift, likely from byte/line-ending sensitivity |
+| JF-12 | P3 | Open | No packaged launcher icon, Start Menu/Desktop shortcut, favicon, or app manifest | Discoverability is weaker, but core job functionality is unaffected |
+
+### What has been fixed, and what JF-01 still needs
+
+- **JF-04** — `learning.milestones_reached` derives every stage an application
+  reached from the append-only event ledger. `phase` remains the current state;
+  milestones are additive history, so a later rejection cannot erase an
+  interview, and `relevant_positive_outcomes` reports both.
+- **JF-05** — `release.verify_submission` verifies the exact sent-file receipt
+  independently of the mutable package, tolerating only unsent employer-facing
+  drift. `core/dashboard.py` no longer gates that call behind `package_ready`.
+  Errors on a sent file or any non-employer-facing record stay fatal.
+- **JF-07** — the per-job `continue` statements are gone. Integrity suppresses
+  nothing; a stale analysis still withholds only the lifecycle-gate tasks it
+  invalidates. `ATTENTION_KIND_RANK` makes queue order explicit.
+- **JF-11** — `check_repo.file_digest` normalizes text to LF, and both
+  `release_fingerprint` implementations share it.
+
+**JF-01 remains partly open.** `truth_review.entry_state()` now routes the entry
+surface and `dashboard_actions.ingest`/`ingest_url` refuse capture until the
+truth digest is signed, so the product no longer opens on a journey it cannot
+support. What is still missing is Phase 1 itself: the *Set up career truth*
+workspace — bounded multi-file source upload, staged extraction candidates with
+citations, conflict resolution and in-dashboard digest sign-off. Until that
+exists, a first-run user is correctly stopped but must still complete onboarding
+through the CLI, so the P0 journey gap is narrowed rather than closed.
 
 ### Post-audit correction — JD completeness and caution authenticity
 
@@ -321,24 +346,30 @@ nearest anchors are labelled non-proof similarity candidates.
 
 ## Prioritized implementation plan
 
-### Phase 0 — Lock the lifecycle contract and repair false history
+### Phase 0 — Lock the lifecycle contract and repair false history — **done except item 5**
 
-1. Add regression fixtures for multi-stage applications, later rejection,
-   submitted-package integrity exceptions, and simultaneous Attention items.
-2. Introduce an append-only stage-event schema and derive `current_state` plus
-   `milestones_reached` from events.
-3. Verify exact submitted receipts independently of mutable unsent derivatives.
-4. Remove the per-job integrity `continue`; rank multiple tasks without hiding
-   them.
+1. ~~Add regression fixtures for multi-stage applications, later rejection,
+   submitted-package integrity exceptions, and simultaneous Attention items.~~
+2. ~~Introduce an append-only stage-event schema and derive `current_state` plus
+   `milestones_reached` from events.~~ Done by reading the existing event
+   ledger; no new schema was needed.
+3. ~~Verify exact submitted receipts independently of mutable unsent
+   derivatives.~~
+4. ~~Remove the per-job integrity `continue`; rank multiple tasks without hiding
+   them.~~
 5. Add a typed integrity resolution state even before the full repair UI.
+   **Still open** — this is JF-06.
 
 **Exit evidence:** historical completed gates remain complete; interview history
 survives later rejection; every missing metadata task remains visible; existing
-exact-submission hashes remain unchanged.
+exact-submission hashes remain unchanged. All four are covered by regressions in
+`tests/test_release.py`, `tests/test_learning.py` and
+`tests/test_dashboard_journey.py`.
 
 ### Phase 1 — Deliver dashboard-first ground truth
 
-1. Add first-run state routing and a **Set up career truth** workspace.
+1. ~~Add first-run state routing~~ (done: `truth_review.entry_state()` gates
+   capture) and a **Set up career truth** workspace.
 2. Add bounded multi-file source upload with private storage, deduplication,
    allowlisted media types, digest receipts, and explicit source disposition.
 3. Add staged extraction candidates with source anchors, uncertainty, parser
