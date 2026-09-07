@@ -20,6 +20,7 @@ ALLOW_FILES = {
     'dashboard', 'examples', 'jl.py', 'assets/joblooper.ico.b64',
     'assets/app-mark.svg',
     'references', 'repo-policy.json', 'run_checks.ps1', 'run_checks.sh',
+    'start.cmd', 'start.sh',
     'templates', 'tests', 'tools',
 }
 PUBLIC_IGNORE = """__pycache__/

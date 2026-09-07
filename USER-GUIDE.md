@@ -70,6 +70,31 @@ Reopening Preflight restores the same application state. `present` then shows
 the entire CV, cover letter, omission disclosure and rejection-risk assessment
 in chat. No DOCX or PDF exists yet.
 
+### When a gap is something you actually have
+
+Preflight will sometimes flag a requirement you *can* meet — the evidence simply
+was never added to your record. Choose **I have evidence that closes it** and say
+in one line what it is.
+
+Joblooper will not write that into your CV for you, and neither will Codex.
+Nothing reaches a CV except facts you have reviewed and signed, which is what
+stops the system inventing experience. So this opens your career-truth
+workbench instead, and the path is:
+
+1. Upload the document that proves it — a certificate, an older CV, a reference.
+2. Go through the facts Joblooper reads out of it, keeping, editing or rejecting
+   each one.
+3. Sign your record again.
+
+You are then returned to the exact question that sent you there, and the CV can
+be rebuilt with the new evidence available to it. It takes a few minutes the
+first time. It is also the reason nothing in your CV can be something you never
+approved.
+
+If the gap is real — you genuinely do not have what they asked for — choose
+**Proceed with recorded gap** instead. The application continues, the gap stays
+visible in Cautions, and nothing is claimed on your behalf.
+
 ## 4. Approve and find the files
 
 After you approve the exact presentation:

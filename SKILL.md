@@ -153,6 +153,26 @@ When helping a person operate or onboard the system, use the concise
 [user guide](USER-GUIDE.md); do not replace the approval gates with informal
 chat confirmation.
 
+## Write for the person, not the system
+
+Everything a user reads must be plain language. Many are applying for jobs in a
+second language, and text they cannot parse quickly they will click past —
+which defeats a correct signal just as thoroughly as not showing it. Use short
+sentences rather than stacked clauses, ordinary words rather than technical
+ones, and address the user directly.
+
+Never surface an internal name: not a cause code, not a status such as
+`RETAINED_PLAUSIBLE`, and not words like hypothesis, disposition, digest,
+artefact, provenance or deterministic. Those belong in the record, not on
+screen.
+
+This matters most for a retained lesson. It is quoted back months later at the
+exact moment the user is deciding whether to apply, so write it as one plain
+sentence about what to do differently next time, not as an instruction to the
+engine. "Ask about the visa before applying" carries; "preflight must separate
+technical lifecycle fit from direct customer, regulatory and localisation fit"
+does not.
+
 Apply user feedback through the append-only feedback workflow. Rejected feedback
 requires a rationale; adopted feedback cannot be marked resolved until a changed
 plan digest proves that it was implemented. Promote a lesson to a reusable rule

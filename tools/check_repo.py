@@ -38,6 +38,9 @@ ESSENTIAL = {
     'tools/prepare_public_release.py', 'tools/attest_public_release.py',
     'tools/install_dashboard_shortcut.ps1', 'dashboard/app-icon.svg',
     'assets/joblooper.ico.b64', 'references/maintenance.md',
+    # The first thing a new user runs, and the only entry point that works on a
+    # computer that does not yet have Python.
+    'start.cmd', 'start.sh',
     '.github/workflows/checks.yml',
 }
 

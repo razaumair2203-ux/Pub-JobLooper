@@ -308,6 +308,56 @@ shell behavior; they do not replace domain controls.
 | JF-10 | P1 | Fixed | Truth audit due state and truth comments have no completing dashboard journey | Ground truth can be correctly blocked but operationally unmaintainable |
 | JF-11 | P2 | Fixed | Public release fingerprint changes across otherwise equivalent checkouts | Mirror checks can report false drift, likely from byte/line-ending sensitivity |
 | JF-12 | P3 | Fixed | No packaged launcher icon, Start Menu/Desktop shortcut, favicon, or app manifest | Discoverability is weaker, but core job functionality is unaffected |
+| JF-13 | P0 | Fixed | The guided first run is written in the language it exists to install, so a machine without Python fails at `python jl.py setup` with a shell error and nothing from Joblooper | A first-time user with an empty laptop is stopped at step one and told nothing; on Windows the Microsoft Store popup makes the repository look broken |
+| JF-14 | P1 | Fixed | The rejection-reasoning controls use research vocabulary — hypothesis, disposition, retention, counterevidence, "Domain translation", "Narrative coherence", "Evidence support (0 to 1)" | The one place the product asks a person to think carefully is the place it is least readable, especially for users whose first language is not English |
+| JF-15 | P1 | Fixed | Nothing constrains how a retained lesson is worded; Codex writes it free-form and the app quotes it back at decision time | Carried lessons read as instructions to the system (29-34 words, clause-stacked), so a correctly selected signal is ignored because it cannot be parsed quickly |
+| JF-16 | P2 | Fixed | Truth-workbench and feedback copy use "disposition" as a verb and stack governance nouns | Onboarding, the first thing a new user meets, reads as compliance text |
+| JF-17 | P2 | Fixed | Closing a flagged gap with new evidence is an eight-step journey and is nowhere explained | Users expect the assistant to add the evidence for them, and nothing sets that expectation before they start |
+
+### Resolutions for JF-13 to JF-17
+
+- **JF-13.** `start.cmd` and `start.sh` run before Python exists. They detect a
+  usable interpreter, and when none is present they name the requirement, offer
+  the exact install command for that platform, install nothing without a typed
+  yes, and hand over to `jl setup`. The README now leads with them. A regression
+  runs the shell starter with an empty `PATH` and asserts it fails loudly and
+  says which program is speaking.
+- **JF-14.** Every visible label in the reasoning dialog is ordinary English and
+  every stored value is unchanged, so existing records stay valid. "How sure are
+  you?" is three choices rather than a decimal nobody can honestly judge;
+  arbitrary stored confidences snap to the nearest.
+- **JF-15.** SKILL.md and the Codex developer instructions require plain
+  language for anything a person reads, and single plain sentences for retained
+  lessons specifically, since those are quoted back months later at the moment
+  of decision.
+- **JF-16.** Truth-workbench, feedback, integrity and outcome copy rewritten. A
+  regression fails if two or more internal terms reappear in any dialog copy or
+  if a visible choice label carries one.
+- **JF-17.** The USER-GUIDE now explains that closing a gap goes through the
+  truth workbench, why Codex cannot write it into the CV, and what the three
+  steps are.
+
+### Findings behind JF-13 to JF-17
+
+Verified by cold-starting a fresh public clone and by scanning every user-facing
+string in the dialogs, rather than by reading the source.
+
+- **JF-13.** `python jl.py setup` on a machine without Python returns
+  `python: command not found`. The repository contains no `.cmd`, `.sh` or
+  `.ps1` entry point that runs before Python exists; the only shell scripts are
+  check runners that themselves invoke Python. `setup` detects Python, PDF
+  engines, Node, the Codex CLI and git correctly and installs nothing without
+  approval — but it is unreachable by the person who needs it most.
+- **JF-14/JF-15/JF-16.** Of 37 user-facing strings, six carry heavy jargon, and
+  they cluster exactly where a decision is required. The reasoning dialog packs
+  four such terms into two sentences. The retained lessons quoted back into
+  preflight run 29 to 34 words in stacked clauses and are phrased as
+  instructions to the engine.
+- **JF-17.** `build.assemble` reads only `store.generation_anchors()`, so a
+  preflight note can never become CV text. That is the governance model working,
+  but it means closing a gap requires upload, per-claim review, digest signature
+  and re-plan. The loop does return the user to the originating question, which
+  is correct; it is simply never described.
 
 ### Implemented resolution evidence
 

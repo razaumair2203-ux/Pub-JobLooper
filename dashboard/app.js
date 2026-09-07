@@ -1643,12 +1643,24 @@ function syncOutcomeCorrection(form = $('#outcome-form')) {
   form.elements.correction_reason.required = correcting;
 }
 
+// Confidence is stored as a number but chosen from three plain options, so an
+// existing record holding 0.62 has to land on the nearest one rather than
+// clearing the field.
+function nearestConfidence(select, value) {
+  const options = [...select.options].map(option => Number(option.value));
+  const target = Number(value);
+  if (!options.length) return '';
+  const best = options.reduce((a, b) =>
+    Math.abs(b - target) < Math.abs(a - target) ? b : a);
+  return String(best);
+}
+
 function populateHypothesis(job) {
   const form = $('#hypothesis-form');
   form.reset();
-  form.elements.hypothesis_id.innerHTML = '<option value="">New hypothesis</option>'
+  form.elements.hypothesis_id.innerHTML = '<option value="">Start a new one</option>'
     + (job.hypotheses || []).map(item => `<option value="${h(item.id)}">${h(item.id)} - ${h(item.cause_label)} - ${h(titleCase(item.status))}</option>`).join('');
-  form.elements.confidence.value = '0.5';
+  form.elements.confidence.value = nearestConfidence(form.elements.confidence, 0.6);
   syncHypothesis(form, job);
 }
 
@@ -1658,7 +1670,8 @@ function syncHypothesis(form = $('#hypothesis-form'), job = state.actionJob) {
   if (!item) return;
   form.elements.cause.value = item.cause;
   form.elements.status.value = item.status;
-  form.elements.confidence.value = item.confidence ?? 0.5;
+  form.elements.confidence.value = nearestConfidence(
+    form.elements.confidence, item.confidence ?? 0.6);
   form.elements.note.value = '';
   form.elements.evidence_for.value = (item.evidence_for || []).join('\n');
   form.elements.evidence_against.value = (item.evidence_against || []).join('\n');

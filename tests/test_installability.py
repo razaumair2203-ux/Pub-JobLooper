@@ -58,6 +58,30 @@ with tempfile.TemporaryDirectory(prefix='joblooper-install-') as temp:
         remove_link(destination)
 
 
+# --- a computer that does not yet have Python --------------------------------
+# The guided setup is written in Python, so it cannot be the thing that reports
+# Python missing. Without an entry point that runs first, a new user meets a
+# shell error and nothing from Joblooper at all.
+for starter, marker in (('start.cmd', 'winget'), ('start.sh', 'command -v')):
+    starter_path = os.path.join(ROOT, starter)
+    assert os.path.isfile(starter_path), f'{starter} is the only entry point that works before Python exists'
+    with open(starter_path, encoding='utf-8') as stream:
+        script = stream.read()
+    assert marker in script, f'{starter} must detect Python without running it'
+    assert '3, 10' in script or '3.10' in script, f'{starter} must state the version floor'
+    assert 'jl.py' in script and 'setup' in script, f'{starter} must hand over to the guided setup'
+    # Nothing may be installed without the user agreeing to it first.
+    assert '[y/N]' in script, f'{starter} must ask before installing anything'
+
+shell_starter = os.path.join(ROOT, 'start.sh')
+without_python = dict(os.environ, PATH='/nonexistent')
+refused = subprocess.run(
+    ['bash', shell_starter], cwd=ROOT, env=without_python, text=True,
+    input='n\n', stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60)
+assert refused.returncode != 0, 'a machine without Python must not report success'
+assert 'Python 3.10 or newer is required' in refused.stdout, refused.stdout
+assert 'Joblooper' in refused.stdout, 'the user must learn which program is speaking'
+
 # --- first-run setup on a machine that has never seen Joblooper --------------
 from core import bootstrap  # noqa: E402
 

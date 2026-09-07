@@ -213,6 +213,37 @@ def main():
                        'state.agentJob = captured[0]' in app_script
                        and 'await openPreflight(captured[0])' in app_script
                        and "['workspace', 'Open application workspace']" in app_script))
+        # Users applying for jobs in a second language click past anything they
+        # cannot parse quickly, which defeats a correct signal as surely as
+        # hiding it. The place the product asks a person to think hardest was
+        # the place it read most like a research paper.
+        import re as _re
+        dialog_copy = _re.findall(r'<p class="dialog-copy">([^<]+)', page_source)
+        visible_labels = _re.findall(r'<option value="[A-Z_]+">([^<]+)', page_source)
+        internal_words = ('hypothesis', 'disposition', 'counterevidence',
+                          'provenance', 'deterministic', 'artefact', 'digest',
+                          'retention')
+        checks.append(('decision copy avoids internal vocabulary',
+                       bool(dialog_copy) and not [
+                           text for text in dialog_copy
+                           if sum(word in text.lower()
+                                  for word in internal_words) >= 2]))
+        checks.append(('cause and status choices read as ordinary English',
+                       bool(visible_labels)
+                       and not any(label.isupper() for label in visible_labels)
+                       and not any(word in label.lower()
+                                   for label in visible_labels
+                                   for word in ('disposition', 'hypothesis'))))
+        checks.append(('how sure you are is a choice, never a decimal to invent',
+                       'name="confidence"><option' in page_source.replace(' ', '')
+                       or ('<select name="confidence"' in page_source
+                           and 'type="number"' not in page_source.split(
+                               'name="confidence"')[1][:120])))
+        checks.append(('Codex is told to write for the person, not the system',
+                       'plain language' in codex_bridge.DEVELOPER_INSTRUCTIONS.lower()
+                       and 'second language'
+                       in codex_bridge.DEVELOPER_INSTRUCTIONS.lower()))
+
         checks.append(('preflight answers and artefact access are first-class dashboard controls',
                        'id="preflight-dialog"' in page_source
                        and 'id="agent-artifacts"' in page_source

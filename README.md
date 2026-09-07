@@ -16,19 +16,24 @@ is missing and stops.
 
 ## Install and run
 
-Python 3.10 or newer is the only requirement; the engine has no third-party
-runtime dependency.
+Download this repository ([or clone
+it](https://github.com/razaumair2203-ux/Pub-JobLooper/archive/refs/heads/main.zip)),
+then run the starter for your computer:
 
-```bash
-git clone https://github.com/razaumair2203-ux/Pub-JobLooper.git joblooper
-cd joblooper
-python jl.py setup
-```
+| | |
+|---|---|
+| **Windows** | double-click `start.cmd` |
+| **macOS / Linux** | `./start.sh` in a terminal |
 
-`setup` is the guided first run. It explains the system, checks what your
-machine has, offers to install optional components — showing the exact command
-and installing nothing without your approval — creates your workspace outside
-this folder, and opens the dashboard.
+That is the whole install. The starter checks what you already have, and if
+Python is missing it tells you and offers to install it — showing you the exact
+command first and installing nothing without your say-so. **Python 3.10 or newer
+is the only requirement**; Joblooper uses no other libraries.
+
+It then explains the system, creates your workspace outside this folder, and
+opens the dashboard.
+
+If you already have Python, `python jl.py setup` does the same thing.
 
 Everything else is optional. Joblooper works fully without them:
 
