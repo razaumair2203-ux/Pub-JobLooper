@@ -11,11 +11,21 @@ claim that the gates would refuse.
   immutable submitted bundles and no circulating versions.
 - **Mean:** lead with the strongest verified differentiators, bridge them to the
   employer's stated problem and remove generic material; never compete through
-  hype or fabricated familiarity.
+  hype or fabricated familiarity. The first third must make the target lane and
+  two or three material JD concerns obvious before the reader reaches career
+  history that is merely impressive rather than directly relevant.
 - **Accurate:** every factual line is cited, wording authority is bounded,
-  ambiguity stops correlation, and freshness/hash gates fail closed.
-- **Impactful:** preserve the chronological career argument, quantified outcomes
-  and full-spectrum ownership while removing duplication.
+  ambiguity stops correlation, and freshness/hash gates fail closed. Exact JD
+  language is used only where candidate truth supports the same concept.
+- **Impactful:** preserve chronology, quantified outcomes and full-spectrum
+  ownership while removing duplication. Prefer action + scope/authority + result
+  or decision consequence, and run a final deletion pass against the target JD.
+
+A high total match is not enough if the evidence is buried. Conversely, a high
+keyword count is not evidence of quality. Review both machine extraction and the
+six-second human scan: conventional headings, linear text flow, concise bullets,
+role-specific terminology and a top third that answers why this candidate fits
+this advertised work.
 
 ## Applying feedback
 
