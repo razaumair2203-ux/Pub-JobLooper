@@ -78,7 +78,6 @@ def main():
           build.assemble(jd, m)['target_pages'] ==
           store.sections().get('default_pages'))
 
-    # --- chronology: a missing role reads as a concealed gap ---------------
     roles = [r for r in recs if r.get('type') == 'role'
              and r.get('kind') not in ('umbrella', 'education_period')]
     shown = {i['anchor'] for s in cv['sections'] if s['type'] == 'experience'
@@ -86,27 +85,22 @@ def main():
     missing_roles = [r['id'] for r in roles if r['id'] not in shown]
     check('every role appears (no employment gap)', not missing_roles, ', '.join(missing_roles))
 
-    # --- professional credentials are never optional -----------------------
     prof = [r['id'] for r in recs if r.get('tier') == 'professional' and not r.get('render')]
     lost = [p for p in prof if p not in idset]
     check('every professional credential renders', not lost, ', '.join(lost))
 
-    # --- every DIRECT classification must survive the last mile -------------
     direct = [r for r in m['requirements'] if r.get('match') == 'DIRECT']
     invisible = [str(r['n']) for r in direct
                   if r.get('anchors') and not any(a['id'] in idset for a in r['anchors'])]
     check('every DIRECT requirement has visible evidence',
           not invisible, ', '.join(invisible))
 
-    # --- render directives are honoured ------------------------------------
     leaked = [a for a in bullets if by_id.get(a, {}).get('render')]
     check('no render-directive anchor appears as a bullet', not leaked, ', '.join(leaked))
 
-    # --- nothing renders twice ---------------------------------------------
     dupes = sorted({a for a in bullets if bullets.count(a) > 1})
     check('no anchor renders twice', not dupes, ', '.join(dupes))
 
-    # --- tailored credentials are a selection, not the master inventory ----
     cited = set()
     for s in cv['sections']:
         for it in s['items']:
@@ -136,7 +130,6 @@ def main():
     check('role-depth evidence reaches impact selection without literal JD retrieval',
           'MRO-002' in bullets and not m.get('anchor_usage', {}).get('MRO-002'))
 
-    # --- the governed career story is chronological, complete and unique ----
     featured = [r['id'] for r in recs if r.get('placement') == 'highlights'
                 and (cv['identity'] in r.get('identity', [])
                      or '*' in r.get('identity', []))]
@@ -192,10 +185,6 @@ def main():
     check('governed role evidence renders in its declared order',
           not out_of_order, '; '.join(out_of_order))
 
-    # --- readability: a bullet past ~34 words is skipped, not read ----------
-    # G8 had been reporting "17 bullet(s) over 34 words" on every build as a
-    # WARN, and nobody read it. Page count must change the NUMBER of bullets,
-    # never their length.
     longb = []
     for s in cv['sections']:
         if s['type'] != 'experience':
@@ -206,37 +195,35 @@ def main():
                     longb.append(f"{b['anchor']}:{len(b['text'].split())}w")
     check('no rendered bullet exceeds 34 words', not longb, ', '.join(longb[:6]))
 
-    # --- education is complete ---------------------------------------------
     edu = [r['id'] for r in recs if r.get('type') == 'education' and not r.get('render')]
     lost_e = [e for e in edu if e not in idset]
     check('every degree renders', not lost_e, ', '.join(lost_e))
 
-    # --- recognition stays attached to the stage it validates --------------
     merged_rec = [r['id'] for r in recs if r.get('type') == 'recognition'
                   and str(r.get('render') or '').startswith('merge:')]
     check('merged recognition remains independently cited',
           set(merged_rec) <= cited,
           ', '.join(sorted(set(merged_rec) - cited)))
 
-    # --- publications ------------------------------------------------------
     pubs = [r['id'] for r in recs if r.get('type') == 'publication'
             and r.get('status') == 'PUBLISHED' and not r.get('render')]
     shown_p = [p for p in pubs if p in idset]
+    research_spec = next(s for s in spec['sections'] if s['id'] == 'research')
+    include_if = research_spec.get('include_if') or {}
     jd_blob = ' '.join(r['text'] for r in jd.get('requirements', [])).lower()
-    research_relevant = cv['identity'] in (
-        'systems_engineer', 'rd_technical_lead', 'analyst_governance') or any(
-        x in jd_blob for x in ('research', 'publication', 'academic', 'phd', 'patent'))
+    research_relevant = (
+        cv['identity'] in (include_if.get('lane') or [])
+        or any(str(term).lower() in jd_blob
+               for term in include_if.get('jd_mentions') or []))
     expected_publications = len(pubs) if research_relevant else 0
-    check('every eligible publication survives protected retention',
+    check('published inventory survives whenever the research section is active',
           len(shown_p) == expected_publications,
           f'{len(shown_p)} shown; expected {expected_publications} of {len(pubs)}')
 
-    # --- every hard gate is assessed ---------------------------------------
     unassessed = [r['n'] for r in m['requirements']
                   if r.get('hard_gate') and not r.get('match')]
     check('every hard gate is assessed', not unassessed, str(unassessed))
 
-    # --- summary is present and anchored -----------------------------------
     summ = next((s for s in cv['sections'] if s['name'] == 'PROFESSIONAL SUMMARY'), None)
     ok_s = bool(summ and summ['items'] and
                 by_id.get(summ['items'][0]['anchor'], {}).get('type') == 'positioning')
@@ -271,7 +258,6 @@ def main():
           render._display_link('linkedin', 'linkedin.com/in/example').startswith('LinkedIn:')
           and render._display_link('github', 'github.com/example').startswith('GitHub:'))
 
-    # --- cover letter reuses only already-governed CV evidence -------------
     letter = cover_letter.assemble(jd, m, cv)
     check('cover letter validates against the exact CV and JD',
           not cover_letter.validate(letter, jd, cv))
@@ -295,7 +281,6 @@ def main():
                             paragraph['text'])
               for paragraph in letter['paragraphs']))
 
-    # --- rejection-risk review must earn a CV change -----------------------
     risk = employer_review.assess(jd, m, cv)
     check('risk review leaves a fully selected evidence plan unchanged',
           risk['decision'] == 'LEAVE_AS_IS'
@@ -322,7 +307,6 @@ def main():
     check('unsupported employer context cannot trigger decorative replanning',
           bool(employer_review.validate_context(invalid_context, jd, set(by_id))))
 
-    # --- traceability of every line ----------------------------------------
     orphan = [a for a in ids if a not in by_id]
     check('every rendered line cites a live anchor', not orphan, ', '.join(orphan))
 
@@ -336,13 +320,11 @@ def main():
           any('education chronology for ROLE-002' in detail
               for detail in education_details))
 
-    # --- lane switching actually changes the document ----------------------
     _, _, cv2 = build_cv(slug, identity='mro_sustainment')
     ids2, _, _ = rendered(cv2)
     check('a different lane produces a different document',
           set(ids2) != idset, f'{len(set(ids2) ^ idset)} anchors differ')
 
-    # --- one-page build still holds the invariants -------------------------
     _, _, cv1 = build_cv(slug, pages=1)
     ids1, b1, _ = rendered(cv1)
     shown1 = {i['anchor'] for s in cv1['sections'] if s['type'] == 'experience'
@@ -353,7 +335,6 @@ def main():
     check('one-page build renders no anchor twice',
           len(b1) == len(set(b1)))
 
-    # --- report ------------------------------------------------------------
     w = max(len(n) for n, _, _ in RESULTS)
     fails = 0
     print()
