@@ -16,6 +16,31 @@ When installing or moving the skill to another machine, follow
 [installation and portability](references/installation.md). The entire checkout
 must be discoverable; copying only `SKILL.md` is not a functional installation.
 
+## Single-source integration rule
+
+Joblooper owns candidate truth, CV/cover-letter generation, review state,
+release manifests, exact submitted packages and outcome correlation. Career
+strategy, project, prospect or research tools may advise Joblooper, but they
+must not become parallel truth stores or parallel final-CV generators.
+
+Use [the integration contract](references/integration-contract.md) whenever
+another application needs career context. `python tools/export_context.py`
+produces a versioned, digest-bound, read-only consumer packet from the same
+approved truth used by generation. A consumer may use that packet for lane
+selection, evidence routing, gap review and advisory handoff; it may not edit
+the packet into truth, approve a claim, mark a submission or render the final
+employer-facing CV outside Joblooper.
+
+Multiple local Joblooper installations may share one candidate data root by
+setting `JOBLOOPER_DATA_DIR`. This is the supported way for the authored private
+source and the installable public engine to work from one person's truth without
+copying it into two repositories. The public repository itself never stores
+personal truth.
+
+Reusable CV-generation behavior belongs here first. Orchestrators should refer
+to Joblooper's section/gate/render contracts rather than maintain their own
+section order, bullet formula, ATS rules or final artefact pipeline.
+
 ## Operating contract
 
 1. Run `python jl.py doctor` and `python jl.py context` before tailoring. If
@@ -57,15 +82,18 @@ must be discoverable; copying only `SKILL.md` is not a functional installation.
    receipt agree with the exact preflight decision digest. Repeating generation
    against that unchanged state reopens the current review; it must not create
    another version or restart contextual reasoning.
-   Treat registered atomic truth records as
-   candidate ground truth; archives are provenance inputs, not a runtime search
-   corpus. Do not turn employer research into candidate truth.
+   Treat registered atomic truth records as candidate ground truth; archives are
+   provenance inputs, not a runtime search corpus. Do not turn employer research
+   or an advisory consumer packet into candidate truth.
 4. Read the evidence plan and employer-risk decision. Research employer context
    only when it can test a material selection risk; follow
    [the bounded research protocol](references/employer-context.md). If the
    decision is `LEAVE_AS_IS`, do not decorate or reword the CV.
    Apply the per-section rules in
-   [section contracts](references/section-contracts.md).
+   [section contracts](references/section-contracts.md). A high aggregate match
+   is not enough: the first third of page one must make the target function and
+   strongest verified JD evidence obvious before broad career history, research
+   or prestige material.
 5. Run `python jl.py present <key>` and place its complete output—CV first,
    cover letter second—in chat, or expose the same complete content in the
    dashboard Review tab. Obtain explicit user sign-off on that exact bundle.
@@ -108,7 +136,7 @@ must be discoverable; copying only `SKILL.md` is not a functional installation.
      Never create parallel state, and never let chat imply candidate truth,
      approval or external portal submission. Codex turns use the user's
      configured OpenAI service and surface every command/file approval; the
-     loopback UI itself has no analytics.
+     loopback UI itself has no usage tracking.
    - **Durable over transient.** Every lifecycle touchpoint publishes its
      expected output beside the durable state actually observed, and active
      applications stay in the first workspace below the command bar. A chat
