@@ -29,6 +29,7 @@ CHECKS = [
     ('approval and releases', ['tests/test_release.py'], {'full'}),
     ('typed feedback changes', ['tests/test_feedback_changes.py'], {'full', 'dashboard'}),
     ('ground-truth context', ['tests/test_context.py'], {'full'}),
+    ('consumer context contract', ['tests/test_consumer_context.py'], {'full', 'mirror'}),
     ('ground-truth review', ['tests/test_truth_review.py'], {'full'}),
     ('dashboard truth intake', ['tests/test_truth_intake.py'], {'full', 'dashboard'}),
     ('pre-generation questions', ['tests/test_preflight.py'], {'full'}),
@@ -70,6 +71,7 @@ def run(scope='full', echo=print):
         environment = os.environ.copy()
         environment['JOBLOOPER_DATA_DIR'] = data
         environment['PYTHONIOENCODING'] = 'utf-8'
+        environment.update({'TEMP': data, 'TMP': data, 'TMPDIR': data})
         for name, argv in checks_for(scope):
             echo(f'\n== {name} ==')
             result = subprocess.run(
