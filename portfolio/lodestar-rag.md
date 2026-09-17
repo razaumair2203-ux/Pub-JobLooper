@@ -1,101 +1,126 @@
-# Case Study — Lodestar: Grounded RAG / Evidence Assessment
+# Lodestar — Grounded RAG / Evidence-Assessment System
 
-## Problem
+> **Working private product with a public technical evidence bundle.**  
+> 209 real source documents · 2,945 embedded chunks · 34 hand-checked grounding pairs · **2.9% top-5 retrieval error** · 53 backend tests · 17/17 stress cases · 3/3 browser E2E flows.
 
-Build an AI-assisted evidence-assessment system for EB-2 NIW / EB-1A research that can retrieve legal authority, map evidence to criteria, and produce grounded analytical aids **without fabricating scores, approval probabilities, or uncited legal claims**.
+[Inspect representative source code and evaluation evidence →](evidence/lodestar/README.md)
 
-This is a private side project. The codebase contains real product and user-data structures, so the implementation is not published wholesale. This page exposes the architecture and technical decisions relevant to an AI engineering review.
+## What I built
+
+Lodestar is an AI-assisted evidence-assessment application for EB-2 NIW / EB-1A research. The engineering problem is broader than “build a chatbot”: ingest and version authoritative source material, preserve citation structure, retrieve the right authority, ground downstream reasoning in inspectable chunks, keep candidate/user evidence separate from the source corpus, and fail safely when support is missing.
+
+The working stack includes **Python, FastAPI, PostgreSQL/Supabase, pgvector, local sentence-transformers/BGE embeddings, PostgreSQL full-text retrieval, Reciprocal Rank Fusion, authority-aware reranking, LLM-provider abstraction, Next.js/TypeScript, Playwright and automated backend tests.**
 
 ## My role
 
-I designed and iterated the product and technical architecture and work directly on the implementation, including retrieval design, chunking strategy, embeddings, database/retrieval behavior, LLM-provider integration, and validation rules. AI-assisted coding tools are used where useful, but the architecture, acceptance criteria, review, and technical decisions remain human-controlled.
+I designed and iterated the product and technical architecture and work directly on the implementation: retrieval design, chunking strategy, embedding model behavior, database schema, grounding rules, provider abstraction, acceptance criteria, failure handling, test strategy and technical review. AI coding tools are used as implementation accelerators, but architecture decisions and acceptance remain human-controlled.
 
-## Architecture
+## System architecture
 
 ```mermaid
 flowchart LR
-    A[Primary legal sources / decisions] --> B[Structure-aware ingestion]
-    B --> C[Legal-structure-aware chunking]
-    C --> D[Embedding provider]
-    C --> E[PostgreSQL full-text index]
-    D --> F[pgvector embeddings]
+    A[Primary legal sources] --> B[Ingestion + provenance]
+    B --> C[Structure-aware chunking]
+    C --> D[BGE passage embeddings]
+    C --> E[PostgreSQL FTS]
+    D --> F[pgvector / HNSW]
     E --> G[Lexical retrieval]
-    F --> H[Vector retrieval]
-    G --> I[Reciprocal Rank Fusion]
+    F --> H[Semantic retrieval]
+    G --> I[RRF fusion]
     H --> I
-    I --> J[Authority-aware reranking]
-    J --> K[Grounded assessment engine]
-    K --> L[Citable evidence objects / UI]
+    I --> J[Authority-aware rerank]
+    J --> K[Citable chunk objects]
+    K --> L[Grounded assessment engine]
+    L --> M[Evidence matrix / citation UI]
 ```
 
-## Retrieval implementation
+## Real implementation evidence
 
-### 1. Structure first, size second
+| Area | Evidence |
+|---|---|
+| Corpus | **209 documents / 2,945 chunks**, embedded and searchable |
+| Retrieval evaluation | **34 hand-checked query/expected-citation pairs; 2.9% top-5 error** |
+| Backend tests | **53 green** |
+| Stress / abuse tests | **17 / 17 pass** |
+| Browser E2E | **3 / 3 Playwright flows pass** |
+| Concurrent stress | **12 / 12 full flows pass** after connection-pool / embedding / fallback hardening |
+| Embeddings | Local `BAAI/bge-large-en-v1.5`, **1024 dimensions**, explicit query/passage behavior |
+| Vector retrieval | PostgreSQL/Supabase `pgvector`, HNSW cosine ANN |
+| Lexical retrieval | Generated `tsvector`, GIN full-text index |
+| Fusion | Reciprocal Rank Fusion across lexical + vector candidate lists |
+| Domain control | Higher-authority retrieval lanes + authority-aware reranking |
+| Grounding | Returned objects preserve chunk ID, citation label, source type, section label, binding metadata, URL and excerpt |
 
-The chunker does not blindly split every N tokens. Statutes, regulations, policy material, and decisions are split on legal structure — subsection markers, headings, numbered/roman sections, and issue boundaries — with a soft size cap used only when structural units become too large.
+[Open the public technical evidence bundle →](evidence/lodestar/README.md)
 
-Why: retrieval quality is not only about semantic similarity. A legally meaningful subsection or decision issue needs to survive as a coherent, citable unit.
+## Representative source — public and inspectable
 
-### 2. Embeddings with provenance
+The public evidence bundle contains sanitized versions of actual implementation modules:
 
-The embedding layer exposes a provider contract with explicit model name, version, vector dimension, and separate query/passage encoding. The current implementation supports local `sentence-transformers` models and BGE-style asymmetric query instructions.
+- [`legal_chunking.py`](evidence/lodestar/legal_chunking.py) — structure-aware chunking.
+- [`embedding_provider.py`](evidence/lodestar/embedding_provider.py) — local embedding provider, provenance and BGE query/passage asymmetry.
+- [`hybrid_retrieval.py`](evidence/lodestar/hybrid_retrieval.py) — lexical/vector retrieval, RRF, authority lanes and reranking handoff.
+- [`chunks_schema.sql`](evidence/lodestar/chunks_schema.sql) — `pgvector`, HNSW and full-text database layer.
+- [`grounding-eval.md`](evidence/lodestar/grounding-eval.md) — current measured grounding result.
 
-Each embedded chunk carries the embedding provenance required to explain how an index was produced and when a model change requires re-indexing.
+That is deliberately more useful than publishing screenshots of prompts.
 
-### 3. Vector + lexical retrieval
+## Engineering decisions
 
-The retrieval plane uses PostgreSQL/Supabase with:
+### Structure first, size second
 
-- `pgvector` embeddings;
-- a 1024-dimensional vector column for the current BGE configuration;
-- HNSW cosine ANN index;
-- generated PostgreSQL `tsvector` full-text index;
-- GIN filters for visa class and criterion tags.
+Statutes, regulations, policy material and decisions are split on their own structure—subsections, headings, criteria and decision issues—before any size cap is applied. The objective is not just embedding convenience; it is preserving a chunk that remains legally meaningful and citable after retrieval.
 
-### 4. Hybrid retrieval with Reciprocal Rank Fusion
+### The corpus is the asset; vectors are a rebuildable cache
 
-A query runs through lexical and semantic retrieval. Rather than normalize incomparable lexical and cosine-distance scores, the system fuses ranked lists using **Reciprocal Rank Fusion (RRF)**.
+Primary-source documents retain source URL, retrieval/version dates and provenance. Chunk vectors are derived. If the embedding model changes, the architecture calls for a parallel re-index and grounding regression test rather than mixing incompatible vector spaces.
 
-It also maintains dedicated higher-authority retrieval lanes so large volumes of non-precedent decisions cannot crowd controlling authority out of the candidate pool simply because they repeat similar vocabulary.
+### Hybrid retrieval because similarity is not enough
 
-### 5. Grounding survives retrieval
+Lodestar performs both full-text and semantic retrieval. RRF combines rank rather than trying to normalize `ts_rank` and cosine-distance scores onto an invented shared scale.
 
-Retrieved chunks remain structured evidence objects carrying identifiers, source type, citation label, section label, authority/binding metadata, URL where available, and an excerpt. The application does not collapse retrieved evidence into anonymous prompt text and then pretend the answer is sourced.
+### Authority is part of retrieval, not a UI badge
 
-## Production-minded behaviors already implemented
+Large numbers of non-precedent decisions can be semantically close to a query and crowd primary authority out of a simple vector result set. Lodestar therefore retrieves dedicated high-authority lexical and semantic lanes before fusion, then performs authority-aware reranking.
 
-- Backend API in Python/FastAPI.
-- PostgreSQL/Supabase persistence.
-- Real corpus ingestion and migrations.
-- Lazy embedding-model loading to avoid unnecessary heavyweight initialization.
-- Dimension validation between model output and the database schema.
-- Lexical fallback when embeddings are not yet available.
-- Citation resolution from result IDs back to the source object.
-- Separate handling and labeling of non-binding decisions.
-- Mock/local modes for development without external model calls.
-- LLM provider abstraction supporting offline/mock and real provider paths.
-- Automated tests around chunking, retrieval, assessment, and API behavior.
+### Grounding survives the whole pipeline
 
-## What this project proves for an AI engineering role
+Retrieved evidence is kept as structured objects with IDs and citation metadata. The assessment layer cannot create a citation that does not resolve back to retrieved evidence; unsupported citations are dropped rather than rendered as plausible-looking text.
 
-**RAG:** not just calling a library — document ingestion, chunking strategy, embeddings, vector persistence, semantic retrieval, lexical retrieval, fusion, reranking, metadata filters, and citation grounding.
+## Failures found during hardening
 
-**System design:** retrieval behavior is designed around domain failure modes, not around a demo chatbot.
+The implementation has already hit—and been changed because of—real engineering failures rather than only happy-path notebook tests:
 
-**Responsible AI:** the application deliberately refuses invented probability/score claims and requires retrieved support for legal propositions.
+- remote per-operation database handshakes made an upload trigger roughly 35 connection handshakes;
+- concurrent first-use of the embedding model caused initialization races;
+- retrieval attempted to initialize a multi-GB embedding model even when the corpus had no vectors yet;
+- invalid path IDs could reach SQL instead of failing at the API boundary;
+- vector query parameters required an explicit cast for the ANN path.
 
-**Product thinking:** offline development modes, database migrations, provider abstraction, UI/API boundaries, testing, and deployment shape are part of the system rather than afterthoughts.
+The current build added connection pooling, batched inserts, model-load locking and warm-up, lexical-only fallback for unembedded corpora, UUID validation and query fixes. The recorded result is **12/12 concurrent full flows** and **17/17 abuse/stress cases** passing.
 
-## Known limitations / next engineering steps
+## Evaluation
 
-- Add a formal retrieval evaluation set with labeled relevant passages and report Recall@K / MRR / nDCG across representative queries.
-- Add automated regression evaluation whenever chunking, embedding model, fusion constants, or reranking logic changes.
-- Add explicit LLM answer-quality evaluation separate from retrieval quality.
-- Harden observability around retrieval latency, embedding-model load time, database query latency, and failure modes.
-- Containerize the full production deployment path and add cloud deployment evidence.
+The current frozen grounding test uses **34 hand-checked query → expected citation pairs** against **209 documents / 2,945 chunks**. At retrieval depth top-5, the recorded error is **2.9%**.
 
-Those are important because a RAG system should not be judged by whether a handful of prompts “look good.”
+This is intentionally described as retrieval-grounding evaluation—not “AI accuracy.” The next engineering layer is larger frozen relevance sets, Recall@K/MRR/nDCG, latency percentiles and separate LLM answer-quality evaluation.
+
+[See the grounding-evaluation record →](evidence/lodestar/grounding-eval.md)
+
+## What this demonstrates for an AI Lead Developer role
+
+**RAG engineering:** ingestion, chunking, embedding abstraction, vector persistence, semantic search, full-text retrieval, fusion, reranking, grounding and evaluation.
+
+**Hands-on Python/backend work:** FastAPI, explicit SQL, Postgres/pgvector, provider interfaces and failure handling.
+
+**Production-minded engineering:** migrations, reproducible ingestion, stress tests, E2E tests, concurrency failures, privacy boundaries, fallback modes and deployment design.
+
+**Responsible AI:** authoritative source hierarchy, traceable citations, no invented approval probability and explicit human review where evidence is consequential.
+
+**Architecture judgement:** the system deliberately avoids a heavy agent/RAG framework for its citation-critical retrieval path so the control flow remains readable and auditable.
 
 ## Evidence boundary
 
-The detailed repository remains private. Architecture and implementation claims on this page are derived from working code in the current project; no immigration outcome prediction, legal advice, or private user evidence is exposed here.
+The full repository remains private because it includes product internals and candidate/user-data structures. The public bundle exposes representative code, schema, measured results and architecture decisions while withholding credentials, private data and product-specific sensitive material.
+
+[Inspect technical evidence →](evidence/lodestar/README.md) · [Back to Applied AI portfolio](README.md)
