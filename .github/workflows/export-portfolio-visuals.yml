@@ -1,0 +1,66 @@
+name: Export portfolio visual evidence
+
+on:
+  push:
+    branches: [visual-export]
+  workflow_dispatch:
+
+jobs:
+  capture-ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Create explicit fictional demo workspace
+        env:
+          JOBLOOPER_DATA_DIR: ${{ github.workspace }}/.portfolio-demo
+        run: python jl.py init --demo
+      - name: Start real Joblooper dashboard
+        env:
+          JOBLOOPER_DATA_DIR: ${{ github.workspace }}/.portfolio-demo
+        run: |
+          nohup python -c "from core.dashboard import serve; serve(port=8765, open_browser=False)" > /tmp/joblooper.log 2>&1 &
+          for i in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:8765/ >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/joblooper.log
+          exit 1
+      - name: Install screenshot runner
+        run: |
+          python -m pip install playwright==1.55.0
+          python -m playwright install --with-deps chromium
+      - name: Capture real dashboard output
+        run: |
+          mkdir -p export/joblooper
+          cat > /tmp/capture.py <<'PY'
+          from playwright.sync_api import sync_playwright
+          from pathlib import Path
+          out=Path('export/joblooper')
+          with sync_playwright() as p:
+              browser=p.chromium.launch(headless=True)
+              page=browser.new_page(viewport={"width":1440,"height":1000})
+              page.goto('http://127.0.0.1:8765/', wait_until='networkidle', timeout=60000)
+              page.screenshot(path=str(out/'dashboard-overview.png'), full_page=True)
+              for label, name in [('Cautions','dashboard-cautions.png'),('Preflight','dashboard-preflight.png'),('Career truth','dashboard-career-truth.png')]:
+                  try:
+                      loc=page.get_by_text(label, exact=True).first
+                      if loc.is_visible(timeout=1500):
+                          loc.click()
+                          page.wait_for_timeout(800)
+                          page.screenshot(path=str(out/name), full_page=True)
+                  except Exception:
+                      pass
+              browser.close()
+          PY
+          python /tmp/capture.py
+          cp README.md export/joblooper/PROVENANCE.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: joblooper-authentic-ui
+          path: export/joblooper
+          if-no-files-found: error
+          retention-days: 1
