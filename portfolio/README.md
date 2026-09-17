@@ -1,5 +1,7 @@
 # Applied AI & AI Engineering Portfolio — M. Umair Raza
 
+> **For the GE Aerospace AI Lead Developer application:** [open the one-page requirement → evidence map](ge-aerospace-ai-lead-evidence.md).
+
 **Aerospace engineer and applied-AI builder working at the intersection of operational aviation, computer vision, edge deployment, retrieval systems, GenAI workflows, and governed engineering delivery.**
 
 This page is a recruiter-facing evidence layer. It is intentionally short: each project below shows the problem, architecture, measurable proof, my role, and what can be inspected publicly. Sensitive military programme material and private product repositories are not exposed.
