@@ -3,15 +3,13 @@
 **Candidate: M. Umair Raza**  
 **Target: AI Lead Developer — GE Aerospace, Warsaw**
 
-This page is a compact technical evidence map for the role. It links the requirements in the vacancy to work that can be inspected or discussed in depth. It is not an attempt to relabel an 18-year aerospace career as 18 years of AI development; the relevant proposition is narrower and stronger:
-
 > **Operational aerospace engineer + current applied-AI lead + hands-on AI/RAG/GenAI product work.**
 
-## Why the profile is relevant
+## What I bring to this role
 
-My current engineering work applies AI to real aerospace problems: computer vision, edge inference, autonomous systems, multimodal sensing, field validation, and AI-enabled software workflows. That sits on top of a career spent developing, integrating, testing, operating, and governing safety-critical aerospace systems.
-
-The result is a profile that can work on the **AI solution lifecycle and the engineering context around it** — requirements, data, architecture, experimentation, deployment constraints, validation, failure modes, maintainability, and user workflow.
+- **Applied AI in aerospace:** computer vision, edge inference, autonomous systems, multimodal sensing, field validation, and AI-enabled engineering workflows.
+- **Modern AI application engineering:** RAG, embeddings, vector search, hybrid retrieval, grounded generation, prompt-driven workflows, APIs, databases, and human-in-the-loop controls.
+- **Operational engineering depth:** 18+ years developing, integrating, testing, operating, and governing safety-critical aerospace systems — useful when an AI prototype has to become a dependable engineering capability.
 
 ## Requirement → evidence
 
@@ -35,7 +33,7 @@ The result is a profile that can work on the **AI solution lifecycle and the eng
 
 ### 1. Lodestar — RAG / retrieval engineering
 
-This closes the most important “is the candidate actually hands-on with modern GenAI infrastructure?” question.
+A working AI application built around grounded retrieval rather than an unverified chatbot response.
 
 The implementation includes:
 
@@ -53,7 +51,7 @@ The implementation includes:
 
 ### 2. TIR-FOD / Clear Run — operational aerospace edge AI
 
-This answers a different question: can the candidate take AI outside a notebook?
+AI moved from dataset and model experiments into an onboard sensing and inference chain.
 
 Evidence includes:
 
@@ -62,20 +60,20 @@ Evidence includes:
 - 29 YOLO training runs;
 - leakage-aware evaluation;
 - TensorRT deployment on NVIDIA Jetson Orin Nano;
-- repeated flight-test means of 25.0 FPS inference and 15.6 FPS end-to-end;
+- repeated flight-test means of **25.0 FPS inference** and **15.6 FPS end-to-end**;
 - integration with sensing, communications, operator display, UAV operations, and broader autonomy work.
 
 [Read the edge-AI case study →](tir-fod-edge-ai.md)
 
 ### 3. Codex Adversarial Review Lite — GenAI workflow engineering
 
-This demonstrates that my GenAI work is not limited to “using ChatGPT.” The project wraps independent models in a controlled engineering workflow with scope contracts, preflight, test expectations, mutation checks, structured verdicts, report-before-fix behavior, and user approval.
+A public AI engineering tool that wraps independent models in a controlled workflow with scope contracts, preflight, test expectations, mutation checks, structured verdicts, report-before-fix behavior, and human approval.
 
 [Inspect the public repository →](https://github.com/razaumair2203-ux/codex-adversarial-review-lite)
 
 ## Supporting public product
 
-**Joblooper** shows the same design philosophy applied to an AI-assisted product: deterministic evidence boundaries, provenance, fail-closed validation, human sign-off, reproducible artifacts, and privacy-first local operation.
+**Joblooper** applies the same engineering philosophy to an AI-assisted product: deterministic evidence boundaries, provenance, fail-closed validation, human sign-off, reproducible artifacts, and privacy-first local operation.
 
 [Inspect Joblooper →](https://github.com/razaumair2203-ux/Pub-JobLooper)
 
@@ -87,9 +85,7 @@ This demonstrates that my GenAI work is not limited to “using ChatGPT.” The 
 
 ## Evidence boundary
 
-I do **not** claim a long conventional career as a full-time software/ML engineer. I do claim direct current applied-AI leadership and hands-on AI product/retrieval work, backed by working repositories, public research artifacts, deployment measurements, and an aerospace career that supplies the operational context in which these systems must work.
-
-Areas I would expect to discuss candidly in interview include enterprise cloud deployment depth and the difference between research/side-product environments and GE-scale production. Those are scaling-context questions, not substitutes for the implementation evidence above.
+This page distinguishes direct current AI evidence from the broader aerospace career behind it. Unsupported experience is intentionally omitted; private repositories and sensitive programme material remain private, while public code, publications, datasets, architecture decisions, and measured deployment results are exposed wherever possible.
 
 ---
 
