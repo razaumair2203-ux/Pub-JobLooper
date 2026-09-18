@@ -1,49 +1,56 @@
-# M. Umair Raza — Applied AI Engineering
+# M. Umair Raza — Applied AI & Aerospace Systems Engineering
 
-**Applied AI Lead · Aerospace AI · RAG / Retrieval · Edge AI · GenAI Engineering**
+**Edge AI · Computer Vision · RAG / Retrieval · Autonomous Systems · AI Assurance · V&V**
 
-I work where AI has to survive contact with real engineering systems: **data provenance, retrieval, integration, edge compute, evaluation, failure modes, human control and operational deployment**.
+Applied AI and aerospace systems-engineering leader with **18+ years** across aircraft development, operational MRO, international OEM integration, fleet-scale programme governance and current AI/R&D leadership. Current work spans computer vision, edge deployment, autonomy, grounded RAG, AI assurance and GPU/HPC research infrastructure.
 
-## Fast proof
+The differentiator is the ability to move AI beyond model output into **data provenance, hardware, interfaces, failure modes, configuration, verification, human control and operational deployment**.
 
-| Evidence stream | Hard evidence | Inspect |
+> **Canonical current AI portfolio:** [razaumair2203-ux/applied-ai-portfolio](https://github.com/razaumair2203-ux/applied-ai-portfolio)
+>
+> This file is a career-facing bridge. The canonical portfolio owns current metrics, technical evidence, provenance boundaries and audit status so JobLooper does not maintain a competing copy.
+
+## 60-second proof
+
+| Evidence stream | Current bounded evidence | Inspect |
 |---|---|---|
-| **Grounded RAG / retrieval — Lodestar** | **209 docs / 2,945 embedded chunks** · **34** hand-checked grounding pairs · **2.9% top-5 retrieval error** · **53** backend tests · **17/17** stress cases · **12/12** concurrent full flows | [Case study + source evidence](portfolio/lodestar-rag.md) |
-| **Aerospace edge AI — TIR-FOD / Clear Run** | **3,499** LWIR source frames · **5,593** objects · **23** classes · **29** training runs · **0.8603 ± 0.0017 mAP** best observed · **25.0 FPS inference / 15.6 FPS E2E** on Jetson/TensorRT | [Benchmark + deployment evidence](portfolio/tir-fod-edge-ai.md) |
-| **GenAI control workflow — Codex AR-L** | Public multi-model review workflow: scope contracts, model fallback, mutation checks, structured verdicts, report-before-fix, human approval | [Public repo](https://github.com/razaumair2203-ux/codex-adversarial-review-lite) |
-| **Governed AI product — Joblooper** | Public local-first product with evidence-backed generation, deterministic validation, traceability, approval and artifact integrity | [Public repo](https://github.com/razaumair2203-ux/Pub-JobLooper) |
+| **TIR-FOD / Clear Run — edge AI & autonomy** | Public TIR-FOD dataset: **3,499 LWIR source frames · 5,593 objects · 23 classes · 29 controlled training runs**; source-aware leakage/generalisation studies; Jetson/TensorRT deployment; team-developed RGB/IR + GCS + UGV integration | [Canonical case study](https://github.com/razaumair2203-ux/applied-ai-portfolio/blob/main/projects/tir-fod-clear-run.md) |
+| **Lodestar — grounded RAG** | **209 documents · 2,945 embedded chunks · 1/34 top-5 expected-source misses (2.9%)** on the recorded private corpus; public PostgreSQL/pgvector fixture, authority ablation and structured grounding/refusal evaluation | [Canonical case study](https://github.com/razaumair2203-ux/applied-ai-portfolio/blob/main/projects/lodestar.md) |
+| **AI assurance** | Public independent builder/reviewer workflow with review contracts, model fallback, repository-state/mutation checks and human approval | [Codex Adversarial Review Lite](https://github.com/razaumair2203-ux/codex-adversarial-review-lite) |
+| **Governed AI product engineering** | JobLooper keeps candidate truth, provenance, deterministic validation, approval and release state outside optional AI reasoning | [JobLooper case study](portfolio/joblooper.md) |
+| **AI infrastructure** | Accountable technical leadership of a **22-node GPU/HPC** research environment supporting AI and engineering workloads | [Canonical portfolio](https://github.com/razaumair2203-ux/applied-ai-portfolio) |
 
-## Inspect actual implementation
+## AI positioning
 
-Lodestar representative code:
+For AI roles, the profile should read **AI first, aerospace as the differentiator**.
 
-- [domain-aware chunking](portfolio/evidence/lodestar/legal_chunking.py)
-- [BGE embedding provider](portfolio/evidence/lodestar/embedding_provider.py)
-- [hybrid lexical/vector retrieval + RRF](portfolio/evidence/lodestar/hybrid_retrieval.py)
-- [`pgvector` / HNSW / FTS schema](portfolio/evidence/lodestar/chunks_schema.sql)
-- [grounding evaluation](portfolio/evidence/lodestar/grounding-eval.md)
+The current technical identity is not “an aerospace engineer interested in AI.” It is **applied AI / AI systems engineering built on a complete aerospace lifecycle**:
 
-TIR-FOD measured evidence:
+- aircraft and avionics development;
+- flight-line MRO and readiness;
+- international OEM systems integration;
+- fleet-scale configuration, airworthiness and programme governance;
+- current AI/R&D leadership across computer vision, autonomy, RAG and research computing.
 
-- [benchmark / leakage / grouped-split / edge telemetry record](portfolio/evidence/tir-fod/README.md)
-- [public dataset DOI](https://doi.org/10.5281/zenodo.22546586)
+That background changes how AI is engineered: requirements, interfaces, operational constraints, test evidence, configuration, failure handling and deployment maturity are treated as first-class design concerns.
 
-## Research
+## Current AI / research record
 
-- **Low-Latency Architectures for Real-Time Multi-Stream Object Detection** — IEEE ICoDT2 2025 — [DOI](https://doi.org/10.1109/ICoDT269104.2025.11360736)
-- **TK-Patch: Universal Top-K Adversarial Patches for Cross-Model Person Evasion** — IEEE ICoDT2 2025 — [DOI](https://doi.org/10.1109/ICoDT269104.2025.11360694)
-- **TIR-FOD thermal benchmark v1.2** — [DOI](https://doi.org/10.5281/zenodo.22546586)
+- **Low-Latency Architectures for Real-Time Multi-Stream Object Detection** — IEEE ICoDT2 2025 — DOI 10.1109/ICoDT269104.2025.11360736
+- **TK-Patch: Universal Top-K Adversarial Patches for Cross-Model Person Evasion** — IEEE ICoDT2 2025 — DOI 10.1109/ICoDT269104.2025.11360694
+- **Adaptive Interference Suppression in GNSS Using an 8-Element CRPA Antenna Array** — accepted/presented at IBCAST 2026; no IEEE Xplore/DOI claim unless independently verified
+- **TIR-FOD v1.2** — public Zenodo dataset — DOI 10.5281/zenodo.22546586
+- Related TIR-FOD IEEE Access manuscript remains **under revision**, not published/accepted.
 
-## Why my aerospace background matters
+## Evidence boundaries that matter
 
-Before the current applied-AI work, my career covered aircraft development, operational AEW&C flight-line engineering, two years embedded inside an international fighter-aircraft design institute, and programme-level engineering across a 150+ aircraft fleet.
+- Historical Jetson **25.0 FPS TensorRT / 15.6 FPS end-to-end** values are author-confirmed ten-run summaries; the raw historical run logs and engine were not retained. The canonical portfolio preserves that boundary rather than presenting them as a publicly reproducible benchmark.
+- Clear Run is **team-developed**. Umair's defensible role is technical direction, systems architecture/integration, experiment/evaluation framing and verification leadership—not sole authorship of the complete codebase.
+- Lodestar includes architecture/evaluation ownership and hands-on **AI-assisted** implementation/testing; this is not a claim that every source line was manually typed without coding-agent assistance.
+- Final GCS→UGV physical hand-off, terminal alignment and retention remain under quantitative validation and are not presented as completed autonomy.
 
-That is why my AI work emphasizes **requirements, interfaces, provenance, V&V, configuration, failure evidence and end-to-end performance** rather than only model output.
+## Career-system authority
 
-## GE Aerospace
-
-For the GE AI Lead Developer role: [requirement → technical evidence dossier](portfolio/ge-aerospace-ai-lead-evidence.md)
-
-For the complete portfolio: [full Applied AI portfolio](portfolio/README.md)
+This public JobLooper repository is a software/product evidence source. It is **not** the authoritative store for M. Umair Raza's private candidate truth or current career facts. Final job-specific CVs are generated through the governed private JobLooper workflow; the career orchestration layer uses the audited AI portfolio for current AI evidence.
 
 **GitHub:** [razaumair2203-ux](https://github.com/razaumair2203-ux) · **LinkedIn:** [M. Umair Raza](https://www.linkedin.com/in/mumairaza)
