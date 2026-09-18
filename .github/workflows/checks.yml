@@ -37,6 +37,8 @@ jobs:
 
       - name: Run the full check suite
         run: python -B tools/run_checks.py full
+      - name: Validate canonical AI portfolio bridge
+        run: python -B tools/check_ai_portfolio_bridge.py
 
       - name: Run the same suite under pytest
         run: |
