@@ -198,6 +198,13 @@ Relocation Assistance Provided: No''')
                  dict(req(1, 'Must ensure designs comply with specifications.',
                           kind='responsibility'), hard_gate=True)]},
              identity)['requirements'][0]['hard_gate'] is False),
+        # Gate words must match whole words: "influence" once read as
+        # "fluency" and blocked a real BAE Systems application.
+        ('gate words inside other words are not hard gates',
+         not any(match._is_hard_gate(text, 'mandatory') for text in (
+             'Ability to facilitate, mediate and influence in diverse cultures',
+             'Propose alternative integration approaches',
+             'Provide advisable options to the engineering authority'))),
         ('mandatory language and location eligibility are hard gates',
          match._is_hard_gate('Professional fluency in English.', 'mandatory')
          and match._is_hard_gate('Ability to live and work in Riyadh.', 'mandatory')),

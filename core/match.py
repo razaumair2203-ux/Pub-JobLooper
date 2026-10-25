@@ -37,7 +37,7 @@ _NOISE_HDR = re.compile(
 
 
 _GATE_SUBJECT = re.compile(
-    r'(licen[cs]e|certif\w*|accredit\w*|degree|diploma|clearance|citizen\w*|nationalit\w*'
+    r'\b(licen[cs]e|certif\w*|accredit\w*|degree|diploma|clearance|citizen\w*|nationalit\w*'
     r'|visa|permit|authoris\w*|authoriz\w*|eligib\w*|sponsor\w*|iqama|residenc\w*'
     r'|right to work|live and work|\d+\s*\+?\s*years?|fluen\w*|native|bilingual|type rat\w*)', re.I)
 

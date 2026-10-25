@@ -164,6 +164,19 @@ def main():
     check('review map exposes every supporting highlight citation',
           f"[{supported_item['anchor']}], [SYS-001]" in evidence_map)
 
+    # A hard-gate requirement can be classified BEHAVIOURAL by the matcher;
+    # the review map once crashed on it with a KeyError.
+    gated = json.loads(json.dumps(m))
+    gated.pop('document', None)
+    if gated['requirements']:
+        gated['requirements'][0].update(hard_gate=True, match='BEHAVIOURAL')
+    try:
+        preview.render(jd, gated, cv, slug)
+        gate_ok = True
+    except KeyError:
+        gate_ok = False
+    check('review map renders a BEHAVIOURAL hard gate', gate_ok)
+
     check('external output replaces governed platform aliases',
           'Falcon-R' not in text and 'Orion-X' not in text)
 

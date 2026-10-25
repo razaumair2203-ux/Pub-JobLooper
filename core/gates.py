@@ -789,10 +789,15 @@ def verify_rendered(docx_path, cv=None, pdf_path=None):
                 if extracted is None:
                     problems.append('PDF text extraction refused: ' + str(quality)[:140])
                 elif cv is not None:
-                    pdf_flat = norm(extracted)
+                    # Compare without whitespace: a PDF wraps long lines, and a
+                    # wrap after a hyphen ("+966-53-" / "7179386") adds a space
+                    # that is layout, not a content change.
+                    squash = lambda value: re.sub(r'\s+', '', value)
+                    pdf_flat = squash(norm(extracted))
                     expected_pdf = [norm(line) for line in render.to_ats_text(cv).splitlines()
                                     if len(norm(line).split()) >= 2]
-                    missing_pdf = [line for line in expected_pdf if line not in pdf_flat]
+                    missing_pdf = [line for line in expected_pdf
+                                   if squash(line) not in pdf_flat]
                     if missing_pdf:
                         problems.append(
                             f'PDF text parity: {len(missing_pdf)} expected line(s) missing; '

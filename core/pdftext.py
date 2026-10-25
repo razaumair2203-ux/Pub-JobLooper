@@ -36,8 +36,43 @@ def _cmaps(data):
     """Map font byte codes to unicode via every /ToUnicode CMap in the file."""
     table = {}
     for s in _streams(data):
+        table.update(_parse_cmap(s))
+    return table
+
+
+def _font_cmaps(data):
+    """Map each font resource name (b'F1') to its own /ToUnicode CMap.
+
+    Subset fonts number their glyphs from 1, so one merged table maps the same
+    code to a different letter for every font and garbles mixed-font lines.
+    """
+    objects = {int(n): body for n, body in
+               re.findall(rb'(\d+)\s+0\s+obj(.*?)endobj', data, re.S)}
+    by_object = {}
+    for number, body in objects.items():
+        ref = re.search(rb'/ToUnicode\s+(\d+)\s+0\s+R', body)
+        if ref and int(ref.group(1)) in objects:
+            table = {}
+            for stream in _streams(objects[int(ref.group(1))]):
+                table.update(_parse_cmap(stream))
+            if table:
+                by_object[number] = table
+    fonts = {}
+    dictionaries = [m.group(1) for m in re.finditer(rb'/Font\s*<<(.*?)>>', data, re.S)]
+    dictionaries += [objects.get(int(n), b'') for n in
+                     re.findall(rb'/Font\s+(\d+)\s+0\s+R', data)]
+    for entries in dictionaries:
+        for name, number in re.findall(rb'/([^\s/<>\[\]()]+)\s+(\d+)\s+0\s+R', entries):
+            if int(number) in by_object:
+                fonts[name] = by_object[int(number)]
+    return fonts
+
+
+def _parse_cmap(s):
+    table = {}
+    if True:
         if b'beginbfchar' not in s and b'beginbfrange' not in s:
-            continue
+            return table
         txt = s.decode('latin-1', 'replace')
         for blk in re.findall(r'beginbfchar(.*?)endbfchar', txt, re.S):
             for src, dst in re.findall(r'<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>', blk):
@@ -65,6 +100,27 @@ def _clean(piece):
     for k, v in _ESCAPES.items():
         piece = piece.replace(k, v)
     return re.sub(rb'\\([()\\])', rb'\1', piece)
+
+
+# A text-showing string is either a literal "(...)" or a hex string "<...>".
+# LibreOffice 24 writes every run as hex; reading only literals recovered zero
+# words from its PDFs and refused every build.
+_STRING = re.compile(rb'\((?:\\.|[^\\()])*\)|<(?!<)[0-9A-Fa-f\s]*>')
+
+
+_TEXT_OPERATION = re.compile(
+    rb'/([^\s/<>\[\]()]+)\s+[-\d.]+\s+Tf|\[((?:\\.|[^\]\\])*)\]\s*TJ|' + _STRING.pattern)
+
+
+def _string_bytes(token):
+    """Return string bytes in literal form, so _clean treats both alike."""
+    if token[:1] == b'(':
+        return token[1:-1]
+    digits = re.sub(rb'\s', b'', token[1:-1])
+    if len(digits) % 2:
+        digits += b'0'
+    raw = bytes.fromhex(digits.decode('ascii'))
+    return raw.replace(b'\\', b'\\\\').replace(b'(', b'\\(').replace(b')', b'\\)')
 
 
 def _decode_literal(piece, cmap, mode):
@@ -110,24 +166,60 @@ def extract(path, min_words=40, min_common=0.05, min_space_ratio=0.05,
     """
     data = open(path, 'rb').read()
     cmap = _cmaps(data)
+    fonts = _font_cmaps(data)
     literals = []
     for s in _streams(data):
         if b'Tj' not in s and b'TJ' not in s:
             continue
-        literals.append([t.group(0)[1:-1]
-                         for t in re.finditer(rb'\((?:\\.|[^\\()])*\)', s)])
+        parts, font = [], None
+        for t in re.finditer(_TEXT_OPERATION, s):
+            if t.group(1) is not None:
+                font = t.group(1)
+            elif t.group(2) is not None:
+                # A TJ array kerns pieces of ONE run; only a wide negative
+                # adjustment is a word gap. Joining every piece with a space
+                # split words ("S ystems") wherever a font kerned a pair.
+                run = []
+                for item in re.finditer(_STRING.pattern + rb'|(-?[\d.]+)', t.group(2)):
+                    if item.group(1) is not None:
+                        if float(item.group(1)) <= -200:
+                            run.append(None)
+                    else:
+                        run.append(_string_bytes(item.group(0)))
+                parts.append((font, run))
+            else:
+                parts.append((font, [_string_bytes(t.group(0))]))
+        literals.append(parts)
+
+    def decode(font, piece, mode):
+        if mode != 'font':
+            return _decode_literal(piece, cmap, mode)
+        table = fonts.get(font)
+        if not table:
+            return _decode_literal(piece, cmap, 'raw')
+        return _decode_literal(piece, table, 'cmap2' if max(table) > 255 else 'cmap1')
 
     def build(mode):
         out = []
         for parts in literals:
-            line = re.sub(r'\s+', ' ',
-                          ' '.join(_decode_literal(p, cmap, mode) for p in parts)).strip()
+            line = re.sub(r'\s+', ' ', ' '.join(
+                ''.join(' ' if p is None else decode(f, p, mode) for p in run)
+                for f, run in parts)).strip()
             if len(line) > 3:
                 out.append(line)
         return '\n'.join(out)
 
-    candidates = [(build(m), m) for m in (('raw', 'cmap1', 'cmap2') if cmap else ('raw',))]
+    modes = ('raw', 'cmap1', 'cmap2') if cmap else ('raw',)
+    if fonts:
+        modes += ('font',)
+    candidates = [(build(m), m) for m in modes]
     text, mode = max(candidates, key=lambda c: (_score(c[0]), len(c[0])))
+    # Per-font decoding is the faithful one when every font has its CMap; the
+    # merged guesses can out-score it by a hair while garbling a heading.
+    if fonts and mode != 'font':
+        font_text = candidates[-1][0]
+        if _score(font_text) >= 0.9 * _score(text):
+            text, mode = font_text, 'font'
 
     words = re.findall(r"[A-Za-z']+", text)
     alpha_words = re.findall(r'[A-Za-z]+', text)

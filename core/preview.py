@@ -145,8 +145,9 @@ def render(jd, m, cv, slug, phase='plan'):
         for r in hard:
             visible = visible_by_number.get(r.get('n'), {})
             classification = visible.get('match', r['match'])
-            icon = {'DIRECT': '[OK ]', 'TRANSFERABLE': '[~  ]',
-                    'PARTIAL': '[?  ]', 'GAP': '[XX ]'}[classification]
+            icon = {'DIRECT': '[OK ]', 'BEHAVIOURAL': '[OK ]',
+                    'TRANSFERABLE': '[~  ]', 'PARTIAL': '[?  ]',
+                    'GAP': '[XX ]'}.get(classification, '[?  ]')
             ids = ', '.join(visible.get('visible_anchors') or []) or '—'
             o.append(f"- `{icon}` **{classification}** · {r['text'][:110]}")
             o.append(f"      evidence: {ids} (best {r['best']:.2f})")
