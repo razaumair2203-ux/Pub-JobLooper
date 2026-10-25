@@ -189,12 +189,18 @@ def _build_document(cv, s):
 
     contact = ' | '.join(x for x in h.get('contact', []) if x)
     live = [(k, v) for k, v in (h.get('links') or {}).items() if v]
-    if contact or live:
-        inner = _runs(contact, s['size_headline'])
+    # Links get their own line: appended to the contact line, a portfolio URL
+    # wrapped mid-word and read as broken on page 1.
+    if contact:
+        body.append(_p(_runs(contact, s['size_headline']), jc='center',
+                       space_after=0 if live else 60))
+    if live:
+        inner = ''
         for i, (label, url) in enumerate(live):
             rid = f'rId{100+i}'
             links.append((rid, url if url.startswith('http') else 'https://' + url))
-            inner += _runs('  |  ', s['size_headline'])
+            if i:
+                inner += _runs('  |  ', s['size_headline'])
             inner += (f'<w:hyperlink r:id="{rid}">'
                       + _runs(_display_link(label, url), s['size_headline'], color='0563C1') +
                       '</w:hyperlink>')
@@ -305,8 +311,11 @@ def to_ats_text(cv):
     """What a naive parser sees. Verify this before shipping anywhere important."""
     h = cv.get('header', {})
     contact = [x for x in h.get('contact', []) if x]
-    contact += [_display_link(k, v) for k, v in (h.get('links') or {}).items() if v]
-    o = [h.get('name', ''), h.get('headline', ''), ' | '.join(contact), '']
+    link_line = [_display_link(k, v) for k, v in (h.get('links') or {}).items() if v]
+    o = [h.get('name', ''), h.get('headline', ''), ' | '.join(contact)]
+    if link_line:
+        o.append(' | '.join(link_line))
+    o.append('')
     for sec in cv.get('sections', []):
         if not sec.get('items'):
             continue
