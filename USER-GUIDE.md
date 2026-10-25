@@ -3,7 +3,7 @@
 Joblooper turns one user-approved career record and one captured job
 description into a traceable CV and cover-letter package. It does not search
 old CVs while drafting and does not create employer-facing files before you
-approve the complete text in chat.
+approve the complete text in the dashboard Review tab or in chat.
 
 **The dashboard (`python jl.py dashboard`) is the primary surface.** Everything
 below can be done there without knowing an application key, a hash or a folder
@@ -15,6 +15,65 @@ The dashboard has two entry states. Until your career truth is signed it opens
 on truth setup and will not capture a job, because Joblooper will not tailor an
 application against facts you have not reviewed. Once signed, it opens on your
 working applications.
+
+## The everyday application journey
+
+Paste the official job link, confirm the complete captured advert, and answer
+only the application questions your approved career record cannot settle.
+Create the drafts, read the complete CV and letter, give any feedback, mark
+both documents as read, and sign off. Then select **Finish building documents**
+to get the checked files. Approval and file creation are separate saved steps,
+so an interrupted build resumes without asking you to approve again.
+
+### When you disagree or want a change
+
+Use **Add feedback** while reading either document. Explain the exact concern;
+you do not have to agree with a gap just because Joblooper identified it.
+Codex should recheck the advert and approved evidence, explain its conclusion,
+and ask a focused follow-up only when a missing fact would change the decision.
+If the existing work is sound, no change is needed.
+
+| Your feedback | What happens | What reaches another job |
+|---|---|---|
+| Existing evidence was missed | Choose that option on the application question. The saved challenge pauses drafting while the evidence mapping is checked. | No new fact; the approved record remains the authority. |
+| I have new evidence / this fact is wrong | Add the source and review the proposed career-record change, including your personal contribution. Sign the changed record, then return to this job. | The newly approved fact becomes available for relevant future applications. |
+| Change this CV sentence | Select the sentence, review a supported before/after proposal, and accept or reject it with a reason. Accepted changes rebuild the drafts for complete review. | This wording decision stays with this application. |
+| Keep the current wording | Record why no change is needed. The decision and reason stay in Comments. | No automatic rule. |
+| Use this page count or wording length in future | Save and accept a **Reusable preference**. It appears under saved preferences and can be stopped later. | The explicit preference affects future drafts; it is separate from facts and outcome lessons. |
+
+The current wording editor supports approved CV variants. A new factual claim
+cannot be smuggled in as a wording edit. Cover-letter-specific or unsupported
+new phrasing needs contextual review through Codex and the governed evidence
+workflow; the sentence selector is not a freeform editor for both documents.
+Setting feedback aside records that decision; it does not implement the request.
+
+### When you have applied
+
+Upload the documents yourself on the employer portal. Then select **I applied ·
+record sent files**, or say **I applied to this job** in that job's Codex panel.
+Select the exact CV and any cover letter you sent, add the date and channel,
+attach saved screening answers if available, and confirm the selected files.
+The app never assumes which CV you used.
+
+After saving, the job leaves **Working applications** and appears in **Applied**.
+Applied keeps jobs visible after an interview, rejection or withdrawal as well.
+Open the job to retrieve its exact sent files, update dates or add portal evidence,
+and record a response. A duplicate “I applied” report opens the existing record.
+Waiting alone is not a task; record no response only when that is your observation.
+
+### What is learned, and when
+
+Paste or attach the exact response to the selected application, or record only
+the observed outcome. A rejection with no explanation can end here: **no useful
+lesson is a valid result**. Timing alone cannot identify a cause.
+
+Discuss a possible reason only when useful evidence exists. Saving a concern
+for later requires the existing evidence-review checks, competing explanations,
+what argues against it, and unknowns. A future application shows only relevant
+saved concerns, with their source and why they apply; you can explain why one
+does not apply to that job. Positive outcomes remain observations, not proof
+that particular CV wording worked. Neither route silently edits career facts
+or previously submitted documents.
 
 ## 1. Install and initialize
 
@@ -154,7 +213,7 @@ Codex automatically. Only when Codex also cannot retrieve the complete official
 advert does the workspace ask you to paste the company, title and JD manually.
 It never rebuilds a missing advert from search snippets.
 
-The UI binds only to `127.0.0.1` and has no analytics. When you explicitly
+The UI binds only to `127.0.0.1` and has no usage tracking. When you explicitly
 message Codex, the installed Codex CLI uses your configured OpenAI service.
 Each job resumes its private Codex thread when available, but only saved truth,
 feedback, outcome and reasoning records count as durable system memory. Command

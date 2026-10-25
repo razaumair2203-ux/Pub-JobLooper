@@ -4,18 +4,59 @@ The engine selects only approved wording from truth. Contextual oversight judges
 relevance and force; it may choose evidence or ask for truth, but may not write
 new facts.
 
+### Provenance invariant
+
+Every employer-facing factual line is a compiled claim and must retain the Joblooper anchor ID(s) that support it. This applies to the headline, professional summary, career highlights, skills/competencies, experience bullets, research entries, education/credentials and cover-letter evidence. The existing traceability gate must reject an uncited line, an unknown anchor and a line whose cited anchors do not semantically support its content. Co-citing multiple anchors does not authorize an unsupported clause or ownership upgrade.
+
+Chat/model memory and repository prose are not fallback citations. If a useful fact is found outside approved truth, stop at a pending evidence locator and route it through truth review. If the JD asks for something truth does not support, preserve the gap; do not synthesize a plausible bridge sentence.
+
 | Section | Source and selection | Non-negotiable checks |
 |---|---|---|
-| Header | Reviewed profile plus the one JD-selected identity/headline. | Exact name/contact; controlled location and disclosure wording; no inferred eligibility. |
-| Professional summary | One positioning anchor and its cited supports; choose the approved variant with a material JD-relevance gain. | Senior identity, authority/scope, strongest differentiator and outcome where verified; bounded length; no keyword pile or unsupported employer familiarity. |
-| Career highlights and recognition | Candidate-governed, chronological identity story. Recognition may merge into the stage it validates but keeps its own citation. | Every governed item appears once, in sequence; do not repeat it under experience. |
-| Core competencies | Evidence-backed JD vocabulary not already visible elsewhere. | Deduplicate against summary, skills, experience and credentials; omit the band if it adds no coverage. |
-| Technical/programme skills | Verified methods, standards and tools ranked by exact JD relevance. | A keyword never appears merely because the JD uses it; named-platform gaps remain explicit. |
-| Professional experience | Every role remains in chronology. Reserve evidence for direct/mandatory requirements, then select nonredundant lane depth within role floors. | State action, lifecycle scope/authority and result; no ownership upgrade; no duplicate highlights; readable bullet length. |
-| Research/publications | Published records only, when the configured lane/JD activates the section. | `all_eligible` retention means every eligible publication renders; controlled or unconfirmed work stays withheld. |
-| Education | Every verified degree, including visible full-time study dates needed to explain chronology. | Never rank degrees away or invent equivalence. |
-| Certifications/professional development | All professional-tier credentials; relevant qualifications; compact grouped coursework/training with full provider or university names. | Never label coursework as certification; professional credentials are protected from caps and page trimming. |
+| Header | Reviewed profile plus the one JD-selected identity/headline. | Exact name/contact; controlled location and disclosure wording; no inferred eligibility. The headline must describe the evidenced role lane, not upgrade an interface/support role into formal authority. |
+| Professional summary | One positioning anchor and its cited supports; choose the approved variant with a material JD-relevance gain. | Senior identity, authority/scope, strongest differentiator and outcome where verified; bounded length; no keyword pile or unsupported employer familiarity. The target role must be recognisable without reading the experience section. |
+| Career highlights and recognition | Candidate-governed chronological identity story. Recognition may merge into the stage it validates but keeps its own citation. | Every governed item appears once and is not repeated under experience. For general systems/programme applications this section follows the role-matched evidence; it must not displace direct JD evidence from the first scan. |
+| Core competencies | Evidence-backed JD vocabulary not already visible elsewhere. | Prefer the employer's exact terminology when the same concept is explicitly supported by truth. Deduplicate against summary, skills, experience and credentials; omit the band if it adds no coverage. Never add a term solely because an ATS may search for it. |
+| Technical/programme skills | Verified methods, standards and tools ranked by exact JD relevance. | A keyword never appears merely because the JD uses it; named-platform gaps remain explicit. Keep this a scan band, not an inventory of everything the candidate has ever used. |
+| Professional experience | Every role remains in chronology. Reserve evidence for direct/mandatory requirements, then select nonredundant lane depth within role floors. | Each bullet starts with a clear action/ownership verb and states action plus lifecycle scope/authority plus result or decision consequence where evidence exists. No ownership upgrade; no duplicate highlights; keep bullets readable in a six-second scan. |
+| Research/publications | Published records only, when the configured lane/JD activates the section. | `all_eligible` retention means every eligible publication renders once the section is activated; controlled or unconfirmed work stays withheld. Do not show research by default in a non-research systems role merely because publications exist. |
+| Education | Every verified degree, including visible full-time study dates needed to explain chronology. | Never rank degrees away or invent equivalence. Add educational project detail only when it supplies material JD evidence that is not stronger elsewhere; senior candidates do not need generic education bullets. |
+| Certifications/professional development | All professional-tier credentials; relevant qualifications; compact grouped coursework/training with full provider or university names. | Never label coursework as certification; professional credentials are protected from caps and page trimming. Group low-signal development rather than allowing it to dominate page two. |
 | Cover letter | Reuses evidence already visible in the approved CV and the exact captured company/role. | No independent fact stream, no generic flattery, no address/name guessing, and no new employer claims. |
+
+## Functional translation and product-ownership language
+
+Translate evidence into the employer's operating language without changing the underlying fact. For specialised military/aerospace programmes, lead with the civilian function (for example fleet modernisation, technical product/lifecycle ownership, international OEM delivery, qualification/acceptance, operational readiness or programme governance) and put a public platform/programme name in parentheses only when it adds recognition or useful context. Avoid unexplained internal acronyms in the first scan.
+
+When a JD mentions Product Managers, Product Owners or product-led delivery, approved evidence may use **technical product ownership** or **product-lifecycle delivery** only where the cited record supports the relevant lifecycle responsibilities: user/operational need, requirements and change prioritisation, cross-functional delivery, trade-offs/dependencies, iterative integration/test, qualification/V&V, acceptance/operational introduction and sustainment/performance feedback. This is responsibility translation, not title substitution. Do not render `Product Manager`, `Product Owner`, Scrum backlog ownership, commercial P&L/pricing, market discovery or formal product authority unless approved truth explicitly supports those claims.
+
+## First-third recruiter test
+
+The first third of page one is a selection surface, not a career biography. A
+reviewer should be able to identify, without hunting:
+
+1. the role lane being targeted;
+2. two or three of the employer's most material responsibilities or requirements;
+3. the strongest verified differentiator, scale or outcome that makes the
+   candidate credible for that work.
+
+If those signals exist only later in the CV, the document is not ready even when
+its total evidence coverage is high. Prefer summary -> concise JD vocabulary ->
+role-matched experience for general systems/programme applications. A protected
+career story may remain in the document, but it should follow direct role-fit
+evidence unless the target itself is research/innovation-led.
+
+## ATS terminology test
+
+Do not use synthetic "ATS scores" as a release criterion. Instead compare the
+captured JD against the rendered CV and ask whether the important, evidence-backed
+terms are visible in ordinary recruiter language. Use an exact employer term when
+truth supports that exact concept; otherwise use the approved transferable term
+and keep the gap explicit. Keyword density never authorises a claim.
+
+The final DOCX/PDF must remain a simple linear document with conventional section
+headings and extract cleanly back to text. Tables, text boxes, graphics used as
+content containers, hidden text and decorative keyword stuffing are not valid
+ways to improve ATS coverage.
 
 ## Impact and bloat test
 
@@ -24,6 +65,17 @@ lifecycle breadth, a quantified outcome, external validation or a necessary
 chronology fact. Remove or shorten a line only when the same argument remains
 visible elsewhere. A richer variant must provide a measurable relevance gain;
 stylistic churn alone is not an improvement.
+
+Run a deletion pass after coverage is satisfied: remove or demote lines that do
+not strengthen the target lane, explain chronology, prove scale/authority, or
+supply a protected credential. Broad but irrelevant prestige is not automatically
+more valuable than direct role evidence.
+
+Once a line or bullet has survived the current application's evidence, relevance
+and coverage gates, a later revision must not delete or demote it merely to make
+space for a newly added item. Removal requires a new explicit deletion/bloat
+determination with a documented reason; otherwise the revision is additive or
+layout/reflow only.
 
 Before sign-off, `present` prints an upfront internal caution packet followed by
 the complete CV and complete letter. The dashboard presents the same bound

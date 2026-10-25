@@ -39,6 +39,8 @@ def main():
         for section in sections['sections']:
             if section['id'] in {'research', 'education', 'certifications'}:
                 section['max'] = 1
+            if section['id'] == 'research':
+                section.setdefault('include_if', {})['lane'] = ['systems_engineer']
         for lane in sections.get('lanes', {}).values():
             lane.setdefault('caps', {})['research'] = 1
             lane['caps']['certifications'] = 1
@@ -51,7 +53,7 @@ def main():
         mapping = match.match_jd(jd, identity)
         cv = build.assemble(jd, mapping, target_pages=2)
         selected = set(cv['_selection']['selected_ids'])
-        checks.append(('publication overflow survives a lower lane cap',
+        checks.append(('publication overflow survives a lower lane cap when research is active',
                        {'PUB-001', 'PUB-002'} <= selected))
         checks.append(('every verified degree survives a lower section cap',
                        {'EDU-001', 'EDU-002'} <= selected))

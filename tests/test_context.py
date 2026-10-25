@@ -25,6 +25,16 @@ def main():
                        first['stats']['records'] == 23 and len(store.anchors()[1]) == 23))
         second = store.truth_context()
         checks.append(('unchanged truth reuses the in-process context', first is second))
+        digest_probe = store.p('index', 'hash-scope-probe.txt')
+        store.write_text(digest_probe, 'first')
+        with store.hash_scope():
+            first_digest = store.sha256_file(digest_probe)
+            repeated_digest = store.sha256_file(digest_probe)
+            store.write_text(digest_probe, 'second value')
+            changed_digest = store.sha256_file(digest_probe)
+        checks.append(('request-scoped hashing reuses stable work but sees file changes',
+                       first_digest == repeated_digest
+                       and changed_digest != first_digest))
         checks.append(('context declares authority and reviewer limits',
                        bool(first['oversight_contract']['reviewer_must_not'])
                        and first['authority']['derived_cache'] == 'index/truth_context.json'))

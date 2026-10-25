@@ -28,6 +28,20 @@ def main():
             slug, jd, mapping, identity, reviewer='feedback-reviewer',
             answers={row['id']: 'PROCEED_WITH_RECORDED_GAP' for row in rows})
         jl.cmd_plan(SimpleNamespace(job=slug, pages=None, identity=None))
+        invalidation_calls = []
+        original_invalidate = release.invalidate_unsubmitted_package
+        release.invalidate_unsubmitted_package = lambda *args: invalidation_calls.append(args)
+        try:
+            dashboard_actions.record_feedback(
+                slug, 'content', 'Invalid classification must not change the package.',
+                classification='NOT_A_REAL_CLASS')
+            invalid_feedback_refused = False
+        except ValueError:
+            invalid_feedback_refused = True
+        finally:
+            release.invalidate_unsubmitted_package = original_invalidate
+        checks.append(('invalid feedback is refused before package invalidation',
+                       invalid_feedback_refused and not invalidation_calls))
         targets = [row for row in feedback.document_targets(slug)
                    if any(value != row['text'] for value in row['alternatives'])]
         target = targets[0]

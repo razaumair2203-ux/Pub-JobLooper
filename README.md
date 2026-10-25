@@ -1,4 +1,4 @@
-<img src="dashboard/app-icon.svg" alt="Joblooper" width="96" align="left" hspace="16">
+<img src="assets/app-mark.svg" alt="Joblooper" width="112" align="left" hspace="16">
 
 # Joblooper
 
@@ -72,7 +72,7 @@ every refusal names what is missing.
 
 **What it is not.** It does not apply on your behalf, log in to any portal,
 score you against other candidates, or predict a hiring decision. There is no
-analytics and no account.
+usage tracking and no account.
 
 ## Why use AI here?
 
@@ -95,6 +95,7 @@ than starting again from chat memory.
 - **Install details and portability:** [installation](references/installation.md)
 - **Codex operating rules:** [SKILL.md](SKILL.md)
 - **Privacy boundary:** [SECURITY.md](SECURITY.md)
+- **Brand and product language:** [brand system](references/brand.md)
 - **Contribute:** [CONTRIBUTING.md](CONTRIBUTING.md)
 
 
@@ -346,7 +347,7 @@ It starts only after an explicit user turn, uses the configured OpenAI service,
 and stops for user approval when Codex requests a command or file change. The
 private runtime stores only the job-to-thread mapping needed to resume that
 Codex context after a dashboard restart; durable facts and learning still live
-in governed Joblooper records. The dashboard has no analytics and cannot claim
+in governed Joblooper records. The dashboard has no usage tracking and cannot claim
 that it submitted into a third-party
 employer portal. Use `--no-open` on a headless machine or `--snapshot` for
 deterministic JSON. The [persona, journeys and control contract](references/dashboard.md)

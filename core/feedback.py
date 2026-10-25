@@ -12,9 +12,12 @@ SCOPES = {'CONTENT', 'FORMAT', 'WORKFLOW', 'TRUTH', 'RULE'}
 RESOLUTIONS = {'ADOPTED', 'REJECTED'}
 CLASSIFICATIONS = {
     'APPLICATION_WORDING', 'FACTUAL_CORRECTION', 'REUSABLE_PREFERENCE',
-    'WORKFLOW_REQUEST', 'REJECTION',
+    'EVIDENCE_MAPPING', 'WORKFLOW_REQUEST', 'REJECTION',
 }
 DECISIONS = {'ACCEPT', 'EDIT', 'REJECT', 'DEFER'}
+REQUESTED_SCOPES = {
+    'THIS_APPLICATION', 'FUTURE_APPLICATIONS', 'ALL_APPLICATIONS', 'CAREER_TRUTH',
+}
 
 
 def _path():
@@ -111,32 +114,62 @@ def validate_record(scope, note):
     return scope, str(note).strip()
 
 
-def record(slug, scope, note, author='user', plan_sha256=None,
-           classification=None, target=None, requested_scope='THIS_APPLICATION',
-           preference_type=None, preference_value=None):
+def validate_open(scope, note, classification=None, target=None,
+                  requested_scope='THIS_APPLICATION', preference_type=None,
+                  preference_value=None):
+    """Validate the complete feedback write before any package is retired."""
     scope, note = validate_record(scope, note)
-    used = [int(item['id'][1:]) for item in current()
-            if item.get('id', '').startswith('F') and item['id'][1:].isdigit()]
-    fid = f"F{max(used, default=0) + 1:04d}"
     classification = str(classification or '').upper() or None
+    requested_scope = str(requested_scope or 'THIS_APPLICATION').upper()
     if classification and classification not in CLASSIFICATIONS:
         raise ValueError('feedback classification is invalid')
+    if requested_scope not in REQUESTED_SCOPES:
+        raise ValueError('feedback reach is invalid')
     if classification == 'APPLICATION_WORDING' and not target:
         raise ValueError('application wording feedback needs an exact document target')
+    if classification in {'APPLICATION_WORDING', 'EVIDENCE_MAPPING',
+                          'WORKFLOW_REQUEST', 'REJECTION'}:
+        if requested_scope != 'THIS_APPLICATION':
+            raise ValueError('this feedback applies only to the current application')
+    if classification == 'FACTUAL_CORRECTION' and requested_scope != 'CAREER_TRUTH':
+        raise ValueError('a factual correction must go through the career record')
     if classification == 'REUSABLE_PREFERENCE':
         from . import preferences
         preference_type = str(preference_type or '').upper()
         preference_value = str(preference_value or '').lower()
+        if requested_scope not in {'FUTURE_APPLICATIONS', 'ALL_APPLICATIONS'}:
+            raise ValueError('a reusable preference must explicitly apply to future drafts')
         if (preference_type not in preferences.TYPES
                 or preference_value not in preferences.TYPES[preference_type]):
             raise ValueError('reusable feedback needs a supported preference control')
+    return {
+        'scope': scope, 'note': note, 'classification': classification,
+        'requested_scope': requested_scope, 'preference_type': preference_type,
+        'preference_value': preference_value,
+    }
+
+
+def record(slug, scope, note, author='user', plan_sha256=None,
+           classification=None, target=None, requested_scope='THIS_APPLICATION',
+           preference_type=None, preference_value=None):
+    checked = validate_open(
+        scope, note, classification, target, requested_scope,
+        preference_type, preference_value)
+    scope, note = checked['scope'], checked['note']
+    classification = checked['classification']
+    requested_scope = checked['requested_scope']
+    preference_type = checked['preference_type']
+    preference_value = checked['preference_value']
+    used = [int(item['id'][1:]) for item in current()
+            if item.get('id', '').startswith('F') and item['id'][1:].isdigit()]
+    fid = f"F{max(used, default=0) + 1:04d}"
     event = {
         'timestamp': store.now(), 'event': 'FEEDBACK_OPENED',
         'feedback_id': fid, 'app_id': slug, 'scope': scope,
         'note': note, 'author': str(author or 'user').strip(),
         'plan_sha256': plan_sha256,
         'classification': classification,
-        'requested_scope': str(requested_scope or 'THIS_APPLICATION').upper(),
+        'requested_scope': requested_scope,
         'truth_sha256': store.truth_approval_subject()['sha256'],
         'preference_type': preference_type,
         'preference_value': preference_value,

@@ -68,7 +68,7 @@ def review_truth_candidates(profile, decisions):
     with _ACTION_LOCK, store.writer_lock():
         workspace = truth_intake.review(profile, decisions)
     return {'ok': True, 'workspace': workspace,
-            'message': 'Source decisions saved. Review the complete summary and sign its exact digest.'}
+            'message': 'Source decisions saved. Review the complete summary and sign this exact version.'}
 
 
 def sign_truth(reviewer, confirmation):
@@ -206,7 +206,7 @@ def confirm_advert(job_id, company, title, reviewer='dashboard-user'):
     with _ACTION_LOCK, store.writer_lock():
         receipt = advert_review.confirm(slug, company, title, reviewer)
     return {'ok': True, 'receipt': receipt,
-            'message': 'Exact advert confirmed. Deterministic preflight is now enabled.'}
+            'message': 'Exact advert confirmed. The application fit check is now available.'}
 
 
 def preflight_state(job_id):
@@ -245,7 +245,7 @@ def preflight_state(job_id):
 
 
 def plan_state(job_id):
-    """Project whether the existing review bundle is complete and current."""
+    """Project whether the existing internal review drafts are complete and current."""
     slug = store.resolve_job(job_id)
     directory = store.job_dir(slug)
     names = ('match.json', 'cv.json', 'cover-letter.json', 'employer-risk.json')
@@ -254,7 +254,7 @@ def plan_state(job_id):
     if missing:
         return {
             'job_id': slug, 'available': False, 'current': False,
-            'errors': ['missing plan artefact(s): ' + ', '.join(missing)],
+            'errors': ['missing application file(s): ' + ', '.join(missing)],
         }
     jd = store.read_json(os.path.join(directory, 'jd.json'), {}) or {}
     mapping = store.read_json(os.path.join(directory, 'match.json'), {}) or {}
@@ -271,7 +271,7 @@ def plan_state(job_id):
     errors = []
     accepted_feedback = feedback.accepted_overrides(slug)
     if accepted_feedback:
-        errors.append('accepted feedback requires deterministic regeneration: '
+        errors.append('accepted feedback requires the CV and letter to be generated again: '
                       + ', '.join(row['id'] for row in accepted_feedback))
     if (receipt.get('_schema') != 'joblooper.plan-receipt.v1'
             or receipt.get('app_id') != slug
@@ -354,6 +354,64 @@ def review_preflight(job_id, answers, reviewer='dashboard-user'):
     return result
 
 
+def record_preflight_issue(job_id, question_id, note, issue_type,
+                           author='dashboard-user'):
+    """Bind a current-advert evidence concern to the exact requirement.
+
+    The note is application-review input, not career truth and not employer
+    prose. Existing-evidence challenges remain open until the refreshed matcher
+    maps the requirement directly; genuinely new evidence must travel through
+    truth review and renewed sign-off.
+    """
+    slug = store.resolve_job(job_id)
+    question_id = str(question_id or '').strip().upper()
+    note = str(note or '').strip()
+    issue_type = str(issue_type or '').strip().upper()
+    if issue_type not in {'EXISTING_EVIDENCE_MISSED', 'NEW_EVIDENCE'}:
+        raise ValueError('Select whether existing or new evidence needs review')
+    if len(note) < 8 or len(note) > 2000:
+        raise ValueError('Evidence review comments must be 8 to 2,000 characters')
+    current = preflight_state(slug)
+    question = next((row for row in current.get('questions') or []
+                     if row.get('id') == question_id), None)
+    if not question or question.get('kind') != 'KNOWN_GAP':
+        raise ValueError('Select a current advert requirement that still needs review')
+    target = {
+        'id': question_id,
+        'artifact': 'preflight',
+        'section': 'Application check',
+        'text': question.get('requirement'),
+        'sha256': store.sha256_text(store.canonical_json({
+            'subject_sha256': current.get('subject_sha256'),
+            'question_id': question_id,
+            'classification': question.get('classification'),
+            'requirement': question.get('requirement'),
+        })),
+    }
+    classification = ('EVIDENCE_MAPPING'
+                      if issue_type == 'EXISTING_EVIDENCE_MISSED'
+                      else 'FACTUAL_CORRECTION')
+    duplicate = next((item for item in feedback.open_items(slug)
+                      if item.get('classification') == classification
+                      and item.get('target_id') == question_id
+                      and item.get('note') == note), None)
+    if duplicate:
+        return {'ok': True, 'item': duplicate, 'reused': True,
+                'output': f"{duplicate['id']} already records this evidence review"}
+    with _ACTION_LOCK, store.writer_lock():
+        release.invalidate_unsubmitted_package(
+            slug, 'current-advert evidence review invalidated the approved package')
+        item = feedback.record(
+            slug, 'TRUTH', note, str(author or 'dashboard-user')[:200],
+            plan_sha256=release.plan_digest(slug),
+            classification=classification, target=target,
+            requested_scope=('THIS_APPLICATION' if classification == 'EVIDENCE_MAPPING'
+                             else 'CAREER_TRUTH'))
+        release.write_status(slug, 'PLAN')
+    return {'ok': True, 'item': item, 'reused': False,
+            'output': f"{item['id']} saved against {question_id}; drafting remains paused"}
+
+
 def prepare_application(job_id):
     """Create the governed review records without relying on a Codex turn.
 
@@ -390,7 +448,7 @@ def prepare_application(job_id):
                     'Current plan exists but the complete CV-and-cover-letter review is unavailable')
             return {
                 'ok': True, 'returncode': 0,
-                'output': 'Current CV and cover-letter review bundle reused; no files changed.',
+                'output': 'Current CV and cover-letter review drafts reused; no files changed.',
                 'reused': True, 'review': review,
             }
         result = _run_cli(['plan', current['job_id']], timeout=180)
@@ -424,7 +482,9 @@ def record_feedback(job_id, scope, note, author='dashboard-user',
         raise ValueError('Feedback exceeds the 8,000-character limit')
     slug = store.resolve_job(job_id)
     selected_target = feedback.target(slug, target_id) if target_id else None
-    feedback.validate_record(scope, note)
+    feedback.validate_open(
+        scope, note, classification, selected_target, requested_scope,
+        preference_type, preference_value)
     with _ACTION_LOCK, store.writer_lock():
         retired = release.invalidate_unsubmitted_package(
             slug, 'user feedback invalidated the approved unsubmitted package')
@@ -484,8 +544,34 @@ def decide_feedback(job_id, feedback_id, decision, note='', edited_text=None):
                 'after_truth_sha256': current_truth,
             }
             item = feedback.complete_governed(
-                slug, item['id'], 'Applied through the governed career-truth workbench.',
-                'Changed career truth passed integrity and exact digest sign-off.', receipt)
+                slug, item['id'], 'Applied through the reviewed career record.',
+                'The changed career record passed its checks and exact-version sign-off.', receipt)
+        elif item.get('classification') == 'EVIDENCE_MAPPING' and normalized == 'ACCEPT':
+            directory = store.job_dir(slug)
+            jd = store.read_json(os.path.join(directory, 'jd.json'), {}) or {}
+            jd['_slug'] = slug
+            identity = match.pick_identity(jd)
+            mapping = match.match_jd(jd, identity)
+            requirement_number = int(str(item.get('target_id') or '').split('-', 1)[1])
+            requirement = next((row for row in mapping.get('requirements') or []
+                                if row.get('n') == requirement_number), None)
+            if not requirement or requirement.get('match') != 'DIRECT':
+                raise ValueError(
+                    'The refreshed evidence map does not yet classify this requirement '
+                    'as direct; keep the review open or update the mapping/truth first')
+            anchors = [row.get('id') for row in requirement.get('anchors') or []]
+            receipt = {
+                '_schema': 'joblooper.evidence-mapping-feedback-receipt.v1',
+                'requirement_id': item.get('target_id'),
+                'classification': requirement.get('match'),
+                'anchor_ids': anchors,
+                'mapping_sha256': store.sha256_text(store.canonical_json(requirement)),
+            }
+            item = feedback.complete_governed(
+                slug, item['id'],
+                'Resolved through the refreshed requirement-to-evidence map.',
+                'The exact current requirement now maps DIRECT to governed evidence.',
+                receipt)
         elif (item.get('classification') in {'WORKFLOW_REQUEST', 'REJECTION'}
               and normalized in {'ACCEPT', 'EDIT'}):
             raise ValueError('A workflow request cannot mutate the product from this application; defer or reject it')
@@ -558,7 +644,8 @@ def mark_presented(job_id):
     return result
 
 
-def approve_and_build(job_id, reviewer, confirmation, no_pdf=False):
+def approve_application(job_id, reviewer, confirmation):
+    """Record exact-draft sign-off without creating sendable files."""
     reviewer = str(reviewer or '').strip()
     if confirmation != 'I reviewed the complete CV and cover letter':
         raise ValueError('Exact CV-and-cover-letter review confirmation is required')
@@ -587,14 +674,27 @@ def approve_and_build(job_id, reviewer, confirmation, no_pdf=False):
             if not approved['ok']:
                 raise ValueError(approved['output'] or 'Approval was refused')
             approval_output = approved['output']
+            reused = False
         else:
             approval_output = 'Current exact-bundle approval reused.'
-        built = build_application(slug, no_pdf=no_pdf)
+            reused = True
         return {
             'ok': True,
-            'output': approval_output + '\n\n' + built['output'],
-            'reused': bool(current_approval and not approval_errors),
+            'output': (approval_output + '\n\nApproval is recorded. No sendable files '
+                       'were created; Finish build is the next separate action.'),
+            'reused': reused,
         }
+
+
+def approve_and_build(job_id, reviewer, confirmation, no_pdf=False):
+    """Legacy combined control retained for CLI/API compatibility."""
+    approved = approve_application(job_id, reviewer, confirmation)
+    built = build_application(job_id, no_pdf=no_pdf)
+    return {
+        'ok': True,
+        'output': approved['output'] + '\n\n' + built['output'],
+        'reused': approved.get('reused') and built.get('reused'),
+    }
 
 
 def build_application(job_id, no_pdf=False):
@@ -1057,11 +1157,11 @@ def record_hypothesis(job_id, cause, confidence, note, author,
     hypothesis_id = str(hypothesis_id or '').strip() or None
     status = str(status or 'OPEN').strip().upper()
     if not hypothesis_id and cause not in learning.LESSON_TRANSFER:
-        raise ValueError('Select a valid hypothesis category')
+        raise ValueError('Choose what might have gone wrong')
     try:
         confidence = float(confidence)
     except (TypeError, ValueError) as error:
-        raise ValueError('Evidence support must be a number from 0 to 1') from error
+        raise ValueError('Choose how sure you are') from error
     with _ACTION_LOCK, store.writer_lock():
         row = learning.record_hypothesis(
             slug, cause, confidence, str(note or '').strip(),
@@ -1071,5 +1171,4 @@ def record_hypothesis(job_id, cause, confidence, note, author,
             profile_factors=_text_list(profile_factors),
             other_factors=_text_list(other_factors), unknowns=_text_list(unknowns))
     return {'hypothesis': row, 'output': (
-        f"hypothesis {row['id']} saved · {row['status']} · "
-        f"{len(row.get('revisions') or [])} reasoning pass(es)")}
+        f"Possible reason saved · review {len(row.get('revisions') or [])}")}

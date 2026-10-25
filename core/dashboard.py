@@ -5,6 +5,7 @@ through an allowlisted CLI action. It has no parallel database and never lets
 the browser invent paths, candidate facts, approvals or employer causes.
 """
 import json
+import hashlib
 import mimetypes
 import os
 import re
@@ -15,6 +16,7 @@ import urllib.parse
 import webbrowser
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.cookies import CookieError, SimpleCookie
 
 from . import (advert_review, codex_bridge, dashboard_actions, dashboard_runtime, employer_review,
                feedback, gates, integrity, learning, match, preflight, release,
@@ -23,17 +25,51 @@ from . import (advert_review, codex_bridge, dashboard_actions, dashboard_runtime
 
 STATIC_ROOT = store.code_p('dashboard')
 MAX_REQUEST_BYTES = 35 * 1024 * 1024
+SESSION_COOKIE = 'JoblooperSession'
 CAUSE_LABELS = {
-    'HARD_GATE': 'Direct requirement',
-    'SENIORITY_MISMATCH': 'Seniority alignment',
-    'DOMAIN_TRANSLATION': 'Domain translation',
-    'ATS_KEYWORD': 'ATS / wording',
-    'EVIDENCE_DEPTH': 'Evidence depth',
-    'NARRATIVE_COHERENCE': 'Narrative coherence',
-    'LOCATION_VISA': 'Location / eligibility',
-    'COMPENSATION': 'Compensation',
-    'TIMING_INTERNAL': 'Process / timing',
-    'NO_SIGNAL': 'No reliable signal',
+    'HARD_GATE': 'They asked for something I cannot show',
+    'SENIORITY_MISMATCH': 'The job was more or less senior than me',
+    'DOMAIN_TRANSLATION': 'My experience is in a different field',
+    'ATS_KEYWORD': 'The words I used in my CV',
+    'EVIDENCE_DEPTH': 'I gave too little detail',
+    'NARRATIVE_COHERENCE': 'My CV did not tell one clear story',
+    'LOCATION_VISA': 'Location, visa or right to work',
+    'COMPENSATION': 'Pay',
+    'TIMING_INTERNAL': 'Their process or timing, not me',
+    'NO_SIGNAL': 'No idea — there is nothing to go on',
+}
+REASON_STATUS_LABELS = {
+    'OPEN': 'Keep thinking about it',
+    'RETAINED_PLAUSIBLE': 'Saved concern · cause unconfirmed',
+    'CONFIRMED': 'The employer actually said this',
+    'DISMISSED': 'Rule it out',
+}
+CONFIDENCE_LABELS = (
+    (0.30, 'Limited evidence'),
+    (0.60, 'Some supporting evidence'),
+    (0.85, 'Strong supporting evidence'),
+)
+LESSON_SUMMARIES = {
+    'HARD_GATE': ('Check direct requirements before applying, and say clearly '
+                  'when you cannot show the requested experience.'),
+    'SENIORITY_MISMATCH': ('Check that the job level matches the responsibility '
+                           'you can prove.'),
+    'DOMAIN_TRANSLATION': ('Explain how your experience transfers to this field, '
+                           'and be honest about what is still new.'),
+    'ATS_KEYWORD': ('Use the employer’s words when they accurately describe '
+                    'experience you can prove.'),
+    'EVIDENCE_DEPTH': ('Add specific evidence for important requirements before '
+                       'you send the application.'),
+    'NARRATIVE_COHERENCE': ('Make the CV tell one clear, evidence-backed story '
+                            'for the job.'),
+    'LOCATION_VISA': ('Confirm location, visa and right-to-work requirements '
+                      'before applying.'),
+    'COMPENSATION': ('Check the pay range before applying when it could rule the '
+                     'job out.'),
+    'TIMING_INTERNAL': ('Save every portal answer and exact time, then check '
+                        'eligibility before submitting.'),
+    'NO_SIGNAL': ('Do not carry a lesson forward when the employer gave no '
+                  'usable signal.'),
 }
 ATTENTION_ROUTES = frozenset({
     'artifacts', 'build', 'cautions', 'codex_outcome', 'evidence', 'feedback', 'outcome', 'prepare',
@@ -48,17 +84,16 @@ ATTENTION_KIND_RANK = {
     'feedback': 5,
     'preflight': 6, 'prepare': 7, 'gate_blocked': 8, 'approve': 9, 'review': 10,
     'build': 11, 'submission_reconcile': 12, 'submit': 13,
-    'submission_metadata': 14, 'outcome_date': 15, 'silent_application': 16,
+    'submission_metadata': 14, 'outcome_date': 15,
     'next_stage': 17,
-    'reasoning': 18,
 }
 # The single definition of the lifecycle vocabulary. `dashboard/app.js` reads
 # these from the snapshot so the browser cannot hold a divergent copy.
 LIFECYCLE_PHASES = ('captured', 'review', 'approved', 'applied', 'progressed',
                     'rejected', 'closed')
-# "In progress" means the applicant still owns the next action, or the employer
-# has been given the application and no outcome has been observed yet.
-ACTIVE_PHASES = ('captured', 'review', 'approved', 'applied')
+# "In progress" is the preparation queue: the applicant still owns the next
+# action before the exact submission is recorded.
+ACTIVE_PHASES = ('captured', 'review', 'approved')
 ARTIFACT_LABELS = {
     'pdf': ('CV · submitted format', 'Application'),
     'docx': ('CV · editable', 'Application'),
@@ -66,7 +101,7 @@ ARTIFACT_LABELS = {
     'letter_docx': ('Cover letter · editable', 'Application'),
     'jd_raw': ('Job description · captured', 'Source'),
     'jd': ('Job description · structured', 'Source'),
-    'preflight': ('Preflight decisions · exact submitted record', 'Governance'),
+    'preflight': ('Application decisions · exact submitted record', 'Governance'),
     'match': ('Requirement evidence map', 'Evidence'),
     'cv': ('CV · structured record', 'Evidence'),
     'letter': ('Cover letter · structured record', 'Evidence'),
@@ -98,10 +133,10 @@ WORK_ARTIFACTS = {
     'advert_review': ('advert-review.json', 'Advert confirmation', 'Governance'),
     'job_description': ('jd.raw.md', 'Job description · captured', 'Source'),
     'jd_record': ('jd.json', 'Job description · structured', 'Source'),
-    'preflight_record': ('preflight.json', 'Preflight decisions · exact record', 'Review'),
+    'preflight_record': ('preflight.json', 'Application decisions · exact record', 'Review'),
     'preflight_questions': (
         'PRE-GENERATION-QUESTIONS.md',
-        'Preflight decisions · awaiting review', 'Review'),
+        'Application decisions · awaiting review', 'Review'),
     'match_record': ('match.json', 'Requirement evidence map', 'Evidence'),
     'cv_record': ('cv.json', 'CV · review record', 'Review'),
     'letter_record': (
@@ -119,21 +154,8 @@ WORK_ARTIFACTS = {
 }
 
 
-# How long an application may sit unanswered before the workspace asks what
-# happened. Long enough not to nag, short enough that the detail is recallable.
-GHOSTING_PROMPT_DAYS = 30
-
-
 def _normalise_status(value):
     return str(value or '').strip().lower().replace(' ', '_')
-
-
-def _days_since(date_text):
-    try:
-        applied = datetime.strptime(str(date_text)[:10], '%Y-%m-%d').date()
-    except (TypeError, ValueError):
-        return None
-    return (datetime.now().date() - applied).days
 
 
 def _work_state(directory):
@@ -165,28 +187,29 @@ def _next_action(phase, app, work_state):
     hypotheses = (app or {}).get('hypotheses') or []
     if phase == 'rejected':
         retained = [row for row in hypotheses
-                    if row.get('status') in {'RETAINED_PLAUSIBLE', 'CONFIRMED'}]
+                    if row.get('status') in {'RETAINED_PLAUSIBLE', 'CONFIRMED'}
+                    and row.get('cause') != 'NO_SIGNAL']
         open_rows = [row for row in hypotheses if row.get('status') == 'OPEN']
         if retained:
-            return ('Use the retained best guess in future preflight; '
+            return ('Use this best guess in future application checks; '
                     'leave unresolved alternatives unknown')
         if open_rows:
             return ('No cause is established; keep current explanations as '
                     'unverified best guesses')
-        return 'Record competing best guesses without claiming an employer reason'
+        return 'No further action needed; review possible reasons only if useful evidence exists'
     if phase == 'progressed':
         return 'Prepare for the next employer stage; preserve the exact observation'
     if phase == 'closed':
-        return 'No action · retained for traceability'
+        return 'No action · kept as part of the record'
     if phase == 'applied':
         return 'Await response and preserve all employer communication'
     if phase == 'approved':
-        return 'Submit the exact approved bundle and capture portal answers'
+        return 'Submit the exact approved files and capture portal answers'
     if phase == 'review':
         if work_state == 'presented':
             return 'Review the complete CV and cover letter, then sign off'
         return 'Read the complete CV and cover letter, then bind the review'
-    return 'Run preflight and create the evidence plan'
+    return 'Complete the application check and create the evidence plan'
 
 
 def _artifact_state(path, expected_sha=None):
@@ -268,6 +291,45 @@ def _artifacts(slug, directory, package, manifest, submission):
     return rows
 
 
+def _confidence_label(value):
+    """Turn a stored numeric value into the nearest reviewed user choice."""
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        numeric = 0.60
+    return min(CONFIDENCE_LABELS, key=lambda row: abs(row[0] - numeric))[1]
+
+
+def _plain_lesson(item):
+    """Show one short sentence while preserving the signed historical record."""
+    text = ' '.join(str(item.get('summary') or '').split())
+    words = re.findall(r"[\w’'-]+", text, flags=re.UNICODE)
+    internal_phrases = (
+        'preflight', 'residual risk', 'verified evidence', 'direct-context',
+        'must separate', 'require a ', 'audit ', 'the engine',
+    )
+    endings = len(re.findall(r'[.!?](?:\s|$)', text))
+    if (text and len(words) <= 24 and endings <= 1
+            and not any(phrase in text.casefold() for phrase in internal_phrases)):
+        return text
+    return LESSON_SUMMARIES.get(
+        str(item.get('cause') or '').upper(),
+        'Check this concern before the next application and keep unsupported details out.')
+
+
+def _reasoning_display(item):
+    cause = str(item.get('cause') or '')
+    status = str(item.get('status') or '')
+    return {
+        'cause_label': CAUSE_LABELS.get(
+            cause, 'Another possible explanation'),
+        'status_label': REASON_STATUS_LABELS.get(
+            status, 'Decision not recorded'),
+        'confidence_label': _confidence_label(item.get('confidence')),
+        'summary_display': _plain_lesson(item),
+    }
+
+
 def _hypotheses(app):
     rows = []
     for item in (app or {}).get('hypotheses') or []:
@@ -276,8 +338,6 @@ def _hypotheses(app):
         rows.append({
             'id': item.get('id'),
             'cause': item.get('cause'),
-            'cause_label': CAUSE_LABELS.get(
-                item.get('cause'), str(item.get('cause') or '').replace('_', ' ').title()),
             'status': item.get('status'),
             'confidence': item.get('confidence'),
             'summary': item.get('summary'),
@@ -290,6 +350,7 @@ def _hypotheses(app):
             'company_context': latest.get('company_context') or [],
             'profile_factors': latest.get('profile_factors') or [],
             'other_factors': latest.get('other_factors') or [],
+            **_reasoning_display(item),
         })
     order = {'RETAINED_PLAUSIBLE': 0, 'CONFIRMED': 0, 'OPEN': 1, 'DISMISSED': 2}
     return sorted(rows, key=lambda row: (
@@ -411,7 +472,7 @@ def _cautions_projection(slug, analysis, mapping, plan_current, historical=False
         status = 'NEEDS_REFRESH'
         decision = 'WITHDRAWN_PENDING_COMPLETE_ANALYSIS'
         reason = ('The previous CV decision is not valid against the complete advert. '
-                  'Refresh the structured analysis, then review every new preflight item.')
+                  'Refresh the structured analysis, then review every new application decision.')
     elif report_current:
         status = 'CURRENT'
         decision = report.get('decision') or 'PENDING_REVIEW'
@@ -420,7 +481,7 @@ def _cautions_projection(slug, analysis, mapping, plan_current, historical=False
         status = 'PRELIMINARY'
         decision = 'PENDING_REVIEW'
         reason = ('These are current JD-to-truth classifications. A final CV decision '
-                  'requires completed preflight and a current generated plan.')
+                  'requires a completed application check and a current generated plan.')
     return {
         'status': status, 'analysis_current': analysis['current'],
         'stored_requirement_count': analysis['stored_count'],
@@ -466,7 +527,7 @@ def _job_snapshot(slug, applications, events):
     if submission and not app:
         submission_errors = [
             *submission_errors,
-            'application ledger record is missing for the exact submission receipt',
+            'application history record is missing for the exact submission receipt',
         ]
     exact_submission = learning._exact_submission(app or {})
     exact_submitted_history = bool(
@@ -546,6 +607,7 @@ def _job_snapshot(slug, applications, events):
     timeline.sort(key=lambda row: str(row.get('at') or ''), reverse=True)
 
     retained_count = sum(row['status'] in {'RETAINED_PLAUSIBLE', 'CONFIRMED'}
+                         and row.get('cause') != 'NO_SIGNAL'
                          for row in hypotheses)
     open_count = sum(row['status'] == 'OPEN' for row in hypotheses)
     feedback_items = feedback.current(slug)
@@ -590,7 +652,7 @@ def _job_snapshot(slug, applications, events):
     if preflight_record and not preflight_errors:
         for artifact in artifacts:
             if artifact.get('id') == 'work-preflight_questions':
-                artifact['label'] = 'Preflight decisions · reviewed'
+                artifact['label'] = 'Application decisions · reviewed'
     presentation_record = None
     presentation_errors = []
     if plan_current:
@@ -624,20 +686,20 @@ def _job_snapshot(slug, applications, events):
         if not advert_confirmed:
             next_action = 'Review and confirm the exact captured advert'
         elif not analysis['current']:
-            next_action = 'Refresh incomplete JD analysis before preflight'
+            next_action = 'Refresh incomplete job analysis before the application check'
         elif preflight_errors and preflight_questions_available:
             next_action = 'Review the prepared fit decisions before CV planning'
         elif preflight_errors:
-            next_action = 'Complete or refresh deterministic preflight'
+            next_action = 'Complete or refresh the application fit check'
         elif not plan_current:
             if plan_available:
-                next_action = 'Refresh the stale CV and cover-letter review bundle'
+                next_action = 'Refresh the stale CV and cover-letter review drafts'
             else:
-                next_action = 'Generate the CV and cover-letter review bundle'
+                next_action = 'Create the CV and cover-letter review drafts'
         elif open_feedback:
             next_action = 'Resolve governed feedback before approval'
         elif gate_blockers:
-            next_action = 'Resolve the deterministic output gate before sign-off'
+            next_action = 'Resolve the document check before sign-off'
         elif approval_record and not approval_errors and not package_ready:
             next_action = 'Finish building the approved CV and cover letter'
         elif plan_current and presentation_errors:
@@ -649,7 +711,7 @@ def _job_snapshot(slug, applications, events):
     if app:
         caution_analysis = {
             **analysis, 'current': True,
-            'message': ('Historical analysis retained from the exact submitted '
+            'message': ('Historical analysis kept from the exact submitted '
                         'application; later parser changes do not rewrite it.'),
         }
     cautions = _cautions_projection(
@@ -701,42 +763,42 @@ def _job_snapshot(slug, applications, events):
          'Exact source advert and structured JD record',
          'Exact JD is captured' if workflow['captured'] else 'No JD is captured'),
         ('advert', 'Confirm captured advert', workflow['advert_confirmed'],
-         'User-confirmed company, title and complete exact advert digest',
+         'Company and title confirmed against the complete saved advert',
          ('Exact advert is confirmed' if workflow['advert_confirmed']
           else 'Captured advert still needs user confirmation')),
-        ('preflight', 'Resolve preflight', workflow['preflight'],
-         'Digest-bound decision record for every material fit question',
+        ('preflight', 'Complete application check', workflow['preflight'],
+         'A saved decision for every important fit question',
          ('Decisions are saved for the current JD and truth'
           if workflow['preflight'] else 'Material decisions still require review')),
-        ('prepare', 'Generate review bundle', workflow['plan'],
+        ('prepare', 'Prepare CV and letter', workflow['plan'],
          'CV, cover-letter, evidence-map and employer-risk records',
          ('CV and cover-letter review records are available'
           if workflow['plan'] else
           ('Existing review records are stale and require refresh'
            if plan_available else 'CV and cover letter have not been created'))),
-        ('review', 'Review complete bundle', workflow['presentation'],
+        ('review', 'Review complete documents', workflow['presentation'],
          'Full CV and letter plus a current presentation receipt',
-         ('Complete bundle is bound to the current review'
+         ('Complete documents are bound to the current review'
           if workflow['presentation'] else
-          ('Complete bundle is ready to read' if workflow['plan']
-           else 'No complete bundle is available'))),
-        ('approve', 'Approve exact bundle', workflow['approval'],
+          ('Complete documents are ready to read' if workflow['plan']
+           else 'No complete documents are available'))),
+        ('approve', 'Approve exact documents', workflow['approval'],
          'Explicit user sign-off bound to the current presentation',
          ('Approval is recorded' if workflow['approval'] else
-          (f"Approval is blocked by {len(gate_blockers)} deterministic gate failure(s)"
-           if gate_blockers else 'User sign-off is not recorded'))),
+           (f"Approval is blocked by {len(gate_blockers)} document check(s)"
+            if gate_blockers else 'User sign-off is not recorded'))),
         ('build', 'Build sendable files', workflow['package'],
-         'Dated verified CV/letter package and manifest',
+         'Dated, verified CV and cover-letter files',
          ('Verified package is available' if workflow['package']
           else ('Approval is saved; document build must be finished'
                 if workflow['build_incomplete']
                 else 'No sendable documents have been built'))),
         ('submit', 'Record exact submission', workflow['submission'],
-         'Hash-bound sent-file receipt and portal-evidence state',
+         'Exact sent-file record and portal-answer status',
          ('Exact submission record exists' if workflow['submission']
           else 'External submission is not recorded')),
         ('outcome', 'Record observed outcome', workflow['outcome'],
-         'Employer observation kept separate from hypotheses',
+         'Employer observation kept separate from best guesses',
          ('Observed outcome is recorded' if workflow['outcome']
           else ('Awaiting an employer observation' if phase == 'applied'
                 else 'No employer outcome is recorded'))),
@@ -848,6 +910,7 @@ def _job_snapshot(slug, applications, events):
             'note': row.get('note'), 'author': row.get('author'),
             'status': row.get('status'), 'opened_at': row.get('opened_at'),
             'resolved_at': row.get('resolved_at'),
+            'decision_note': row.get('decision_note'),
             'implementation': row.get('implementation'),
             'validation': row.get('validation'),
             'classification': row.get('classification'),
@@ -868,7 +931,7 @@ def _job_snapshot(slug, applications, events):
     }
 
 
-def build_snapshot(include_private=False):
+def _build_snapshot(include_private=False):
     """Build the dashboard projection and optional server-only artefact registry."""
     app_rows = [row for row in store.applications()
                 if not row.get('test_record') and not row.get('exclude_from_analytics')]
@@ -954,11 +1017,10 @@ def build_snapshot(include_private=False):
             'app_id': row.get('app_id'), 'company': row.get('company'),
             'role': row.get('role'), 'id': row.get('id'),
             'cause': row.get('cause'),
-            'cause_label': CAUSE_LABELS.get(
-                row.get('cause'), str(row.get('cause') or '').replace('_', ' ').title()),
             'status': row.get('status'), 'confidence': row.get('confidence'),
             'summary': row.get('summary'), 'updated_at': row.get('updated_at'),
             'unknowns': latest.get('unknowns') or [],
+            **_reasoning_display(row),
         })
 
     attention = []
@@ -977,24 +1039,24 @@ def build_snapshot(include_private=False):
     if truth_data['errors']:
         attention.append({
             'id': 'system:truth_integrity', 'job_id': None,
-            'company': 'Ground truth', 'role': 'Candidate evidence',
+            'company': 'Career record', 'role': 'Candidate evidence',
             'phase': 'system', 'severity': 'critical',
             'kind': 'truth_integrity',
-            'title': 'Resolve ground-truth integrity',
+            'title': 'Resolve career-record integrity',
             'detail': truth_data['integrity_errors'][0],
             'cta': 'Review options', 'route': 'truth_integrity',
-            'action': 'Resolve ground-truth integrity',
+            'action': 'Resolve career-record integrity',
         })
     elif not entry.get('can_capture') or truth_data.get('audit_overdue'):
         attention.append({
             'id': 'system:truth_workspace', 'job_id': None,
-            'company': 'Ground truth', 'role': 'Candidate evidence',
+            'company': 'Career record', 'role': 'Candidate evidence',
             'phase': 'system', 'severity': 'action',
             'kind': 'truth_workspace',
             'title': ('Complete the scheduled career-truth audit'
                       if truth_data.get('audit_overdue') else entry.get('next_action')),
             'detail': (f"Audit was due {truth_data.get('audit_due')}. Review the current "
-                       'identity, sources, facts and boundaries, then renew the exact digest.'
+                       'identity, evidence, facts and privacy limits, then sign the record again.'
                        if truth_data.get('audit_overdue') else entry.get('reason')),
             'cta': 'Open career truth', 'route': 'truth_workspace',
             'action': 'Open career truth',
@@ -1005,7 +1067,7 @@ def build_snapshot(include_private=False):
         if job['integrity_state'] == 'attention':
             add_attention(
                 job, 'integrity', 'Resolve package integrity errors',
-                'Inspect the exact artefact and digest exceptions before doing anything else.',
+                'Inspect the changed or unverified files before doing anything else.',
                 'Inspect', 'artifacts', 'critical')
         if not workflow.get('advert_confirmed') and not job.get('exact_submission'):
             add_attention(
@@ -1043,8 +1105,8 @@ def build_snapshot(include_private=False):
             else:
                 add_attention(
                     job, 'prepare', 'Prepare the CV and cover letter',
-                    'Preflight is complete. Generate the review bundle from the exact JD and approved truth.',
-                    'Generate review bundle', 'prepare')
+                    'The application check is complete. Generate the documents from the exact advert and approved career record.',
+                    'Create review drafts', 'prepare')
         elif job['phase'] == 'review':
             if not workflow.get('plan') and not workflow.get('preflight'):
                 # Prepare refuses while preflight is incomplete, so offering
@@ -1062,7 +1124,7 @@ def build_snapshot(include_private=False):
                     job, 'prepare', 'Refresh the CV and cover letter',
                     '; '.join(workflow.get('plan_errors') or [])
                     or 'The current plan is missing or stale.',
-                    'Refresh review bundle', 'prepare')
+                    'Refresh CV & letter', 'prepare')
             elif workflow.get('gate_blockers'):
                 blocker = workflow['gate_blockers'][0]
                 add_attention(
@@ -1071,7 +1133,7 @@ def build_snapshot(include_private=False):
                     'Inspect gate', 'evidence', 'critical')
             elif workflow.get('can_approve'):
                 add_attention(
-                    job, 'approve', 'Sign off the complete current bundle',
+                    job, 'approve', 'Sign off the complete current documents',
                     'Approval binds the exact CV and cover letter shown in Review.',
                     'Review & approve', 'review_bundle')
             else:
@@ -1083,17 +1145,17 @@ def build_snapshot(include_private=False):
             if workflow.get('can_build'):
                 add_attention(
                     job, 'build', 'Finish building approved documents',
-                    'Approval is safely recorded, but no verified package manifest exists yet.',
+                    'Approval is safely recorded, but the final file list has not been verified.',
                     'Finish build', 'build', 'critical')
             elif workflow.get('submission_reconcile'):
                 add_attention(
                     job, 'submission_reconcile', 'Finish recording the exact submission',
-                    'The exact receipt exists, but the application ledger write was interrupted. '
-                    'Confirm the same sent files to complete the durable record.',
+                    'The exact receipt exists, but saving the application record was interrupted. '
+                    'Confirm the same sent files to complete the record.',
                     'Finish record', 'submission', 'critical')
             elif workflow.get('can_submit'):
                 add_attention(
-                    job, 'submit', 'Submit or record the approved bundle',
+                    job, 'submit', 'Submit or record the approved files',
                     'Use the exact verified CV and cover letter and preserve portal answers.',
                     'Submission desk', 'submission')
         elif job['phase'] == 'progressed':
@@ -1101,11 +1163,9 @@ def build_snapshot(include_private=False):
                 job, 'next_stage', 'Prepare for the observed next stage',
                 'Keep the positive outcome factual and discuss only the next employer step.',
                 'Work with Codex', 'codex_outcome', 'info')
-        elif job['phase'] == 'rejected' and not job['retained_count']:
-            add_attention(
-                job, 'reasoning', 'Challenge plausible rejection explanations',
-                'Keep employer facts, alternatives and unknowns separate; no cause is known.',
-                'Discuss evidence', 'codex_outcome', 'info')
+        # Rejection does not itself create useful learning work. Optional
+        # evidence review stays available in the job's Outcome tab, including
+        # when all explanations were dismissed or no cause can be established.
 
         if job.get('exact_submission') and job['integrity_state'] != 'attention':
             missing = []
@@ -1120,19 +1180,8 @@ def build_snapshot(include_private=False):
                     'Missing ' + ' and '.join(missing)
                     + '; add exact data or mark historical portal answers unavailable.',
                     'Update record', 'submission_metadata', 'warning')
-        # Silence is the commonest outcome of all, and it was the only one that
-        # never entered the record: an application sat in `applied` forever and
-        # its evidence never reached the learning loop. This asks; it never
-        # records a ghosting the user did not observe.
-        if job['phase'] == 'applied' and job.get('applied_date'):
-            waiting = _days_since(job['applied_date'])
-            if waiting is not None and waiting >= GHOSTING_PROMPT_DAYS:
-                add_attention(
-                    job, 'silent_application', 'Record the outcome of a silent application',
-                    f'Submitted {waiting} days ago with no recorded response. '
-                    'Record the observed outcome, or mark it ghosted, so this '
-                    'application can inform later ones. Nothing is assumed for you.',
-                    'Record outcome', 'outcome', 'warning')
+        # Waiting remains visible in Applied. Age alone is neither a task nor
+        # evidence of ghosting; the user can record an observation at any time.
         if job['phase'] in {'progressed', 'rejected'} and not job.get('responded_date'):
             add_attention(
                 job, 'outcome_date', 'Add the observed response date',
@@ -1192,8 +1241,31 @@ def build_snapshot(include_private=False):
     return snapshot, registry
 
 
+def build_snapshot(include_private=False):
+    """Build one coherent projection while deduplicating repeated file reads."""
+    with store.hash_scope():
+        return _build_snapshot(include_private)
+
+
 def snapshot_json():
-    return json.dumps(build_snapshot(), ensure_ascii=False, indent=2)
+    return json.dumps(build_snapshot(), ensure_ascii=False,
+                      separators=(',', ':'))
+
+
+def artifact_registry(job_id):
+    """Resolve one job's allowlisted files without rebuilding every job."""
+    if not isinstance(job_id, str) or job_id not in store.list_jobs():
+        raise ValueError('Unknown application record')
+    slug = job_id
+    directory = store.job_dir(slug)
+    package, manifest = release.load_release(slug)
+    submission = (store.read_json(
+        release.record_path(package, release.SUBMISSION_NAME), {})
+        if package else {}) or {}
+    return {
+        row['id']: row['_path']
+        for row in _artifacts(slug, directory, package, manifest, submission)
+    }
 
 
 def _inside_data_root(path):
@@ -1212,24 +1284,31 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         super().log_message(format_, *args)
 
-    def _headers(self, status, content_type, length=None):
+    def _headers(self, status, content_type, length=None, cache_control='no-store',
+                 extra_headers=None):
         self.send_response(status)
         self.send_header('Content-Type', content_type)
-        self.send_header('Cache-Control', 'no-store')
+        self.send_header('Cache-Control', cache_control)
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.send_header('X-Frame-Options', 'DENY')
         self.send_header('Referrer-Policy', 'no-referrer')
+        self.send_header('Cross-Origin-Resource-Policy', 'same-origin')
+        self.send_header('Cross-Origin-Opener-Policy', 'same-origin')
         self.send_header(
             'Content-Security-Policy',
             "default-src 'self'; script-src 'self'; style-src 'self'; "
             "img-src 'self' data:; connect-src 'self'; object-src 'self'; "
             "base-uri 'none'; frame-ancestors 'none'; form-action 'none'")
+        for name, value in (extra_headers or {}).items():
+            self.send_header(name, value)
         if length is not None:
             self.send_header('Content-Length', str(length))
         self.end_headers()
 
-    def _bytes(self, content, content_type, status=200):
-        self._headers(status, content_type, len(content))
+    def _bytes(self, content, content_type, status=200, cache_control='no-store',
+               extra_headers=None):
+        self._headers(status, content_type, len(content), cache_control,
+                      extra_headers)
         try:
             self.wfile.write(content)
         except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
@@ -1238,9 +1317,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def _not_found(self):
         self._bytes(b'Not found', 'text/plain; charset=utf-8', 404)
 
-    def _json(self, value, status=200):
+    def _json(self, value, status=200, extra_headers=None):
         content = json.dumps(value, ensure_ascii=False).encode('utf-8')
-        self._bytes(content, 'application/json; charset=utf-8', status)
+        self._bytes(content, 'application/json; charset=utf-8', status,
+                    extra_headers=extra_headers)
 
     def _read_json(self):
         if self.headers.get_content_type() != 'application/json':
@@ -1259,24 +1339,44 @@ class DashboardHandler(BaseHTTPRequestHandler):
             raise ValueError('Request body must be a JSON object')
         return value
 
-    def _authorised(self):
+    def _allowed_origins(self):
         host, port = self.server.server_address[:2]
-        expected_origin = f'http://{host}:{port}'
-        return (secrets.compare_digest(
+        return {f'http://{host}:{port}', f'http://localhost:{port}'}
+
+    def _host_authorised(self):
+        supplied = (self.headers.get('Host') or '').casefold()
+        allowed = {urllib.parse.urlsplit(origin).netloc
+                   for origin in self._allowed_origins()}
+        return any(secrets.compare_digest(supplied, expected.casefold())
+                   for expected in allowed)
+
+    def _private_authorised(self):
+        try:
+            cookie = SimpleCookie()
+            cookie.load(self.headers.get('Cookie') or '')
+            supplied = cookie.get(SESSION_COOKIE)
+            value = supplied.value if supplied else ''
+        except CookieError:
+            value = ''
+        return secrets.compare_digest(value, self.server.session_token)
+
+    def _authorised(self):
+        return (self._host_authorised()
+                and self._private_authorised()
+                and secrets.compare_digest(
                     self.headers.get('X-Joblooper-Token') or '',
                     self.server.session_token)
-                and self.headers.get('Origin') == expected_origin)
+                and self.headers.get('Origin') in self._allowed_origins())
 
     def _error(self, error, status=400):
         return self._json({'ok': False, 'error': str(error)}, status)
 
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
+        if not self._host_authorised():
+            return self._error('Unrecognised dashboard host', 421)
         if parsed.path == '/api/health':
             return self._json(dashboard_runtime.health_payload(self.server))
-        if parsed.path == '/api/dashboard':
-            content = snapshot_json().encode('utf-8')
-            return self._bytes(content, 'application/json; charset=utf-8')
         if parsed.path == '/api/session':
             return self._json({
                 'csrf_token': self.server.session_token,
@@ -1295,7 +1395,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     'agent_chat': self.server.codex_bridge.status()['available'],
                     'external_portal_submission': False,
                 },
+            }, extra_headers={
+                'Set-Cookie': (f'{SESSION_COOKIE}={self.server.session_token}; '
+                               'HttpOnly; SameSite=Strict; Path=/'),
             })
+        if ((parsed.path.startswith('/api/') or parsed.path == '/artifact')
+                and not self._private_authorised()):
+            return self._error('Dashboard session authorization failed', 403)
+        if parsed.path == '/api/dashboard':
+            content = snapshot_json().encode('utf-8')
+            return self._bytes(content, 'application/json; charset=utf-8')
         if parsed.path == '/api/review':
             query = urllib.parse.parse_qs(parsed.query)
             job = (query.get('job') or [''])[0]
@@ -1346,8 +1455,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
             query = urllib.parse.parse_qs(parsed.query)
             job = (query.get('job') or [''])[0]
             artifact_id = (query.get('id') or [''])[0]
-            _, registry = build_snapshot(include_private=True)
-            path = registry.get((job, artifact_id))
+            try:
+                registry = artifact_registry(job)
+            except (OSError, ValueError):
+                return self._not_found()
+            path = registry.get(artifact_id)
             if not path or not _inside_data_root(path) or not os.path.isfile(path):
                 return self._not_found()
             content_type = mimetypes.guess_type(path)[0] or 'application/octet-stream'
@@ -1376,7 +1488,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
 
         relative = 'index.html' if parsed.path in {'', '/'} else parsed.path.lstrip('/')
-        if relative not in {'index.html', 'styles.css', 'app.js', 'app-icon.svg'}:
+        if relative not in {
+                'index.html', 'styles.css', 'app.js', 'foundation.js',
+                'app-icon.svg'}:
             return self._not_found()
         path = os.path.join(STATIC_ROOT, relative)
         if not os.path.isfile(path):
@@ -1387,10 +1501,18 @@ class DashboardHandler(BaseHTTPRequestHandler):
             content_type += '; charset=utf-8'
         with open(path, 'rb') as stream:
             content = stream.read()
-        self._bytes(content, content_type)
+        etag = '"' + hashlib.sha256(content).hexdigest()[:24] + '"'
+        cache_control = 'private, no-cache'
+        if self.headers.get('If-None-Match') == etag:
+            return self._headers(304, content_type, cache_control=cache_control,
+                                 extra_headers={'ETag': etag})
+        self._bytes(content, content_type, cache_control=cache_control,
+                    extra_headers={'ETag': etag})
 
     def do_POST(self):
         parsed = urllib.parse.urlparse(self.path)
+        if not self._host_authorised():
+            return self._error('Unrecognised dashboard host', 421)
         if parsed.path == '/api/admin/shutdown':
             supplied = self.headers.get('X-Joblooper-Shutdown') or ''
             if not secrets.compare_digest(supplied, self.server.shutdown_token):
@@ -1473,6 +1595,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     body.get('job_id'), body.get('answers') or {},
                     body.get('reviewer') or 'dashboard-user')
                 return self._json({'ok': True, 'result': result})
+            if parsed.path == '/api/actions/preflight-issue':
+                result = dashboard_actions.record_preflight_issue(
+                    body.get('job_id'), body.get('question_id'), body.get('note'),
+                    body.get('issue_type'), body.get('author') or 'dashboard-user')
+                return self._json({'ok': True, 'result': result})
             if parsed.path == '/api/actions/prepare':
                 result = dashboard_actions.prepare_application(body.get('job_id'))
                 return self._json({'ok': True, 'result': result})
@@ -1483,6 +1610,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 result = dashboard_actions.approve_and_build(
                     body.get('job_id'), body.get('reviewer'),
                     body.get('confirmation'), bool(body.get('no_pdf')))
+                return self._json({'ok': True, 'result': result})
+            if parsed.path == '/api/actions/approve':
+                result = dashboard_actions.approve_application(
+                    body.get('job_id'), body.get('reviewer'),
+                    body.get('confirmation'))
                 return self._json({'ok': True, 'result': result})
             if parsed.path == '/api/actions/build':
                 result = dashboard_actions.build_application(
@@ -1506,9 +1638,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 if letter_id not in {None, '', 'manifest-letter_pdf',
                                      'manifest-letter_docx'}:
                     raise ValueError('Select a verified approved cover letter')
-                _, registry = build_snapshot(include_private=True)
-                cv_path = registry.get((job_id, cv_id))
-                letter_path = registry.get((job_id, letter_id)) if letter_id else None
+                registry = artifact_registry(job_id)
+                cv_path = registry.get(cv_id)
+                letter_path = registry.get(letter_id) if letter_id else None
                 if not cv_path or not _inside_data_root(cv_path):
                     raise ValueError('Selected CV is not available in this application')
                 if letter_id and (not letter_path or not _inside_data_root(letter_path)):

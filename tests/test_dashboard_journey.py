@@ -41,8 +41,11 @@ def main():
               >= {'work-job_description', 'work-jd_record'}, results)
 
         preflight_view = dashboard_actions.preflight_state(job_id)
-        answers = {row['id']: 'PROCEED_WITH_RECORDED_GAP'
-                   for row in preflight_view['questions']}
+        answers = {
+            row['id']: ({'decision': 'PROCEED_WITH_RECORDED_GAP',
+                         'note': 'Application-only context reviewed for this requirement.'}
+                        if index == 0 else 'PROCEED_WITH_RECORDED_GAP')
+            for index, row in enumerate(preflight_view['questions'])}
         dashboard_actions.review_preflight(job_id, answers, 'journey-user')
         reviewed = dashboard.build_snapshot()['jobs'][0]
         check('preflight writes durable answers and makes generation current',
@@ -50,7 +53,7 @@ def main():
               and reviewed['touchpoints'][2]['status'] == 'complete'
               and reviewed['touchpoints'][3]['status'] == 'current'
               and reviewed['next_action']
-              == 'Generate the CV and cover-letter review bundle'
+              == 'Create the CV and cover-letter review drafts'
               and any(row['event'] == 'PREFLIGHT_RECORDED'
                       for row in reviewed['timeline']), results)
 
@@ -67,6 +70,9 @@ def main():
                    'work-risk_record'} <= plan_artifacts
               and review['available'] is True
               and review['valid'] is False
+              and 'Application-only context reviewed for this requirement.'
+              in review['internal_content']
+              and 'Internal review evidence only' in review['internal_content']
               and planned['touchpoints'][3]['status'] == 'complete'
               and planned['touchpoints'][4]['status'] == 'current'
               and any(row['event'] == 'PLAN_CREATED'
@@ -167,12 +173,9 @@ def main():
               and any(row['id'] == 'work-presentation_record'
                       for row in presented['artifacts']), results)
 
-        release.approve(
+        approval_result = dashboard_actions.approve_application(
             job_id, 'journey-user',
-            {gate: 'PASS' for gate in release.MANUAL_GATES},
-            ('Explicitly reviewed relevance, specificity, contradictions, bloat, '
-             'ATS terminology and hostile-recruiter risk.'),
-            user_signoff=True)
+            'I reviewed the complete CV and cover letter')
         interrupted_build = dashboard.build_snapshot()['jobs'][0]
         interrupted_attention = next(
             item for item in dashboard.build_snapshot()['attention']
@@ -183,7 +186,8 @@ def main():
               and interrupted_build['workflow']['can_build'] is True
               and interrupted_build['workflow']['can_submit'] is False
               and interrupted_build['touchpoints'][6]['status'] == 'current'
-              and interrupted_attention['route'] == 'build', results)
+              and interrupted_attention['route'] == 'build'
+              and 'No sendable files were created' in approval_result['output'], results)
 
         dashboard_actions.build_application(job_id, no_pdf=True)
         built, registry = dashboard.build_snapshot(include_private=True)
@@ -324,7 +328,8 @@ def main():
                      if item['job_id'] == job_id]
         kinds = [item['kind'] for item in job_items]
         check('a package-integrity failure never hides independent record tasks',
-              {'integrity', 'outcome_date', 'reasoning'} <= set(kinds)
+              {'integrity', 'outcome_date'} <= set(kinds)
+              and 'reasoning' not in kinds
               and kinds.index('integrity') < kinds.index('outcome_date')
               and job_items[0]['severity'] == 'critical', results)
         with open(evidence_path, 'wb') as stream:
@@ -333,7 +338,7 @@ def main():
                     if item['job_id'] == job_id]
         check('restoring the artefact clears only the integrity task',
               'integrity' not in restored
-              and set(restored) == {'outcome_date', 'reasoning'}, results)
+              and set(restored) == {'outcome_date'}, results)
 
         original_outcome = learning.active_outcome_events(job_id)[-1]
         correction = dashboard_actions.correct_outcome(

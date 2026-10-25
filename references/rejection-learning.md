@@ -17,7 +17,7 @@ are not grounds for decorative edits.
 
 First run `jl response`. Continue only when reference or unique company/role
 evidence correlates one captured JD, verified package and exact submission
-receipt. Ambiguity stops the workflow; never borrow another BAE/job version.
+receipt. Ambiguity stops the workflow; never borrow another employer/job version.
 Treat the saved portal questionnaire as application evidence, not candidate
 truth. If it was not captured, list the screening answers as unknown; never
 infer work-authorisation, mobility, salary, clearance or eligibility answers

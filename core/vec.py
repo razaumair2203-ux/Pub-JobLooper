@@ -11,6 +11,7 @@ any caller. Until then this is deterministic, dependency-free and ~2ms.
 """
 import math, re
 from collections import Counter
+from functools import lru_cache
 from . import store
 
 _WORD = re.compile(r"[a-z0-9][a-z0-9&+.#/-]*")
@@ -31,6 +32,7 @@ def reset_caches():
     """Reload aliases after switching data roots or editing the synonym map."""
     global _ALIAS_CACHE
     _ALIAS_CACHE = None
+    _expand_items.cache_clear()
 
 def _alias_tables():
     """term -> set of group tags it belongs to. Built once."""
@@ -139,12 +141,9 @@ def tokens(text):
             out.append(s)
     return out
 
-def expand(text):
-    """Tokens PLUS alias-group tags for every matched term or phrase.
-
-    Phrase matching runs first (up to 4-grams) so 'line maintenance' resolves as
-    a unit before its words are considered individually.
-    """
+@lru_cache(maxsize=8192)
+def _expand_items(text):
+    """Cache immutable expanded bags; callers always receive their own Counter."""
     term2groups, stop, _ = _alias_tables()
     out = Counter(tokens(text))
 
@@ -158,7 +157,17 @@ def expand(text):
     for w in set(words) | set(raw):
         for tag in term2groups.get(w, ()):
             out[tag] += 1
-    return out
+    return tuple(out.items())
+
+
+def expand(text):
+    """Tokens PLUS alias-group tags for every matched term or phrase.
+
+    Phrase matching runs first (up to 4-grams) so 'line maintenance' resolves as
+    a unit before its words are considered individually. Expanded bags are
+    cached, but a fresh Counter is returned so no caller can mutate the cache.
+    """
+    return Counter(dict(_expand_items(str(text or ''))))
 
 # ---------------------------------------------------------------- BM25
 

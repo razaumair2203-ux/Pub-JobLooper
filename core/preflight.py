@@ -113,6 +113,7 @@ def questions(jd, mapping, identity):
     """Return decisions from known state instead of speculative fact questions."""
     requirements = {
         f"REQ-{row.get('n')}": row for row in mapping.get('requirements') or []}
+    evidence_by_id, _ = store.generation_anchors()
     rows = []
     for legacy in legacy_questions(jd, mapping, identity):
         row_id = legacy.get('id')
@@ -131,6 +132,17 @@ def questions(jd, mapping, identity):
         if row_id in requirements:
             requirement = requirements[row_id]
             classification = requirement.get('match') or 'GAP'
+            evidence_candidates = []
+            for candidate in requirement.get('anchors') or []:
+                record = evidence_by_id.get(candidate.get('id')) or {}
+                if not record:
+                    continue
+                evidence_candidates.append({
+                    'id': record.get('id'),
+                    'fact': record.get('fact'),
+                    'status': record.get('status'),
+                    'score': candidate.get('score'),
+                })
             rows.append({
                 'id': row_id, 'kind': 'KNOWN_GAP',
                 'title': f"Requirement {requirement.get('n')} - {classification.title()} match",
@@ -139,17 +151,29 @@ def questions(jd, mapping, identity):
                 'requirement': requirement.get('text'),
                 'reason': requirement.get('note') or
                           'Approved truth does not directly evidence the full requirement.',
+                'evidence_candidates': evidence_candidates,
+                'allow_note': True,
+                'note_label': 'Your evidence or application comment',
+                'note_help': (
+                    'Saved in the internal application record and bound to this review. '
+                    'It never becomes an employer-facing claim by itself.'),
                 'question': (
-                    'Choose whether to proceed with this recorded fit risk. No missing '
-                    'experience will be implied or invented.'),
+                    'Confirm the risk, challenge the evidence map, or add evidence. '
+                    'No comment becomes a career claim without governed review.'),
                 'options': [
                     _choice(
-                        'PROCEED_WITH_RECORDED_GAP', 'Proceed with recorded gap',
-                        'Continue without claiming the missing requirement.'),
+                        'PROCEED_WITH_RECORDED_GAP', 'Proceed with this risk',
+                        'Continue without claiming the unresolved part; an optional '
+                        'comment remains in the application record.'),
+                    _choice(
+                        'CHALLENGE_EVIDENCE_MAP', 'Existing evidence was missed',
+                        'Save your comment and pause drafting while this requirement-to-'
+                        'evidence map is reviewed.', completes=False, requires_note=True),
                     _choice(
                         'ADD_NEW_EVIDENCE', 'I have new evidence',
-                        'Stop here and update approved ground truth before generation.',
-                        completes=False),
+                        'Save your comment and pause drafting until the evidence is '
+                        'registered and the career record is signed again.',
+                        completes=False, requires_note=True),
                 ],
             })
             continue
@@ -216,7 +240,7 @@ def path(slug):
     return os.path.join(store.job_dir(slug), 'preflight.json')
 
 
-def _normalise_answers(rows, answers):
+def _normalise_answers(rows, answers, allow_incomplete=False):
     if not isinstance(answers, dict):
         raise ValueError('structured preflight answers must be a JSON object')
     expected = {row.get('id'): row for row in rows}
@@ -241,15 +265,32 @@ def _normalise_answers(rows, answers):
             raise ValueError(f'{row_id} has an unsupported decision')
         if options[decision].get('requires_note') and len(note) < 8:
             raise ValueError(f'{row_id} requires a brief reason for this decision')
-        if not options[decision].get('completes_preflight', True):
+        if (not allow_incomplete
+                and not options[decision].get('completes_preflight', True)):
             if decision == 'ADD_NEW_EVIDENCE':
                 raise ValueError(
                     f'{row_id} requires a ground-truth evidence update and renewed user approval')
+            if decision == 'CHALLENGE_EVIDENCE_MAP':
+                raise ValueError(
+                    f'{row_id} requires review of the existing requirement-to-evidence map')
             raise ValueError(f'{row_id} requires clarification before preflight can complete')
         normalised[row_id] = {'decision': decision}
         if note:
             normalised[row_id]['note'] = note
     return normalised
+
+
+def blocking_answers(rows, answers):
+    """Return saved decisions that intentionally pause document drafting."""
+    by_id = {row.get('id'): row for row in rows}
+    blocked = []
+    for row_id, answer in (answers or {}).items():
+        decision = answer.get('decision') if isinstance(answer, dict) else answer
+        option = next((item for item in by_id.get(row_id, {}).get('options') or []
+                       if item.get('value') == decision), {})
+        if option and not option.get('completes_preflight', True):
+            blocked.append(row_id)
+    return blocked
 
 
 def selected_learning_signals(record, lessons):
@@ -272,17 +313,19 @@ def create(slug, jd, mapping, identity, reviewer=None, note=None, answers=None):
     rows = questions(jd, mapping, identity)
     structured_answers = None
     if rows and answers is not None:
-        structured_answers = _normalise_answers(rows, answers)
+        structured_answers = _normalise_answers(rows, answers, allow_incomplete=True)
     if rows and not str(reviewer or '').strip():
         raise ValueError('material decisions require an identified user reviewer')
     if rows and structured_answers is None and not str(note or '').strip():
         raise ValueError(
             'material decisions require structured answers or a reviewed legacy context note')
+    blocked = blocking_answers(rows, structured_answers)
     record = {
         '_schema': SCHEMA, 'app_id': slug, 'created_at': store.now(),
         'subject_sha256': subject(jd, mapping, identity, rows),
         'questions': rows,
-        'decision': (('STRUCTURED_DECISIONS_RECORDED' if structured_answers is not None
+        'decision': (('ACTION_REQUIRED' if blocked else
+                      'STRUCTURED_DECISIONS_RECORDED' if structured_answers is not None
                       else 'USER_CONTEXT_REVIEWED')
                      if rows else 'NO_MATERIAL_QUESTIONS'),
         'reviewer': str(reviewer or 'deterministic-preflight').strip(),
@@ -299,7 +342,7 @@ def create(slug, jd, mapping, identity, reviewer=None, note=None, answers=None):
         'subject_sha256': record['subject_sha256'],
         'binding_sha256': record['binding_sha256'],
         'decision': record['decision'], 'reviewer': record['reviewer'],
-        'decision_count': len(rows),
+        'decision_count': len(rows), 'blocking_decisions': blocked,
     }
     event_exists = any(
         row.get('event') == 'PREFLIGHT_RECORDED'
@@ -334,17 +377,28 @@ def validate(slug, jd, mapping, identity):
             problems.append('pre-generation review is stale relative to JD or approved truth')
             return record, problems, rows
     if rows and record.get('decision') not in {
-            'USER_CONTEXT_REVIEWED', 'STRUCTURED_DECISIONS_RECORDED'}:
+            'USER_CONTEXT_REVIEWED', 'STRUCTURED_DECISIONS_RECORDED',
+            'ACTION_REQUIRED'}:
         problems.append('material candidate questions were not reviewed with the user')
-    elif rows and record.get('decision') == 'STRUCTURED_DECISIONS_RECORDED':
+    elif rows and record.get('decision') in {
+            'STRUCTURED_DECISIONS_RECORDED', 'ACTION_REQUIRED'}:
         try:
             # Re-validate the full answer objects, notes included. Stripping the
             # note here made a saved NOT_APPLICABLE_HERE / ADD_NEW_CONTEXT
             # decision re-fail its own requires_note check, so a plan the user
             # legitimately completed read as permanently broken.
-            _normalise_answers(rows, record.get('answers') or {})
+            _normalise_answers(
+                rows, record.get('answers') or {},
+                allow_incomplete=record.get('decision') == 'ACTION_REQUIRED')
         except ValueError as error:
             problems.append(str(error))
+        blocked = blocking_answers(rows, record.get('answers') or {})
+        if record.get('decision') == 'ACTION_REQUIRED':
+            if blocked:
+                problems.append(
+                    'application review is paused for: ' + ', '.join(blocked))
+            else:
+                problems.append('application review is marked paused without a blocking decision')
     elif not rows and record.get('decision') != 'NO_MATERIAL_QUESTIONS':
         problems.append('pre-generation no-question decision is invalid')
     return record, problems, rows
@@ -355,6 +409,8 @@ def to_markdown(jd, identity, rows):
            f"**Proposed identity:** `{identity.get('primary')}`  ",
            '**Rule:** resolved facts are not re-asked. Known gaps require an explicit '
            'proceed-or-stop decision; no answer becomes career truth without evidence review.',
+           '**Comments:** current-advert comments are saved in the internal preflight '
+           'record. They are not copied into the CV or cover letter as claims.',
            '**Where to answer:** use the dashboard Preflight review. Chat is optional '
            'for clarification, not the system of record.', '']
     if not rows:
@@ -376,4 +432,37 @@ def to_markdown(jd, identity, rows):
                 if isinstance(option, dict):
                     out += [f"- **{option.get('label')}** - {option.get('consequence')}"]
             out += ['']
+    return '\n'.join(out)
+
+
+def review_summary_markdown(record):
+    """Render the user's exact application decisions for internal sign-off.
+
+    This section is intentionally part of the bound presentation and final
+    application record, but never part of either employer-facing document.
+    """
+    record = record or {}
+    questions_by_id = {row.get('id'): row for row in record.get('questions') or []}
+    answers = record.get('answers') or {}
+    out = [
+        '## USER APPLICATION DECISIONS', '',
+        '> Internal review evidence only. Comments below are not career facts and '
+        'are never copied into the CV or cover letter by themselves.', '',
+    ]
+    if not answers:
+        out += ['- No structured user decisions were recorded.', '']
+        return '\n'.join(out)
+    for row_id, answer in answers.items():
+        answer = answer if isinstance(answer, dict) else {'decision': answer}
+        row = questions_by_id.get(row_id) or {}
+        decision = answer.get('decision')
+        option = next((item for item in row.get('options') or []
+                       if item.get('value') == decision), {})
+        label = option.get('label') or str(decision or 'Not answered').replace('_', ' ').title()
+        out.append(f"- **{row_id} - {label}**")
+        if row.get('requirement'):
+            out.append(f"  - Advert requirement: {row.get('requirement')}")
+        if answer.get('note'):
+            out.append(f"  - User comment: {answer.get('note')}")
+    out.append('')
     return '\n'.join(out)

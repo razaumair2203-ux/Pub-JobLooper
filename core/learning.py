@@ -150,27 +150,27 @@ def record_hypothesis(slug, cause, confidence, note, author,
                       profile_factors=None, other_factors=None, unknowns=None):
     """Add or revise one explanation without rewriting earlier reasoning."""
     if status not in HYPOTHESIS_STATUSES:
-        raise ValueError(f"unknown hypothesis status {status!r}")
+        raise ValueError('Choose what to do with this possible reason')
     if not isinstance(confidence, (int, float)) or not 0 <= confidence <= 1:
-        raise ValueError('confidence must be between 0 and 1')
+        raise ValueError('Choose how sure you are')
     if not author or not author.strip():
         raise ValueError('author is required')
     if not note or not note.strip():
-        raise ValueError('a concise reasoning note is required')
+        raise ValueError('Briefly explain what makes you think this')
 
     apps, record = _application(slug)
     if not record:
-        raise ValueError('application has not been submitted/logged')
+        raise ValueError('This application has not been recorded as submitted')
     if not _exact_submission(record):
-        raise ValueError('outcome learning requires one exact submitted CV and package manifest')
+        raise ValueError('Save the exact submitted CV and checked file list first')
     if str(record.get('status') or '').lower() not in NEGATIVE_OUTCOMES:
-        raise ValueError('rejection hypotheses are allowed only for rejected or ghosted applications')
+        raise ValueError('Possible reasons can be saved only after a rejection or no response')
     hypotheses = _normalise_hypotheses(record)
     existing = next((h for h in hypotheses if h['id'] == hypothesis_id), None)
     if hypothesis_id and not existing:
-        raise ValueError(f"unknown hypothesis {hypothesis_id!r}")
+        raise ValueError('The selected possible reason was not found')
     if existing and cause and cause != existing['cause']:
-        raise ValueError('cause is immutable; dismiss it and add a new hypothesis')
+        raise ValueError('To change what went wrong, rule this out and add a new possible reason')
 
     prior_revisions = list((existing or {}).get('revisions') or [])
     stage_index = min(len(prior_revisions), len(ROUND_STAGES) - 1)
@@ -184,20 +184,20 @@ def record_hypothesis(slug, cause, confidence, note, author,
     })
     if any(revision.get('substance_sha256') == store.sha256_text(signature)
            for revision in prior_revisions):
-        raise ValueError('reasoning revision adds no new information')
+        raise ValueError('This review adds no new information')
     resulting_rounds = len(prior_revisions) + 1
     if status in {'RETAINED_PLAUSIBLE', 'CONFIRMED'}:
         alternatives = [row for row in hypotheses
                         if row is not existing and row.get('status') != 'DISMISSED']
         if not alternatives:
-            raise ValueError('retain/confirm only after recording a competing hypothesis')
+            raise ValueError('Add another possible reason before keeping or confirming this one')
         if resulting_rounds < 3:
-            raise ValueError('retain/confirm only after three substantive reasoning passes')
+            raise ValueError('Come back to this three times before keeping or confirming it')
         if not evidence_against or not unknowns:
-            raise ValueError('third-pass disposition requires counterevidence and unknowns')
+            raise ValueError('Write what argues against this and what you still cannot know')
     if status == 'CONFIRMED' and not str(record.get('stated_reason') or '').strip():
         raise ValueError(
-            'no explicit employer-stated reason is recorded; use RETAINED_PLAUSIBLE')
+            'The employer did not state this reason, so keep it only as your best guess')
 
     now = store.now()
     revision = {
@@ -503,7 +503,8 @@ def confirmed_lessons():
                 or str(app.get('status') or '').lower() not in NEGATIVE_OUTCOMES):
             continue
         for hypothesis in _normalise_hypotheses(app):
-            if hypothesis.get('status') in {'CONFIRMED', 'RETAINED_PLAUSIBLE'}:
+            if (hypothesis.get('status') in {'CONFIRMED', 'RETAINED_PLAUSIBLE'}
+                    and str(hypothesis.get('cause') or '').upper() != 'NO_SIGNAL'):
                 rows.append({
                     'app_id': app.get('app_id'), 'company': app.get('company'),
                     'role': app.get('role'), **hypothesis,

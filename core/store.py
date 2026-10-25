@@ -3,7 +3,7 @@
 Everything here is deliberately boring: if this module is deleted, every file it
 touches is still readable in Notepad and greppable from the shell.
 """
-import contextlib, copy, json, os, hashlib, datetime, re
+import contextlib, copy, json, os, hashlib, datetime, re, threading
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -44,6 +44,7 @@ def read_repository_policy():
 
 DATA_ROOT = _default_data_root()
 _TRUTH_CONTEXT_CACHE = None
+_HASH_SCOPE = threading.local()
 _TRUTH_CONTEXT_FILES = (
     'truth/profile.json', 'truth/anchors.jsonl', 'truth/boundaries.json',
     'truth/aliases.json', 'truth/sections.json', 'truth/sources.jsonl',
@@ -215,12 +216,50 @@ def sha256_advert(text):
     return sha256_text(normalize_advert(text))
 
 
+@contextlib.contextmanager
+def hash_scope():
+    """Reuse exact file digests only within one coherent read operation.
+
+    Every new scope starts empty, so preserved timestamps cannot carry a stale
+    digest into a later command or request. Within a scope, size and nanosecond
+    modification time are checked before a cached digest is reused.
+    """
+    previous = getattr(_HASH_SCOPE, 'cache', None)
+    if previous is None:
+        _HASH_SCOPE.cache = {}
+    try:
+        yield
+    finally:
+        if previous is None:
+            try:
+                del _HASH_SCOPE.cache
+            except AttributeError:
+                pass
+        else:
+            _HASH_SCOPE.cache = previous
+
+
 def sha256_file(path):
+    absolute = os.path.normcase(os.path.abspath(path))
+    cache = getattr(_HASH_SCOPE, 'cache', None)
+    before = os.stat(path)
+    signature = (before.st_size, before.st_mtime_ns)
+    cached = cache.get(absolute) if cache is not None else None
+    if cached and cached[:2] == signature:
+        return cached[2]
     h = hashlib.sha256()
     with open(path, 'rb') as f:
         for block in iter(lambda: f.read(1024 * 1024), b''):
             h.update(block)
-    return h.hexdigest()
+    digest = h.hexdigest()
+    after = os.stat(path)
+    if (after.st_size, after.st_mtime_ns) != signature:
+        # A concurrent edit must never be certified with the digest of a
+        # half-read file. The caller can retry its coherent operation.
+        raise RuntimeError(f'file changed while it was being hashed: {path}')
+    if cache is not None:
+        cache[absolute] = (*signature, digest)
+    return digest
 
 
 @contextlib.contextmanager

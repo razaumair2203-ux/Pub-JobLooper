@@ -16,6 +16,9 @@ deterministic, evidence-preserving and portable.
 8. After changing anything in the public allowlist, re-export the mirror.
    `python tools/check_repo.py --mirror-drift` reports when the private source
    has moved ahead of the last published mirror.
+9. Keep `CHANGELOG.md` current. After the reviewed private commit and sanitized
+   public export are both verified, create one annotated semantic-version tag
+   for the release; never tag a dirty or unreviewed tree.
 
 Personal runtime data is valid only when policy is `PERSONAL_PRIVATE`; it must
 never cross into public work. A `PUBLIC_SKILL` checkout accepts fictional test

@@ -32,6 +32,11 @@ def test_check(name, argv, isolated_data):
     environment = os.environ.copy()
     environment['JOBLOOPER_DATA_DIR'] = isolated_data
     environment['PYTHONIOENCODING'] = 'utf-8'
+    # Child checks that launch Chrome or simulate a new installation need a
+    # writable temporary directory too. Pytest's basetemp does not automatically
+    # flow into those subprocesses.
+    environment.update({'TEMP': isolated_data, 'TMP': isolated_data,
+                        'TMPDIR': isolated_data})
     result = subprocess.run(
         [sys.executable, '-B', *argv], cwd=ROOT, env=environment,
         text=True, encoding='utf-8', errors='replace',

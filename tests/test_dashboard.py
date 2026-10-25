@@ -4,6 +4,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -11,6 +12,7 @@ import threading
 import urllib.error
 import urllib.parse
 import urllib.request
+from html.parser import HTMLParser
 from types import SimpleNamespace
 
 
@@ -23,8 +25,9 @@ from core import (codex_bridge, dashboard, dashboard_actions, dashboard_runtime,
                   feedback, integrity, job_fetch, store, truth_review, vec)
 
 
-def fetch(url):
-    with urllib.request.urlopen(url, timeout=10) as response:
+def fetch(url, headers=None):
+    request = urllib.request.Request(url, headers=headers or {})
+    with urllib.request.urlopen(request, timeout=10) as response:
         return response.status, response.headers, response.read()
 
 
@@ -35,6 +38,7 @@ def post(url, token, payload, origin=None):
         headers={
             'Content-Type': 'application/json',
             'X-Joblooper-Token': token,
+            'Cookie': f'{dashboard.SESSION_COOKIE}={token}',
             'Origin': origin or url.split('/api/', 1)[0],
         })
     with urllib.request.urlopen(request, timeout=30) as response:
@@ -68,6 +72,27 @@ class FakeBridge:
         pass
 
 
+class DialogText(HTMLParser):
+    """Collect only text a person can read inside native dialogs."""
+
+    def __init__(self):
+        super().__init__()
+        self.depth = 0
+        self.parts = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag == 'dialog':
+            self.depth += 1
+
+    def handle_endtag(self, tag):
+        if tag == 'dialog' and self.depth:
+            self.depth -= 1
+
+    def handle_data(self, data):
+        if self.depth and data.strip():
+            self.parts.append(data.strip())
+
+
 def main():
     checks = []
     with tempfile.TemporaryDirectory(prefix='joblooper-dashboard-') as data:
@@ -94,7 +119,11 @@ def main():
                        and snapshot['attention'][0]['cta'] == 'Review decisions'
                        and bool(snapshot['attention'][0]['detail'])))
         app_script = store.read_text(os.path.join(ROOT, 'dashboard', 'app.js'))
+        foundation_script = store.read_text(os.path.join(
+            ROOT, 'dashboard', 'foundation.js'))
+        display_script = app_script + '\n' + foundation_script
         page_source = store.read_text(os.path.join(ROOT, 'dashboard', 'index.html'))
+        dashboard_css = store.read_text(os.path.join(ROOT, 'dashboard', 'styles.css'))
         active_job = snapshot['jobs'][0]
         checks.append(('active job projection preserves durable workspace state',
                        bool(active_job['updated_at'])
@@ -128,6 +157,28 @@ def main():
                        < page_source.index('id="overview"')
                        and page_source.index('id="active-job-list"')
                        < page_source.index('id="kpi-grid"')))
+        small_rem_values = [float(value) for value in re.findall(
+            r'font-size:\s*(\.[0-9]+)rem', dashboard_css)]
+        checks.append(('dashboard type and mobile controls remain legible without overflow',
+                       small_rem_values and min(small_rem_values) >= 0.75
+                       and 'Inter,' not in dashboard_css
+                       and 'grid-template-columns: repeat(3, minmax(0, 1fr))'
+                       in dashboard_css
+                       and '#new-job-button { grid-column: 1; grid-row: 2;'
+                       in dashboard_css))
+        checks.append(('strict CSP needs no inline style exception',
+                       'style=' not in app_script
+                       and 'style=' not in foundation_script
+                       and 'style=' not in page_source
+                       and "style-src 'self'" in store.read_text(
+                           os.path.join(ROOT, 'core', 'dashboard.py'))))
+        checks.append(('dashboard and docs use the governed Joblooper brand promise',
+                       'Tailor every application.' in page_source
+                       and 'Invent nothing.' in page_source
+                       and os.path.isfile(os.path.join(
+                           ROOT, 'references', 'brand.md'))
+                       and 'assets/app-mark.svg' in store.read_text(
+                           os.path.join(ROOT, 'README.md'))))
         checks.append(('active workspace exposes every required applicant touchpoint',
                        'function renderActiveWorkspace()' in app_script
                        and 'job.touchpoints' in app_script
@@ -205,6 +256,9 @@ def main():
                        '<button class="hero-action" id="primary-action"' in page_source
                        and "$('#primary-action').addEventListener('click'" in app_script
                        and "if (action === 'preflight')" in app_script
+                       and "if (action === 'advert-review')" in app_script
+                       and app_script.index('!workflow.advert_confirmed')
+                       < app_script.index('!workflow.preflight')
                        and 'function openPreflight(job)' in app_script
                        and "'/api/actions/preflight'" in app_script
                        and 'function prepareApplication(job, source = null)' in app_script
@@ -218,16 +272,23 @@ def main():
         # hiding it. The place the product asks a person to think hardest was
         # the place it read most like a research paper.
         import re as _re
-        dialog_copy = _re.findall(r'<p class="dialog-copy">([^<]+)', page_source)
+        dialog_parser = DialogText()
+        dialog_parser.feed(page_source)
+        dialog_copy = dialog_parser.parts
+        dynamic_labels = _re.findall(r'>([^<>\n]+)<', display_script)
         visible_labels = _re.findall(r'<option value="[A-Z_]+">([^<]+)', page_source)
         internal_words = ('hypothesis', 'disposition', 'counterevidence',
-                          'provenance', 'deterministic', 'artefact', 'digest',
-                          'retention')
-        checks.append(('decision copy avoids internal vocabulary',
-                       bool(dialog_copy) and not [
-                           text for text in dialog_copy
-                           if sum(word in text.lower()
-                                  for word in internal_words) >= 2]))
+                           'provenance', 'deterministic', 'artefact', 'digest',
+                           'retention', 'retained plausible', 'evidence support')
+        internal_pattern = _re.compile(
+            r'\b(?:' + '|'.join(map(_re.escape, internal_words)) + r')s?\b',
+            _re.IGNORECASE)
+        checks.append(('every dialog and generated dashboard label avoids internal vocabulary',
+                       bool(dialog_copy)
+                       and not [text for text in dialog_copy
+                                if internal_pattern.search(text)]
+                       and not [text for text in dynamic_labels
+                                if internal_pattern.search(text)]))
         checks.append(('cause and status choices read as ordinary English',
                        bool(visible_labels)
                        and not any(label.isupper() for label in visible_labels)
@@ -237,8 +298,31 @@ def main():
         checks.append(('how sure you are is a choice, never a decimal to invent',
                        'name="confidence"><option' in page_source.replace(' ', '')
                        or ('<select name="confidence"' in page_source
-                           and 'type="number"' not in page_source.split(
-                               'name="confidence"')[1][:120])))
+                            and 'type="number"' not in page_source.split(
+                                'name="confidence"')[1][:120])))
+        historical = {
+            'cause': 'DOMAIN_TRANSLATION', 'status': 'RETAINED_PLAUSIBLE',
+            'confidence': 0.62,
+            'summary': ('For future customer-embedded defence roles, preflight must '
+                        'separate technical lifecycle fit from direct customer, regulatory, '
+                        'localisation and succession-context fit, then ask for verified '
+                        'evidence or flag the residual risk.'),
+        }
+        display = dashboard._reasoning_display(historical)
+        checks.append(('old reasoning values keep their stored meaning but display plainly',
+                       historical['status'] == 'RETAINED_PLAUSIBLE'
+                       and historical['confidence'] == 0.62
+                       and display['cause_label']
+                       == 'My experience is in a different field'
+                       and display['status_label']
+                       == 'Saved concern · cause unconfirmed'
+                       and display['confidence_label'] == 'Some supporting evidence'
+                       and len(display['summary_display'].split()) <= 24
+                       and not internal_pattern.search(display['summary_display'])
+                       and 'item.summary_display' in app_script
+                       and 'item.status_label' in app_script
+                       and 'item.confidence_label' in app_script
+                       and '% evidence support' not in app_script.lower()))
         checks.append(('Codex is told to write for the person, not the system',
                        'plain language' in codex_bridge.DEVELOPER_INSTRUCTIONS.lower()
                        and 'second language'
@@ -259,7 +343,7 @@ def main():
                        and 'state.taskPollFailures >= 3' in app_script))
         checks.append(('job-scoped generation requests use the durable prepare action',
                        'function composerIntent(message)' in app_script
-                       and 'function isPreparationRequest(message)' in app_script
+                       and 'isPreparationRequest' in app_script
                        and 'prepareApplication(state.agentJob)' in app_script
                        and "state.agentJob ? 'auto' : 'ask'" in app_script
                        and 'composerIntent(message)' in app_script
@@ -271,6 +355,14 @@ def main():
                        and codex_bridge.resolve_intent(
                            'Why was this rejection observed?',
                            'auto', active_job['id']) == 'outcome_review'))
+        checks.append(('objections and applied reports keep their intended route',
+                       all(codex_bridge.resolve_intent(message, 'auto', active_job['id'])
+                           == 'feedback_discussion' for message in [
+                               'Update the CV, you missed my evidence.',
+                               'Do not generate my CV, this gap is incorrect.',
+                               'I disagree with this rejection explanation.'])
+                       and codex_bridge.resolve_intent('I applied to this job',
+                           'auto', active_job['id']) == 'submission_help'))
         checks.append(('open browsers detect replacement and preserve job context',
                        'function monitorDashboardInstance()' in app_script
                        and 'health.instance_id !== state.serverInstanceId' in app_script
@@ -424,9 +516,7 @@ def main():
             'status': 'applied',
         }])
         applied = dashboard.build_snapshot()
-        # Silence is the commonest outcome and was the only one that never
-        # entered the record: an application sat in `applied` forever and its
-        # evidence never reached the learning loop.
+        # Age alone is not evidence of ghosting or a compulsory learning task.
         import datetime as _dt
 
         def _silence_kinds(days):
@@ -437,16 +527,11 @@ def main():
             }])
             return [item['kind'] for item in dashboard.build_snapshot()['attention']]
 
-        quiet = _silence_kinds(dashboard.GHOSTING_PROMPT_DAYS - 1)
-        overdue = _silence_kinds(dashboard.GHOSTING_PROMPT_DAYS)
-        overdue_item = next(item for item in dashboard.build_snapshot()['attention']
-                            if item['kind'] == 'silent_application')
-        checks.append(('a long-silent application is asked about, never assumed',
+        quiet = _silence_kinds(29)
+        overdue = _silence_kinds(90)
+        checks.append(('waiting alone never creates a compulsory outcome task',
                        'silent_application' not in quiet
-                       and 'silent_application' in overdue
-                       and overdue_item['route'] == 'outcome'
-                       and overdue_item['severity'] == 'warning'
-                       and 'Nothing is assumed for you' in overdue_item['detail']))
+                       and 'silent_application' not in overdue))
         checks.append(('a silent application is never auto-recorded as ghosted',
                        all(row.get('status') == 'applied'
                            for row in store.applications())))
@@ -454,7 +539,8 @@ def main():
         checks.append(('submitted and awaiting-response work remains visible without a false task',
                        applied['jobs'][0]['phase'] == 'applied'
                        and applied['kpis']['submitted'] == 1
-                       and applied['kpis']['in_progress'] == 1
+                       and applied['kpis']['in_progress'] == 0
+                       and 'applied' not in applied['lifecycle']['active_phases']
                        and not applied['attention']))
         try:
             dashboard_actions.refresh_job_analysis(snapshot['jobs'][0]['id'])
@@ -484,18 +570,40 @@ def main():
 
             status, headers, page = fetch(base + '/')
             checks.append(('local UI ships without third-party runtime dependencies',
-                           status == 200 and b'Application workspace' in page
+                           status == 200 and b'Evidence-backed applications' in page
                            and b'truth-integrity-dialog' in page
-                           and headers.get('Content-Security-Policy') is not None))
+                           and headers.get('Content-Security-Policy') is not None
+                           and headers.get('Cache-Control') == 'private, no-cache'
+                           and bool(headers.get('ETag'))))
+            status, static_headers, _ = fetch(base + '/styles.css')
+            static_etag = static_headers.get('ETag')
+            static_revalidated = False
+            try:
+                fetch(base + '/styles.css', {'If-None-Match': static_etag})
+            except urllib.error.HTTPError as error:
+                static_revalidated = error.code == 304
+            checks.append(('unchanged static assets revalidate without a full response',
+                           status == 200 and bool(static_etag)
+                           and static_headers.get('Cache-Control') == 'private, no-cache'
+                           and static_revalidated))
 
-            status, headers, body = fetch(base + '/api/dashboard')
-            api = json.loads(body.decode('utf-8'))
-            checks.append(('dashboard API returns the governed projection',
-                           status == 200 and api['kpis']['jobs'] == 1
-                           and headers.get('Cache-Control') == 'no-store'))
-
+            private_read_refused = False
+            try:
+                fetch(base + '/api/dashboard')
+            except urllib.error.HTTPError as error:
+                private_read_refused = error.code == 403
+            checks.append(('private dashboard reads require the local session',
+                           private_read_refused))
+            rebound_refused = False
+            try:
+                fetch(base + '/api/session', {'Host': 'attacker.example'})
+            except urllib.error.HTTPError as error:
+                rebound_refused = error.code == 421
+            checks.append(('unrecognised Host headers cannot reach the local dashboard',
+                           rebound_refused))
             status, headers, body = fetch(base + '/api/session')
             session = json.loads(body.decode('utf-8'))
+            session_cookie = (headers.get('Set-Cookie') or '').split(';', 1)[0]
             checks.append(('session advertises guarded interaction capabilities',
                            status == 200 and session['csrf_token']
                            and session['instance_id']
@@ -510,10 +618,23 @@ def main():
                            and session['capabilities']['submission_update'] is True
                            and session['capabilities']['record_outcome'] is True
                            and session['capabilities']['agent_chat'] is True
-                           and session['capabilities']['external_portal_submission'] is False))
+                           and session['capabilities']['external_portal_submission'] is False
+                           and session_cookie.startswith(
+                               dashboard.SESSION_COOKIE + '=')
+                           and 'HttpOnly' in headers.get('Set-Cookie')
+                           and 'SameSite=Strict' in headers.get('Set-Cookie')))
+
+            private_headers = {'Cookie': session_cookie}
+            status, headers, body = fetch(
+                base + '/api/dashboard', private_headers)
+            api = json.loads(body.decode('utf-8'))
+            checks.append(('dashboard API returns the governed projection',
+                           status == 200 and api['kpis']['jobs'] == 1
+                           and headers.get('Cache-Control') == 'no-store'))
 
             status, headers, body = fetch(
-                base + '/api/preflight?job=' + urllib.parse.quote(api['jobs'][0]['id']))
+                base + '/api/preflight?job=' + urllib.parse.quote(api['jobs'][0]['id']),
+                private_headers)
             preflight_view = json.loads(body.decode('utf-8'))
             checks.append(('preflight endpoint returns exact actionable decisions',
                            status == 200 and preflight_view['questions']
@@ -521,16 +642,27 @@ def main():
                            and all(row['kind'] == 'KNOWN_GAP'
                                    for row in preflight_view['questions'])))
             refused_answers = {
-                row['id']: ('ADD_NEW_EVIDENCE' if index == 0
+                row['id']: ({'decision': 'ADD_NEW_EVIDENCE',
+                             'note': 'A new certificate should be reviewed for this requirement.'}
+                            if index == 0
                             else 'PROCEED_WITH_RECORDED_GAP')
                 for index, row in enumerate(preflight_view['questions'])}
-            try:
-                post(base + '/api/actions/preflight', session['csrf_token'], {
+            status, headers, paused_preflight = post(
+                base + '/api/actions/preflight', session['csrf_token'], {
                     'job_id': api['jobs'][0]['id'], 'answers': refused_answers,
                 })
-                evidence_stop_refused = False
-            except urllib.error.HTTPError as error:
-                evidence_stop_refused = error.code == 400
+            first_question = preflight_view['questions'][0]
+            status_issue, headers, issue_saved = post(
+                base + '/api/actions/preflight-issue', session['csrf_token'], {
+                    'job_id': api['jobs'][0]['id'],
+                    'question_id': first_question['id'],
+                    'note': 'A new certificate should be reviewed for this requirement.',
+                    'issue_type': 'NEW_EVIDENCE',
+                })
+            feedback.resolve(
+                api['jobs'][0]['id'], issue_saved['result']['item']['id'], 'REJECTED',
+                'Fictional evidence request closed after endpoint verification.',
+                'The exact current requirement and comment binding were verified.')
             accepted_answers = {
                 row['id']: 'PROCEED_WITH_RECORDED_GAP'
                 for row in preflight_view['questions']}
@@ -538,8 +670,14 @@ def main():
                 base + '/api/actions/preflight', session['csrf_token'], {
                     'job_id': api['jobs'][0]['id'], 'answers': accepted_answers,
                 })
-            checks.append(('dashboard records decisions but blocks unreviewed new evidence',
-                           evidence_stop_refused and status == 200
+            checks.append(('dashboard saves current-gap comments but blocks unreviewed new evidence',
+                           status == 200 and status_issue == 200
+                           and paused_preflight['result']['preflight']['complete'] is False
+                           and paused_preflight['result']['preflight']['answers'][
+                               first_question['id']]['note'].startswith('A new certificate')
+                           and issue_saved['result']['item']['target_id'] == first_question['id']
+                           and issue_saved['result']['item']['target_artifact'] == 'preflight'
+                           and issue_saved['result']['item']['classification'] == 'FACTUAL_CORRECTION'
                            and preflight_saved['result']['preflight']['complete'] is True
                            and set(preflight_saved['result']['preflight']['answers'])
                            == set(accepted_answers)))
@@ -700,14 +838,14 @@ def main():
 
             source = next(row for row in api['jobs'][0]['artifacts']
                           if row.get('href') and row.get('group') == 'Source')
-            status, headers, body = fetch(base + source['href'])
+            status, headers, body = fetch(base + source['href'], private_headers)
             checks.append(('allowlisted artefact endpoint serves a real source file',
                            status == 200 and bool(body)
                            and headers.get('X-Content-Type-Options') == 'nosniff'))
 
             blocked = False
             try:
-                fetch(base + '/artifact?job=..%2F..&id=profile')
+                fetch(base + '/artifact?job=..%2F..&id=profile', private_headers)
             except urllib.error.HTTPError as error:
                 blocked = error.code == 404
             checks.append(('unregistered path traversal cannot read files', blocked))

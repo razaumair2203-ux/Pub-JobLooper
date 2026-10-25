@@ -585,6 +585,37 @@ def _exact_classification(text, scored, by_id):
     low = text.lower()
     recs = [by_id[x['id']] for x in scored]
 
+    # A project-controls requirement is often written as two abstract nouns --
+    # "execution risks" and "financial processes" -- while real evidence uses
+    # the operational vocabulary: RAID, cost/EVM forecasts, procurement, WBS
+    # and milestones. Literal token coverage previously called that a GAP even
+    # when one approved experience anchor contained both halves. Credentials
+    # are deliberately excluded here: PMP/PMI-ACP strengthen the presentation,
+    # but cannot stand in for demonstrated project-controls experience.
+    if (re.search(r'\b(project|programme|program)\b', low)
+            and re.search(r'\b(risk|raid)\w*\b', low)
+            and re.search(r'\b(financ|cost|budget|commercial|earned value|evm)\w*\b', low)):
+        active = [record for record in by_id.values()
+                  if record.get('type') in {'anchor', 'skill'}
+                  and record.get('status') in {'APPROVED', 'VERIFIED'}
+                  and record.get('render') not in {
+                      'never', 'blocked_pending_validation', 'superseded'}]
+        direct = [record for record in active
+                  if re.search(r'\b(risk|raid)\w*\b', _surface(record))
+                  and re.search(
+                      r'\b(cost|budget|commercial|earned value|evm|procure\w*|'
+                      r'financial forecast)\b', _surface(record))
+                  and re.search(
+                      r'\b(project|programme|program|wbs|milestone|delivery)\w*\b',
+                      _surface(record))]
+        if direct:
+            direct.sort(key=lambda record: (
+                record.get('priority') != 'headline', record.get('id', '')))
+            return ('DIRECT',
+                    'direct project-controls evidence covers execution risk and '
+                    'financial control through cost/EVM forecasting, RAID and procurement',
+                    direct[0]['id'])
+
     if re.search(r'\bdegree\b', low) and re.search(
             r'\b(aeronautical|aerospace|electrical|electronics?|avionics?)\b', low):
         direct = [r for r in recs if r.get('type') == 'education' and re.search(
@@ -703,7 +734,15 @@ def match_jd(jd, identity):
         if exact_cls:
             cls, note = exact_cls, exact_note
             if exact_id:
+                if exact_id not in {item['id'] for item in scored}:
+                    exact_record = by_id[exact_id]
+                    scored.insert(0, {
+                        'id': exact_id, 'score': DIRECT,
+                        'status': exact_record.get('status'),
+                        'ownership': exact_record.get('ownership'),
+                    })
                 scored.sort(key=lambda x: (x['id'] != exact_id, -x['score']))
+                scored = scored[:4]
                 best = max(best, DIRECT)
         forbidden = _forbidden_ask(r['text'])
         if forbidden:
@@ -733,6 +772,12 @@ def match_jd(jd, identity):
                 cls = _promote(cls)
             elif concept_ratio <= CONCEPT_THIN and cls != 'GAP':
                 cls = _demote(cls)
+        # A deterministic exact rule has established the semantic bridge from
+        # the advert's abstract phrase to governed evidence. Repeating the raw
+        # unmatched words after that as "no evidence" contradicts the verified
+        # result and was the visible REQ-19 failure.
+        if exact_cls == 'DIRECT' and cls == 'DIRECT':
+            unevidenced = []
         if unevidenced:
             note = (note + '; ' if note else '') + \
                 'no registered evidence for: ' + ', '.join(unevidenced[:5])

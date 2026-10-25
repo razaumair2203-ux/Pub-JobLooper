@@ -84,13 +84,14 @@ flowchart LR
   G --> H[Paste official job link]
   H --> I[Confirm captured advert]
   I --> J[Fit and preflight decisions]
-  J --> K[Generate CV and letter]
+  J --> K[Create internal review drafts]
   K --> L[Review and incorporate feedback]
-  L --> M[Approve exact bundle and build]
-  M --> N[Submit externally and record exact files]
-  N --> O[Record stage events and employer responses]
-  O --> P[Challenge hypotheses and retain bounded lessons]
-  P --> G
+  L --> M[Approve exact drafts]
+  M --> N[Build verified files]
+  N --> O[Submit externally and record exact files]
+  O --> P[Record stage events and employer responses]
+  P --> Q[Challenge hypotheses and retain bounded lessons]
+  Q --> G
 ```
 
 ### Journey contract
@@ -107,14 +108,15 @@ flowchart LR
 | 8. Sign off truth | Enter reviewer identity and confirm the exact review | Run integrity checks and bind approval to the exact generation authority | Existing `joblooper.truth-approval.v1` receipt or a compatible successor | Any generation-authority change invalidates sign-off and reopens only affected review items |
 | 9. Capture a job | Paste the official URL, or manually paste the complete advert after access failure | Fetch, bound, parse, and stage the exact advert | Raw advert digest, structured JD, source URL, and capture event | Private-network URLs and incomplete pages fail closed; the user can retry or use manual capture |
 | 10. Confirm advert | Verify company, title, reference, location, and full-content capture | Present extracted metadata and source completeness before planning | User-confirmed JD-capture receipt | Corrections append an event and invalidate downstream records; no hidden overwrite |
-| 11. Fit and preflight | Decide material gaps, identity, eligibility, and whether to proceed | Match only approved truth and omit already-resolved facts | Existing digest-bound preflight record | “Add evidence/context” opens the truth-update workbench at the relevant fact instead of ending in chat |
-| 12. Prepare | Generate a tailored application | Deterministically create match, CV, letter, and risk records from exact inputs | Existing plan receipt and records | Retry reuses a current plan; stale or partial records are labelled and rebuilt safely |
+| 11. Fit and preflight | Review evidence considered for every unresolved current-advert requirement; proceed, challenge a missed map, or add evidence with a comment | Match only approved truth; bind decisions and comments internally; never copy comments into employer claims | Existing digest-bound preflight record plus an exact-requirement feedback item for a challenge | “Existing evidence was missed” or “Add evidence” saves the comment, blocks drafts, and opens the truth workbench instead of ending in chat |
+| 12. Create review drafts | Create a tailored application for review | Deterministically create internal match, CV, letter, and risk records from exact inputs | Existing plan receipt and draft records, explicitly not sendable | Retry reuses current drafts; stale or partial records are labelled and rebuilt safely |
 | 13. Review and revise | Read complete documents, select text/section, and comment | Classify feedback, propose a before/after change, show evidence and downstream impact, and apply only after user acceptance | Feedback event plus typed change receipt and regenerated plan/presentation digest | Rejection closes with rationale; adopted feedback cannot close on prose alone or strand the user |
-| 14. Approve and build | Confirm the six review judgments and reviewer | Bind approval to the exact presentation, then render and verify files | Existing approval, package manifest, and direct artefact links | Interrupted rendering reuses approval; changed content requires a fresh presentation and approval |
-| 15. Submit | Upload externally, then select exact sent files and portal evidence | Hash-bind the exact CV/letter and preserve one or more screening artefacts | Submission receipt, application event, and ledger state | Receipt/ledger interruption exposes a completing retry; Joblooper never claims portal submission |
-| 16. Track progress | Record every employer stage and exact response | Append observed events such as submitted, screening, interview, progressed, rejected, offer, withdrawn | Stage-event ledger with source, date certainty, and response evidence | Later rejection does not erase an earlier interview; corrections supersede events without deleting them |
-| 17. Learn | Review signals and competing explanations | Separate outcome observations, reusable preferences, truth corrections, and causal hypotheses | Inspectable lesson records linked to supporting applications and versions | Small samples, conflicting evidence, and unknown causes remain visible; no automatic truth mutation |
-| 18. Maintain truth | Add a new artefact or complete a due audit | Re-extract only changed sources, review affected facts, and renew sign-off | New source/truth/approval digests and change events | Existing application/submission history remains immutable; only dependent future plans become stale |
+| 14. Approve | Confirm the six review judgments and reviewer | Bind approval to the exact presented drafts, current-advert decisions and resolved comments | Existing exact-draft approval; no sendable files yet | Changed content or comments require a fresh presentation and approval |
+| 15. Build | Explicitly select **Finish building documents** | Render and verify the approved DOCX/PDF package | Package manifest and direct file links | Interrupted rendering reuses approval; it never silently repeats sign-off |
+| 16. Submit | Upload externally, then select exact sent files and portal evidence | Hash-bind the exact CV/letter and preserve one or more screening artefacts | Submission receipt, application event, and ledger state | Receipt/ledger interruption exposes a completing retry; Joblooper never claims portal submission |
+| 17. Track progress | Record every employer stage and exact response | Append observed events such as submitted, screening, interview, progressed, rejected, offer, withdrawn | Stage-event ledger with source, date certainty, and response evidence | Later rejection does not erase an earlier interview; corrections supersede events without deleting them |
+| 18. Learn | Review signals and competing explanations | Separate outcome observations, reusable preferences, truth corrections, and causal hypotheses | Inspectable lesson records linked to supporting applications and versions | Small samples, conflicting evidence, and unknown causes remain visible; no automatic truth mutation |
+| 19. Maintain truth | Add a new artefact or complete a due audit | Re-extract only changed sources, review affected facts, and renew sign-off | New source/truth/approval digests and change events | Existing application/submission history remains immutable; only dependent future plans become stale |
 
 ## Fastest safe ground-truth path
 
@@ -260,7 +262,7 @@ shell behavior; they do not replace domain controls.
 | Evidence tab and gate blockers | Displays match classes and deterministic gate failures | Partial | Route each resolvable blocker to evidence/content proposal; explicitly close unfixable applications |
 | Add feedback | Appends scoped feedback and invalidates stale presentation/approval | Partial | Require artefact/version/section anchor where applicable and choose typed disposition |
 | Resolve feedback | Appends adopted/rejected rationale and validation | Defect | Add proposal/apply/verify flow; bind resolution to the exact requested change, not merely any changed plan |
-| Approve and build | Records exact review judgments and user sign-off, then builds a verified package | Sound | Keep approval and build visibly separate in state and audit receipts |
+| Approve, then build | Records exact review judgments and user sign-off first; a separate action builds the verified package | Sound | Keep approval and build visibly separate in controls, state and audit receipts |
 | Finish build | Reuses a valid approval after interrupted rendering | Sound | Keep |
 
 ### Submission, progress, outcomes, and learning

@@ -12,10 +12,17 @@ echo   Checking what this computer already has...
 echo.
 
 set "PY="
-for %%C in (py python python3) do (
+for %%C in (py.exe python.exe python3.exe) do (
   if not defined PY (
-    %%C -c "import sys; raise SystemExit(0 if sys.version_info>=(3,10) else 1)" >nul 2>&1
-    if !errorlevel! equ 0 set "PY=%%C"
+    set "CANDIDATE="
+    for %%P in (%%C) do set "CANDIDATE=%%~$PATH:P"
+    rem Windows' python.exe App Execution Alias opens the Microsoft Store on
+    rem a computer without Python. Resolve each command first and never run
+    rem a candidate supplied by the WindowsApps alias directory.
+    if defined CANDIDATE if /i "!CANDIDATE:\WindowsApps\=!"=="!CANDIDATE!" (
+      "!CANDIDATE!" -c "import sys; raise SystemExit(0 if sys.version_info>=(3,10) else 1)" >nul 2>&1
+      if !errorlevel! equ 0 set "PY=!CANDIDATE!"
+    )
   )
 )
 
@@ -25,8 +32,9 @@ echo   Python 3.10 or newer is required, and this computer does not have it.
 echo   Nothing else is needed: Joblooper uses no other libraries.
 echo.
 
-where winget >nul 2>&1
-if errorlevel 1 goto :manual
+set "WINGET="
+for %%P in (winget.exe) do set "WINGET=%%~$PATH:P"
+if not defined WINGET goto :manual
 
 echo   It can be installed for you with:
 echo.
@@ -37,7 +45,7 @@ if /i not "%REPLY%"=="y" goto :manual
 
 echo.
 echo   Installing Python. Windows may ask you to approve this.
-winget install --exact --id Python.Python.3.12 --accept-package-agreements --accept-source-agreements
+"%WINGET%" install --exact --id Python.Python.3.12 --accept-package-agreements --accept-source-agreements
 echo.
 echo   Python is installed. Close this window, open a new one, and run start.cmd
 echo   again — Windows only notices a new program in a fresh window.
@@ -59,5 +67,5 @@ exit /b 1
 :run
 echo   Python found. Starting Joblooper...
 echo.
-%PY% "%~dp0jl.py" setup %*
+"%PY%" "%~dp0jl.py" setup %*
 exit /b %errorlevel%

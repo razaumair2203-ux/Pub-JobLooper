@@ -189,9 +189,9 @@ THE LIFECYCLE, END TO END
                     dated folder per application.
   7  Submit         You upload to the employer yourself. Joblooper records the
                     exact files you sent and their fingerprints.
-  8  Outcome        Record what the employer did. Explanations are kept as
-                    challenged hypotheses, never as facts, and only a lesson
-                    that survives that challenge influences a later application.
+  8  Outcome        Record what the employer did. Possible reasons stay labelled
+                    as guesses, never facts. Only a lesson that still looks useful
+                    after three reviews appears in a later application.
 
 WHAT IT IS NOT
   It does not apply on your behalf, log in to any portal, score you against

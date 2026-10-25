@@ -8,7 +8,7 @@ import tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-from core import match, preflight, store, vec
+from core import dashboard_actions, feedback, match, preflight, store, vec
 
 
 def main():
@@ -43,19 +43,47 @@ def main():
                        record['decision'] == 'STRUCTURED_DECISIONS_RECORDED'
                        and set(record['answers']) == {row['id'] for row in rows}
                        and not errors))
-        try:
-            preflight.create(
-                slug, jd, mapping, identity, reviewer='candidate',
-                answers={row['id']: 'ADD_NEW_EVIDENCE' for row in rows})
-            new_evidence_stopped = False
-        except ValueError as error:
-            new_evidence_stopped = 'ground-truth evidence update' in str(error)
-        checks.append(('new evidence stops generation instead of becoming a chat claim',
-                       new_evidence_stopped))
+        blocked_answers = {
+            row['id']: ({'decision': 'ADD_NEW_EVIDENCE',
+                         'note': 'My source certificate contains additional evidence.'}
+                        if index == 0 else 'PROCEED_WITH_RECORDED_GAP')
+            for index, row in enumerate(rows)}
+        blocked_record = preflight.create(
+            slug, jd, mapping, identity, reviewer='candidate',
+            answers=blocked_answers)
+        _, blocked_errors, _ = preflight.validate(slug, jd, mapping, identity)
+        checks.append(('new evidence comment is saved but still blocks draft creation',
+                       blocked_record['decision'] == 'ACTION_REQUIRED'
+                       and blocked_record['answers'][rows[0]['id']]['note'].startswith('My source')
+                       and any('paused for' in error for error in blocked_errors)
+                       and not os.path.exists(os.path.join(store.job_dir(slug), 'cv.json'))))
         checks.append(('preflight rows are explicit controls, not repeated fact questions',
                        all(row['kind'] == 'KNOWN_GAP' for row in rows)
                        and all('PROCEED_WITH_RECORDED_GAP' in {
-                           option['value'] for option in row['options']} for row in rows)))
+                           option['value'] for option in row['options']} for row in rows)
+                       and all('CHALLENGE_EVIDENCE_MAP' in {
+                           option['value'] for option in row['options']} for row in rows)
+                       and all(row.get('allow_note') for row in rows)))
+        summary = preflight.review_summary_markdown(blocked_record)
+        checks.append(('current-advert comments enter the bound internal review only',
+                       'My source certificate contains additional evidence.' in summary
+                       and 'not career facts' in summary
+                       and 'Advert requirement:' in summary))
+        issue = dashboard_actions.record_preflight_issue(
+            slug, rows[0]['id'],
+            'The approved record already contains the relevant project evidence.',
+            'EXISTING_EVIDENCE_MISSED', 'candidate')
+        saved_issue = issue['item']
+        checks.append(('a missed-evidence comment binds to the exact current requirement',
+                       saved_issue['classification'] == 'EVIDENCE_MAPPING'
+                       and saved_issue['target_id'] == rows[0]['id']
+                       and saved_issue['target_artifact'] == 'preflight'
+                       and saved_issue['selected_text'] == rows[0]['requirement']
+                       and saved_issue in feedback.open_items(slug)))
+        feedback.resolve(
+            slug, saved_issue['id'], 'REJECTED',
+            'Fictional challenge closed after test inspection.',
+            'The exact requirement binding was verified by this test.')
 
         exact_class, exact_note, exact_id = match._exact_classification(
             'Bachelor degree in Electrical Engineering or related field',

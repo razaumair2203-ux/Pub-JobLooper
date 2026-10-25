@@ -9,6 +9,11 @@ from . import integrity, store
 SCOPES = {'FACT', 'SOURCE', 'BOUNDARY', 'WORDING', 'STRUCTURE'}
 STATUSES = {'OPEN', 'ADOPTED', 'REJECTED'}
 AUDIT_INTERVAL_DAYS = 90
+# Section order, caps and activation are generation policy, not biographical truth.
+# They remain in store.generation_fingerprint(), so any plan/approval is still
+# invalidated when policy changes; the candidate does not have to re-attest
+# unrelated career facts merely because document structure changed.
+_GENERATION_POLICY_ONLY = {'truth/sections.json'}
 
 
 def _path():
@@ -25,6 +30,47 @@ def open_items():
 
 def digest():
     return store.sha256_text(store.canonical_json(items()))
+
+
+def approval_subject():
+    """Digest candidate facts/disclosure authority, excluding render policy."""
+    base = store.truth_approval_subject()
+    files = dict(base.get('files') or {})
+    for rel in _GENERATION_POLICY_ONLY:
+        files.pop(rel, None)
+    return {'files': files, 'sha256': store.sha256_text(store.canonical_json(files))}
+
+
+def _approval_status():
+    profile = store.read_json(store.p('truth', 'profile.json'), {}) or {}
+    approval = profile.get('_truth_approval') or {}
+    current = approval_subject()
+    problems = []
+    migrated_legacy = False
+    if profile.get('ready_for_generation') is not True:
+        problems.append('candidate truth is marked NEEDS_REVIEW')
+    if not approval:
+        problems.append('candidate truth has no digest-bound approval')
+    elif approval.get('subject_sha256') != current['sha256']:
+        # Backward-compatible migration is intentionally narrow. A v1 approval
+        # included sections.json in the signed subject. If that *exact old full
+        # subject* still matches current governed files, no candidate fact has
+        # changed and it is safe to recognize the approval under the new split.
+        # If any old governed input changed, fail closed and require review.
+        legacy_schema = approval.get('_schema') == 'joblooper.truth-approval.v1'
+        legacy_current = store.truth_approval_subject()['sha256']
+        if legacy_schema and approval.get('subject_sha256') == legacy_current:
+            migrated_legacy = True
+        else:
+            problems.append('candidate truth changed after its last approval')
+    return {
+        'ready': not problems,
+        'problems': problems,
+        'approval': approval,
+        'current_subject_sha256': current['sha256'],
+        'current_files': current['files'],
+        'legacy_approval_recognized': migrated_legacy,
+    }
 
 
 def _next_id(rows):
@@ -46,7 +92,8 @@ def record(scope, note, author, evidence=None):
         'note': str(note).strip(), 'author': str(author).strip(),
         'evidence': [str(value).strip() for value in (evidence or [])
                      if str(value).strip()],
-        'created_at': store.now(), 'subject_sha256': store.truth_approval_subject()['sha256'],
+        'created_at': store.now(), 'subject_sha256': approval_subject()['sha256'],
+        'generation_sha256': store.generation_fingerprint()['sha256'],
     }
     store.write_jsonl(_path(), rows + [item])
     return item
@@ -65,20 +112,26 @@ def resolve(item_id, status, implementation, validation):
     if item.get('status') != 'OPEN':
         raise ValueError(f'truth comment {item_id} is already {item.get("status")}')
     if status == 'ADOPTED':
-        current = store.truth_approval_subject()['sha256']
-        if current == item.get('subject_sha256'):
-            raise ValueError(
-                'adopted truth feedback requires a changed career-truth digest first')
+        if item.get('scope') == 'STRUCTURE':
+            current_generation = store.generation_fingerprint()['sha256']
+            if current_generation == item.get('generation_sha256'):
+                raise ValueError(
+                    'adopted structure feedback requires a changed generation-policy fingerprint first')
+        else:
+            current = approval_subject()['sha256']
+            if current == item.get('subject_sha256'):
+                raise ValueError(
+                    'adopted truth feedback requires a changed career-truth digest first')
         errors, _warnings, _stats = integrity.check_truth()
         if errors:
-            raise ValueError('changed career truth still fails integrity: '
+            raise ValueError('changed governed data still fails integrity: '
                              + '; '.join(errors[:8]))
     item['status'] = status
     item['resolved_at'] = store.now()
     item['implementation'] = str(implementation).strip()
     item['validation'] = str(validation).strip()
     store.write_jsonl(_path(), rows)
-    if status == 'ADOPTED':
+    if status == 'ADOPTED' and item.get('scope') != 'STRUCTURE':
         profile_path = store.p('truth', 'profile.json')
         profile = store.read_json(profile_path, {}) or {}
         profile['ready_for_generation'] = False
@@ -92,7 +145,7 @@ def resolve(item_id, status, implementation, validation):
 
 
 def readiness():
-    status = store.truth_approval_status()
+    status = _approval_status()
     pending = open_items()
     problems = list(status['problems'])
     if pending:
@@ -225,8 +278,9 @@ def audit():
                             if row.get('type') == 'education'),
     }
     return {
-        '_schema': 'joblooper.truth-audit.v1', 'generated_at': store.now(),
-        'subject_sha256': store.truth_approval_subject()['sha256'],
+        '_schema': 'joblooper.truth-audit.v2', 'generated_at': store.now(),
+        'subject_sha256': approval_subject()['sha256'],
+        'generation_policy_sha256': store.generation_fingerprint()['sha256'],
         'readiness': readiness(), 'integrity_errors': errors,
         'integrity_warnings': warnings, 'stats': stats,
         'active_by_type': dict(sorted(counts.items())),
@@ -244,7 +298,8 @@ def to_markdown(report):
     state = report['readiness']
     out = ['# GROUND-TRUTH AUDIT', '',
            f"**State:** {'READY' if state['ready'] else 'NEEDS REVIEW'}  ",
-           f"**Truth digest:** `{report['subject_sha256']}`  ",
+           f"**Candidate-truth digest:** `{report['subject_sha256']}`  ",
+           f"**Generation-policy fingerprint:** `{report.get('generation_policy_sha256', 'n/a')}`  ",
            f"**Generated:** {report['generated_at']}", '',
            '## PROTECTED INVENTORY', '']
     for name, values in report['protected_inventory'].items():
@@ -269,10 +324,10 @@ def to_markdown(report):
 
 
 def approval_record(reviewer):
-    subject = store.truth_approval_subject()
+    subject = approval_subject()
     today = datetime.date.fromisoformat(store.today())
     return {
-        '_schema': 'joblooper.truth-approval.v1',
+        '_schema': 'joblooper.truth-approval.v2',
         'subject_sha256': subject['sha256'], 'reviewer': str(reviewer).strip(),
         'reviewed_at': store.now(),
         'next_audit_due': (today + datetime.timedelta(days=AUDIT_INTERVAL_DAYS)).isoformat(),

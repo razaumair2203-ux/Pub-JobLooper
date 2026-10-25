@@ -15,10 +15,10 @@ PRIVATE_REPOSITORY_NAME = 'Pvt-JobLooper'
 PUBLIC_REPOSITORY_NAME = 'Pub-JobLooper'
 PUBLIC_REPOSITORY_URL = 'https://github.com/razaumair2203-ux/Pub-JobLooper'
 ALLOW_FILES = {
-    '.gitattributes', '.github', '.gitignore', 'CONTRIBUTING.md', 'LICENSE', 'README.md',
+    '.gitattributes', '.github', '.gitignore', 'CHANGELOG.md', 'CONTRIBUTING.md', 'LICENSE', 'README.md',
     'NOTICE', 'SECURITY.md', 'SKILL.md', 'USER-GUIDE.md', 'agents', 'conftest.py', 'core',
     'dashboard', 'examples', 'jl.py', 'assets/joblooper.ico.b64',
-    'assets/app-mark.svg',
+    'assets/app-mark.svg', 'assets/README.md',
     'references', 'repo-policy.json', 'run_checks.ps1', 'run_checks.sh',
     'start.cmd', 'start.sh',
     'templates', 'tests', 'tools',
@@ -165,14 +165,46 @@ def release_fingerprint(root):
     return digest.hexdigest()
 
 
+def _git_source_revision():
+    """Return the exact private source commit and whether tracked files are clean."""
+    try:
+        head = subprocess.run(
+            ['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True, encoding='utf-8',
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+        status = subprocess.run(
+            ['git', 'status', '--porcelain', '--untracked-files=no'], cwd=ROOT,
+            text=True, encoding='utf-8', stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, check=False)
+    except OSError:
+        return None, False
+    revision = head.stdout.strip().lower()
+    valid = (head.returncode == 0 and len(revision) == 40
+             and all(char in '0123456789abcdef' for char in revision))
+    clean = status.returncode == 0 and not status.stdout.strip()
+    return (revision if valid else None), clean
+
+
+def _exporter_sha256():
+    try:
+        import check_repo
+    except ImportError:
+        from . import check_repo
+    return check_repo.file_digest(os.path.abspath(__file__))
+
+
 def export(target, record_baseline=False):
     """Create the sanitized mirror.
 
-    ``record_baseline`` writes the drift baseline into the private source and is
-    therefore an act of publishing, not of exporting: an audit or a test that
-    exports to a scratch directory must not silently move the baseline that
-    `check_repo.py --mirror-drift` compares against.
+    ``record_baseline`` is a formal publication action. It therefore requires a
+    clean tracked source tree so the recorded private commit identifies exactly
+    the bytes that were exported. Scratch/test exports remain available without
+    that restriction.
     """
+    source_revision, source_clean = _git_source_revision()
+    if record_baseline and (not source_revision or not source_clean):
+        raise ValueError(
+            'formal public export requires a clean private Git tree with a resolvable HEAD')
+
     target = os.path.abspath(target)
     if os.path.exists(target):
         raise ValueError('target already exists; choose a new empty path')
@@ -186,15 +218,18 @@ def export(target, record_baseline=False):
             stream.write(PUBLIC_IGNORE)
         with open(os.path.join(staging, 'repo-policy.json'), 'w', encoding='utf-8') as stream:
             json.dump({
-                '_schema': 'joblooper.repository-policy.v1',
+                '_schema': 'joblooper.repository-policy.v2',
                 'classification': 'PUBLIC_SKILL',
                 'repository_name': PUBLIC_REPOSITORY_NAME,
                 'canonical_repository_url': PUBLIC_REPOSITORY_URL,
                 'purpose': 'Reusable evidence-governed Joblooper engine and fictional examples',
                 'personal_data_in_git': False,
                 'runtime_data_location': 'USER_HOME_OR_EXPLICIT_DATA_DIR',
-                'source': 'SANITIZED_MIRROR_WITH_NEW_HISTORY',
+                'source': 'SANITIZED_GENERATED_MIRROR_WITH_NEW_HISTORY',
                 'source_repository_name': PRIVATE_REPOSITORY_NAME,
+                'source_commit_sha': source_revision,
+                'source_tree_clean': source_clean,
+                'exporter_sha256': _exporter_sha256(),
                 'release_fingerprint': release_fingerprint(staging),
             }, stream, ensure_ascii=False, indent=2)
             stream.write('\n')
@@ -211,32 +246,29 @@ def export(target, record_baseline=False):
         os.replace(staging, target)
         staging = None
         if record_baseline:
-            _record_export(target)
+            _record_export(target, source_revision)
         return target, result.stdout.strip()
     finally:
         if staging and os.path.isdir(staging):
             shutil.rmtree(staging, ignore_errors=True)
 
 
-def _record_export(target):
-    """Record what was exported so later drift is detectable.
-
-    The two repositories are separate code lines kept in step by hand. Without a
-    baseline nothing notices when the private source moves ahead of the public
-    mirror, so `check_repo.py --mirror-drift` compares against this record.
-    Failure here must not invalidate a successful export.
-    """
+def _record_export(target, source_revision=None):
+    """Record the exact generated public export for later drift checks."""
     try:
         import check_repo
     except ImportError:
         from . import check_repo
     try:
+        revision = source_revision or _git_source_revision()[0]
         record = {
-            '_schema': 'joblooper.public-export.v1',
+            '_schema': 'joblooper.public-export.v2',
             'exported_at': datetime.datetime.now().astimezone().isoformat(
                 timespec='seconds'),
             # Deliberately no target path: where a maintainer staged the mirror
             # on their machine is not useful and does not belong in Git.
+            'source_commit_sha': revision,
+            'exporter_sha256': _exporter_sha256(),
             'release_fingerprint': release_fingerprint(target),
             'files': check_repo.allowlist_digests(ROOT, ALLOW_FILES),
         }

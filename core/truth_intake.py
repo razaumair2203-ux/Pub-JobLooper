@@ -345,7 +345,7 @@ def review(profile, decisions):
                 if isinstance(row, dict)}
     missing = [row['id'] for row in pending if row['id'] not in supplied]
     if missing:
-        raise ValueError('Every extracted claim needs a disposition: ' + ', '.join(missing[:12]))
+        raise ValueError('Review every suggested fact before continuing: ' + ', '.join(missing[:12]))
     identity = re.sub(r'[^a-z0-9]+', '_', str((profile or {}).get(
         'identity') or '').casefold()).strip('_')
     existing_profile = store.read_json(store.p('truth', 'profile.json'), {}) or {}
@@ -366,7 +366,7 @@ def review(profile, decisions):
         decision = supplied[candidate['id']]
         disposition = str(decision.get('disposition') or '').upper()
         if disposition not in DISPOSITIONS:
-            raise ValueError(f"{candidate['id']} needs a valid disposition")
+            raise ValueError(f"{candidate['id']} needs a decision")
         if disposition == 'UNRESOLVED':
             continue
         if disposition != 'ADOPTED' or str(decision.get('type') or '').lower() != 'role':

@@ -1,6 +1,7 @@
 """A linked user-skill install retains the complete executable system."""
 import base64
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -45,7 +46,6 @@ with tempfile.TemporaryDirectory(prefix='joblooper-install-') as temp:
                   encoding='ascii') as stream:
             assert base64.b64decode(stream.read()).startswith(b'\x00\x00\x01\x00')
         installed_fixture = os.path.join(temp, 'installed-fixture')
-        import shutil
         shutil.copytree(os.path.join(destination, 'examples', 'starter'),
                         installed_fixture)
         doctor = subprocess.run(
@@ -74,13 +74,53 @@ for starter, marker in (('start.cmd', 'winget'), ('start.sh', 'command -v')):
     assert '[y/N]' in script, f'{starter} must ask before installing anything'
 
 shell_starter = os.path.join(ROOT, 'start.sh')
-without_python = dict(os.environ, PATH='/nonexistent')
-refused = subprocess.run(
-    ['bash', shell_starter], cwd=ROOT, env=without_python, text=True,
-    input='n\n', stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60)
-assert refused.returncode != 0, 'a machine without Python must not report success'
-assert 'Python 3.10 or newer is required' in refused.stdout, refused.stdout
-assert 'Joblooper' in refused.stdout, 'the user must learn which program is speaking'
+bash = shutil.which('bash')
+if bash:
+    # Resolve the shell before clearing PATH. Calling `bash` by name afterwards
+    # tests only executable lookup and never runs the starter.
+    without_python = dict(os.environ, PATH='')
+    refused = subprocess.run(
+        [bash, shell_starter], cwd=ROOT, env=without_python, text=True,
+        input='n\n', stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60)
+    assert refused.returncode != 0, 'a machine without Python must not report success'
+    assert 'Python 3.10 or newer is required' in refused.stdout, refused.stdout
+    assert 'Joblooper' in refused.stdout, 'the user must learn which program is speaking'
+    assert 'command not found' not in refused.stdout.lower(), refused.stdout
+elif os.name != 'nt':
+    raise AssertionError('bash is required to exercise the POSIX starter')
+
+windows_starter = os.path.join(ROOT, 'start.cmd')
+with open(windows_starter, 'rb') as stream:
+    windows_bytes = stream.read()
+assert b'\r\n' in windows_bytes and b'\n' not in windows_bytes.replace(b'\r\n', b''), (
+    'start.cmd must use Windows CRLF line endings')
+with open(windows_starter, encoding='utf-8') as stream:
+    assert 'WindowsApps' in stream.read(), 'the Windows starter must skip the Store alias'
+if os.name == 'nt':
+    # A fake python command inside a WindowsApps directory represents the Store
+    # execution alias. The starter must explain the requirement without running
+    # that command or opening anything.
+    with tempfile.TemporaryDirectory(prefix='joblooper-windowsapps-') as temp:
+        alias_dir = os.path.join(temp, 'WindowsApps')
+        os.mkdir(alias_dir)
+        invoked = os.path.join(alias_dir, 'invoked.txt')
+        fake_python = os.path.join(alias_dir, 'python.cmd')
+        with open(fake_python, 'w', encoding='utf-8', newline='') as stream:
+            stream.write('@echo off\r\n>"%~dp0invoked.txt" echo invoked\r\nexit /b 1\r\n')
+        system32 = os.path.join(os.environ['SystemRoot'], 'System32')
+        environment = dict(
+            os.environ, PATH=os.pathsep.join((alias_dir, system32)))
+        command = os.environ.get('ComSpec') or os.path.join(system32, 'cmd.exe')
+        command_line = f'"{command}" /d /s /c ""{windows_starter}""'
+        refused = subprocess.run(
+            command_line, cwd=ROOT,
+            env=environment, text=True, input='\n',
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60)
+        assert refused.returncode != 0, (
+            'a machine without Python must not report success:\n' + refused.stdout)
+        assert 'Python 3.10 or newer is required' in refused.stdout, refused.stdout
+        assert 'Joblooper' in refused.stdout, 'the user must learn which program is speaking'
+        assert not os.path.exists(invoked), 'the Microsoft Store alias was executed'
 
 # --- first-run setup on a machine that has never seen Joblooper --------------
 from core import bootstrap  # noqa: E402

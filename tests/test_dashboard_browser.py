@@ -1,4 +1,4 @@
-"""Optional real-Chrome smoke for the applicant's capture-to-review journey."""
+"""Real-browser journey through review, downloads, submission and outcome."""
 import os
 import shutil
 import subprocess
@@ -53,6 +53,10 @@ def main():
         shutil.copytree(FIXTURE, data)
         store.configure(data)
         vec.reset_caches()
+        # Exercise the highest-severity routing edge: an unconfirmed advert
+        # must open its own review, never the still-blocked application check.
+        os.unlink(os.path.join(
+            store.job_dir(store.list_jobs()[0]), 'advert-review.json'))
         server = dashboard.create_server(0, quiet=True, bridge=QuietBridge())
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()

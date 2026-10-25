@@ -325,8 +325,10 @@ def internal_signoff_content(slug):
     omission_lines += ['', f'- Other controlled selection omissions: {other}',
                        '- Any factual change requires governed truth review; employer research '
                        'cannot fill a candidate-evidence gap.', '']
+    decision_record = store.read_json(preflight.path(slug), {}) or {}
     return (employer_review.to_markdown(
         files['risk'], files.get('employer_context')).strip()
+        + '\n\n' + preflight.review_summary_markdown(decision_record).strip()
         + '\n\n' + '\n'.join(omission_lines).strip())
 
 

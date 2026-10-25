@@ -10,6 +10,21 @@ Do not enable a push URL until the hosting repository’s private visibility and
 access list have been checked while authenticated. Never publish this repository
 or turn its existing history into the public edition.
 
+## Local dashboard boundary
+
+The dashboard listens only on IPv4 loopback. Every request is rejected unless
+its `Host` is the active `127.0.0.1` or `localhost` port, which prevents a
+rebinding hostname from using the browser as a route into local records.
+
+`/api/session` establishes a host-only, HttpOnly, `SameSite=Strict` session
+cookie. All private JSON reads and artifact downloads require that cookie.
+State-changing requests additionally require the matching random token in a
+custom header and an exact loopback `Origin`. Static assets expose no personal
+data, use a strict self-only content policy, and revalidate with content ETags.
+
+These controls protect the browser boundary; they do not make an unlocked local
+machine safe from another process running as the same operating-system user.
+
 ## Public release boundary
 
 Create a public edition only with:

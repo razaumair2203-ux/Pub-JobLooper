@@ -83,11 +83,11 @@ def main():
         result = dashboard_actions.sign_truth(
             'Taylor Example',
             'I reviewed the identity, sources, facts and boundaries')
-        checks.append(('separate sign-off binds exact truth and enables capture',
+        checks.append(('separate sign-off binds exact candidate truth and enables capture',
                        result['ok'] is True
                        and truth_review.entry_state()['state'] == 'TRUTH_READY'
                        and truth_review.readiness()['approval']['subject_sha256']
-                       == store.truth_approval_subject()['sha256']))
+                       == truth_review.approval_subject()['sha256']))
         source_path = os.path.join(data, store.sources()[0]['path'])
         with open(source_path, 'ab') as stream:
             stream.write(b'changed')

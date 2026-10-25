@@ -5,7 +5,14 @@
 # what tells you that Python is missing. Everything here runs on a machine with
 # nothing installed.
 set -u
-cd "$(dirname "$0")"
+# Keep the missing-Python path usable even when PATH is empty. `dirname` is an
+# external program on many systems, so calling it here would fail before the
+# starter could explain what Joblooper needs.
+case "$0" in
+  */*) script_dir=${0%/*} ;;
+  *) script_dir=. ;;
+esac
+cd "$script_dir" || exit 1
 
 printf '\n  Joblooper\n  Checking what this computer already has...\n\n'
 

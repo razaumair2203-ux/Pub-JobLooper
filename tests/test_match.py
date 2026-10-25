@@ -36,6 +36,20 @@ def main():
     mentor_class = match._exact_classification(
         'Professionally mentor an engineer against a learning and development plan.',
         [{'id': 'MENTOR-001', 'score': 0.5}], {'MENTOR-001': mentor_record})
+    controls_record = {
+        'id': 'PMO-CONTROLS', 'type': 'anchor', 'status': 'VERIFIED',
+        'priority': 'headline',
+        'fact': ('Led programme delivery using WBS and milestones; controlled RAID, '
+                 'technical risk, cost and EVM forecasts, and procurement.'),
+    }
+    controls_class = match._exact_classification(
+        'Understanding of project execution risks and financial processes.',
+        [], {'PMO-CONTROLS': controls_record})
+    credential_only = match._exact_classification(
+        'Understanding of project execution risks and financial processes.',
+        [], {'PMP-ONLY': {
+            'id': 'PMP-ONLY', 'type': 'credential', 'status': 'VERIFIED',
+            'fact': 'Project Management Professional (PMP).'}})
     unbulleted = match.parse_jd('''Key Responsibilities
 Engineering Management & Project Integration
 Accountability for the end-to-end engineering lifecycle, ensuring Quality, Cost, and Time targets.
@@ -57,6 +71,11 @@ Relocation Assistance Provided: No''')
         'Lead requirements, interfaces, integration and verification.', bm)
     thin = match._concept_coverage(
         'Practical experience with 400kV GIS substations in Riyadh.', bm)
+    vec.reset_caches()
+    cached_first = vec.expand('aircraft systems integration')
+    cached_first['caller-only-mutation'] = 99
+    cached_second = vec.expand('aircraft systems integration')
+    expand_cache = vec._expand_items.cache_info()
 
     checks = [
         # Responsibilities are written as gerunds while evidence is registered
@@ -151,6 +170,11 @@ Relocation Assistance Provided: No''')
          invisible['covered'] == 0 and invisible['coverage'] == 0),
         ('professional mentoring resolves to direct mentoring evidence',
          mentor_class[0] == 'DIRECT' and mentor_class[2] == 'MENTOR-001'),
+        ('project financial-risk wording resolves to operational controls evidence',
+         controls_class[0] == 'DIRECT' and controls_class[2] == 'PMO-CONTROLS'
+         and 'cost/EVM' in controls_class[1]),
+        ('a project credential alone cannot replace controls experience',
+         credential_only[0] is None),
         # A forcing word alone is not a gate. Adverts phrase ordinary duties
         # forcefully, and G7 refuses to build on an unresolved hard gate, so a
         # misread duty blocks the whole application.
@@ -184,6 +208,9 @@ Relocation Assistance Provided: No''')
              'mandatory', 'preferred', 'preferred', 'preferred']
          and any('fluency in English' in row['text'] for row in parsed)
          and all('Relocation Assistance' not in row['text'] for row in parsed)),
+        ('expanded-vector cache is fast without sharing mutable caller state',
+         expand_cache.hits >= 1
+         and 'caller-only-mutation' not in cached_second),
     ]
     for name, ok in checks:
         print(f"  {'ok  ' if ok else 'FAIL'} {name}")

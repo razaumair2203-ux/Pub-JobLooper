@@ -1,5 +1,9 @@
 * text=auto eol=lf
 
+# Windows cmd.exe does not reliably parse LF-only batch files. This entry point
+# must work before Python or Git configuration can repair anything.
+start.cmd text eol=crlf
+
 # Application records are byte-hashed before release. Git must transport their
 # exact bytes; line-ending normalization would make a clean clone look tampered.
 /.joblooper/** -text

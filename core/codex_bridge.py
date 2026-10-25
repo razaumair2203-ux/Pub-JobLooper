@@ -29,6 +29,12 @@ Never infer a missing JD, candidate fact, submission, screening answer, employer
 
 The dashboard renders registered artefacts as deterministic clickable links. State which artefacts exist or do not exist, but do not print local filesystem paths or manufacture Markdown links. Preflight decisions are recorded in the dashboard control; use chat only to clarify a gap, never as the sole answer store.
 
+When the user disagrees with a gap or proposed wording, recheck the exact advert and approved evidence. Disagreement alone does not make either side correct. Distinguish a missed existing fact, a new factual claim, application wording, a reusable preference, and an optional editorial choice. Ask one focused follow-up only when a missing source, personal contribution, scope or meaning could change the decision; do not repeat questions already answered in the approved record. Explain supported disagreements with the evidence and say no change is needed when the work is already sound.
+
+Save actionable user feedback through the typed feedback workflow before claiming it is remembered or implemented. Wording changes need an exact supported proposal and user decision, followed by regeneration and complete review. New facts require career-record review and sign-off. A preference carries to future jobs only when explicitly saved and accepted as reusable. A comment for this job stays with this job. If the user says they applied, help identify the exact sent files and open the submission control; never infer the files or record submission from that sentence alone.
+
+An outcome can yield no reusable lesson. Do not manufacture explanations, repeated reasoning passes, or tasks to fill an empty learning panel. Keep observations separate from possible causes; challenge useful explanations with counterevidence and unknowns. Retain only a supported, actionable concern through the existing learning gates. Future jobs must show its source and relevance, and allow the user to reject its applicability. Learning never silently changes career facts or submitted documents.
+
 Write everything a person reads in plain language. Many users are applying for jobs in a second language, and anything they cannot parse quickly they will click past. Prefer short sentences to stacked clauses, ordinary words to technical ones, and address the user directly. Never show them an internal name such as a cause code, a status like RETAINED_PLAUSIBLE, or words like hypothesis, disposition, digest, artefact or deterministic. This applies especially to a retained lesson summary, which is quoted back to the user months later at the moment they are deciding: write it as one plain sentence about what to do next time, not as an instruction to the system.
 
 For an intake_url intent, try the exact official URL. Capture only when the full employer name, exact job title and complete job description are accessible; then run the governed ingest command and stop before planning. If access is blocked or content is incomplete, ask for a manual paste. Search snippets are not an exact JD and must never be used to reconstruct one.
@@ -46,6 +52,10 @@ def resolve_intent(message, intent='ask', job_id=None):
     if not job_id:
         return 'ask'
     text = str(message or '').casefold()
+    if re.search(r"\b(feedback|comment|suggestion|disagree|incorrect|wrong|missed|correction|instead)\b|\bdon['’]t\b|\bdo not\b", text):
+        return 'feedback_discussion'
+    if re.search(r"\bi(?: have|'ve)? (?:already )?(?:applied|submitted)\b", text):
+        return 'submission_help'
     artifact = re.search(r'\b(cv|resume|résumé|cover letter|application)\b', text)
     work = re.search(
         r'\b(prepare|create|generate|draft|tailor|rewrite|update|optimise|optimize|improve)\b',
@@ -77,7 +87,10 @@ TURN_PROFILES = {
     },
     'feedback_discussion': {
         'effort': 'medium', 'scope': 'feedback assessment', 'read_only': False,
-        'instruction': 'Assess the feedback before changing governed application state.',
+        'instruction': ('Recheck the exact user objection against approved evidence. '
+                        'Ask a focused follow-up only if it changes the decision. '
+                        'Save actionable feedback through its typed control; '
+                        'do not equate disagreement with a required CV change.'),
     },
     'finalize_artifacts': {
         'effort': 'medium', 'scope': 'approved artefact build', 'read_only': False,

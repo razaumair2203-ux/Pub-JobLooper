@@ -18,6 +18,7 @@ import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FIXTURE = os.path.join(ROOT, 'examples', 'starter')
+PUBLIC_MIRROR_DRIFT = 'public mirror drift'
 
 # (name, argv, scopes). Order is significant: cheap integrity first, then engine
 # invariants, then the dashboard, then repository boundaries.
@@ -29,6 +30,10 @@ CHECKS = [
     ('approval and releases', ['tests/test_release.py'], {'full'}),
     ('typed feedback changes', ['tests/test_feedback_changes.py'], {'full', 'dashboard'}),
     ('ground-truth context', ['tests/test_context.py'], {'full'}),
+    ('consumer context contract', ['tests/test_consumer_context.py'], {'full', 'mirror'}),
+    ('integration architecture attacks', ['tests/test_integration_architecture.py'], {'full', 'mirror'}),
+    ('JD screen and promotion', ['tests/test_screen.py'], {'full'}),
+    ('JD screen metamorphic attacks', ['tests/test_screen_metamorphic.py'], {'full'}),
     ('ground-truth review', ['tests/test_truth_review.py'], {'full'}),
     ('dashboard truth intake', ['tests/test_truth_intake.py'], {'full', 'dashboard'}),
     ('pre-generation questions', ['tests/test_preflight.py'], {'full'}),
@@ -49,9 +54,10 @@ CHECKS = [
     ('application mark', ['tools/build_app_icon.py', '--check'],
      {'full', 'dashboard', 'mirror'}),
     ('repository policy', ['tools/check_repo.py'], {'full', 'mirror'}),
-    # Passes when no export baseline exists yet; fails once the private source
-    # moves ahead of the last published mirror.
-    ('public mirror drift', ['tools/check_repo.py', '--mirror-drift'],
+    # Release freshness is a real publication condition, but not an engine
+    # correctness condition. CI may report it separately while the functional
+    # suite remains authoritative for code changes.
+    (PUBLIC_MIRROR_DRIFT, ['tools/check_repo.py', '--mirror-drift'],
      {'full', 'mirror'}),
 ]
 SCOPES = ('full', 'dashboard', 'mirror')
@@ -61,8 +67,9 @@ def checks_for(scope):
     return [(name, argv) for name, argv, scopes in CHECKS if scope in scopes]
 
 
-def run(scope='full', echo=print):
-    """Run every check for ``scope``; return the list of failed check names."""
+def run(scope='full', echo=print, skip=()):
+    """Run checks for ``scope``; return failed names, optionally skipping named checks."""
+    skip = set(skip or ())
     data = tempfile.mkdtemp(prefix='joblooper-tests-')
     failed = []
     try:
@@ -70,7 +77,11 @@ def run(scope='full', echo=print):
         environment = os.environ.copy()
         environment['JOBLOOPER_DATA_DIR'] = data
         environment['PYTHONIOENCODING'] = 'utf-8'
+        environment.update({'TEMP': data, 'TMP': data, 'TMPDIR': data})
         for name, argv in checks_for(scope):
+            if name in skip:
+                echo(f'\n== {name} ==\nSKIPPED by explicit caller policy')
+                continue
             echo(f'\n== {name} ==')
             result = subprocess.run(
                 [sys.executable, '-B', *argv], cwd=ROOT, env=environment)
@@ -84,8 +95,11 @@ def run(scope='full', echo=print):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('scope', nargs='?', default='full', choices=SCOPES)
+    parser.add_argument('--skip-public-mirror-drift', action='store_true',
+                        help='functional CI only; formal release checks must not use this')
     args = parser.parse_args(argv)
-    failed = run(args.scope)
+    skip = {PUBLIC_MIRROR_DRIFT} if args.skip_public_mirror_drift else set()
+    failed = run(args.scope, skip=skip)
     if failed:
         print('\nCHECKS FAILED: ' + ', '.join(failed))
         return 1

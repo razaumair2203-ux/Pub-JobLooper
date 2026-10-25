@@ -25,6 +25,20 @@ aliases and section rules. Approval metadata and the append-only changelog are
 excluded from that digest. Any later authoritative edit blocks preflight,
 planning, presentation and build until the candidate reviews the new state.
 
+## Repository and project advancement intake
+
+A new repository, commit, README, test result, manuscript draft or implementation milestone is **evidence to inspect**, not a candidate fact. Repository activity can make the existing truth stale by omission, but it cannot update truth automatically.
+
+When an orchestrator or review finds materially relevant advancement:
+
+1. pin the repository/ref and exact path(s) that support the candidate claim;
+2. identify the personal/team ownership boundary and whether the evidence describes implementation, validation, deployment, publication, adoption, funding or only planned work;
+3. compare the candidate claim against existing anchors so a matured project updates or supersedes the right record instead of creating duplicate achievements;
+4. stage the addition/correction through the normal truth-intake workflow;
+5. keep the new claim unavailable to factual screening and generation until the candidate reviews the resulting atomic truth delta and finalizes the new digest.
+
+Do not infer production deployment from deployment files, publication from a manuscript, customer adoption from a working product, field validation from simulation/test vectors, or personal ownership from repository authorship alone. Conversation/model memory may point to the repository but is not a source record.
+
 ## Incremental corrections
 
 Use `jl truth comment` for additions, corrections, wording concerns and source

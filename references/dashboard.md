@@ -77,11 +77,11 @@ of a first run.
 | Capture | Paste the official job URL; use manual fields only after both access routes fail | Bounded URL extractor, then scoped Codex URL fallback, then deterministic `ingest`; when both access routes fail, the manual-paste panel reopens automatically with the URL preserved and the first missing field focused | Private-network URLs, blocked pages, incomplete content and search-snippet reconstruction are refused; advert prose is never candidate truth |
 | Confirm advert | Read the complete captured source and confirm/correct company and title | `advert-review.json` binds user confirmation to the exact raw advert digest and identity fields | Preflight and planning refuse an unconfirmed or stale receipt; captured text cannot be edited through this control |
 | Cautions | Open the warning control on the active card before drafting or review | A read-only reparse compares the exact captured advert with stored parser output; the dedicated Cautions view shows every non-direct classification, exact JD text, unresolved element, and nearest evidence IDs explicitly labelled as non-proof | A mismatch withdraws the old CV decision and exposes one governed `refresh-jd` action; refresh invalidates downstream bindings and returns the job to preflight without changing candidate truth |
-| Preflight | Review only unresolved fit decisions; use Codex only when a gap needs explanation | Deterministic JD/truth match plus per-item governed `preflight` answers; **Save & generate** durably records these before invoking preparation | Resolved facts are not re-asked; new evidence stops for truth review; chat cannot complete the gate |
-| Prepare | Select **Generate CV & letter**, or type an unambiguous generation request in the job panel | One allowlisted `plan` action revalidates truth/JD/preflight/feedback and publishes `match`, `cv`, `cover-letter` and risk records followed by one plan receipt bound to the exact preflight decision digest | The action does not rely on a Codex stream; an incomplete or stale receipt is not a current plan; repeating Prepare reopens an unchanged current review without regenerating it |
+| Application check | Review every unresolved current-advert requirement, inspect the evidence considered, and add an optional comment; select **Existing evidence was missed** or **I have new evidence** when appropriate | Deterministic JD/truth match plus digest-bound per-item decisions and comments; a missed-evidence choice also creates an append-only feedback item bound to the exact requirement | Comments are internal review evidence, never employer claims. Existing/new-evidence choices are saved but block draft creation until their governed review completes |
+| Create review drafts | Select **Create review drafts**, or type an unambiguous drafting request in the job panel | One allowlisted `plan` action revalidates truth/JD/preflight/feedback and publishes internal `match`, `cv`, `cover-letter` and risk records followed by one plan receipt bound to the exact preflight decision-and-comment digest | These are not sendable files. An incomplete or stale receipt is not a current plan; repeating the action reopens unchanged drafts without regenerating them |
 | Review | Read only the employer-facing CV and cover letter in the Review tab; use the adjacent Cautions control for internal analysis; add scoped comments | One presentation digest binds the upfront internal packet and both exact documents; feedback remains append-only | Internal analysis is never rendered as employer prose; open feedback or any bound-content change makes presentation/sign-off stale |
 | Approve | Tick exact-bundle confirmation and name the reviewer | Approval digest bound to the current presentation | Chat approval, partial review or stale content is refused |
-| Build | Use Approve & build after sign-off; use **Finish build** if rendering was interrupted after approval | Approval receipt first, then a dated human-readable folder, verified manifest and direct CV/letter links | A folder without a verified manifest is never treated as built or submit-ready; retry reuses the exact approval and never rewrites it |
+| Build | After sign-off, explicitly select **Finish building documents** | The existing approval receipt is validated first, then a dated human-readable folder, verified manifest and direct CV/letter links are created | Approval creates no sendable files. A folder without a verified manifest is never treated as built or submit-ready; retry reuses the exact approval and never rewrites it |
 | Submit | Upload externally, select exact sent CV/letter, optionally attach portal answers | Submission receipt with hashes; screening evidence copied and hash-bound; application-ledger record written second | Browser cannot invent paths; Joblooper never claims external submission; a receipt/ledger interruption exposes **Finish record** and an exact retry completes only the missing write |
 | Correct record | Open **Update dates & portal evidence** from Attention or the job workspace | Submission date/channel and late portal evidence are appended to the existing receipt and ledger; exact sent-file hashes remain unchanged | Future dates, dates after the response, unverifiable submissions and silent evidence reconstruction are refused; permanently unavailable historical answers are labelled explicitly |
 | Outcome | Paste exact response or record observation/date/timing | Response hash and exact application correlation, or explicit direct outcome | Ambiguous job correlation stops; absent reason remains `none provided` |
@@ -90,6 +90,12 @@ of a first run.
 ## Interaction model
 
 ### Persistent working-applications surface
+
+Working applications contains captured, review and approved jobs that still
+need preparation or submission recording. Submitted jobs move to Applied in
+the adjacent application history, ahead of portfolio summaries. Applied includes
+later outcomes as well as jobs awaiting a response. A career-record readiness
+block shows a notice without hiding existing working cards.
 
 The first content below the command bar is the working-applications surface,
 not portfolio analytics. A successful URL capture creates or refreshes one card
@@ -120,12 +126,13 @@ this operational surface.
 | Paste URL | Active card, exact source-JD links and captured timestamp | Confirm the complete advert, company and title |
 | JD analysis stale or incomplete | Critical Attention item plus warning control showing stored and currently detected requirement counts | Open Cautions, run the governed refresh, then review the regenerated preflight decisions |
 | Direct extraction blocked | Codex tries only the same official URL; if capture succeeds it binds the job and opens the same deterministic control used by direct intake | Preflight decisions; otherwise the automatically reopened manual form |
-| Preflight incomplete | `Preflight` gate open; resolved facts omitted; remaining known gaps and their consequences visible | Save proceed/stop decisions in Preflight; chat is optional clarification |
+| Application check incomplete | Resolved facts are omitted; every remaining current-advert risk shows the evidence considered, decision choices and its own comment field | Proceed, save a missed-evidence challenge, or add new evidence; the latter two preserve the comment and keep drafts blocked |
 | Codex interrupted | `Thinking` ends; current governed files are re-read; registered artefacts and their absence remain visible and the failure is labelled without assuming completion | Resume safely from the next incomplete contextual task or open the application workspace |
 | Plan generated | Evidence coverage, requirement classes, hard gaps, dedicated internal Cautions, clickable CV/letter records and draft availability | Review Cautions, then open the separate CV-and-letter review |
 | User reviews | Exact complete bundle remains readable in the Review tab | Add a scoped comment or mark the complete bundle presented |
 | User comments | All open and resolved comments remain attached to the job; open items block approval | Rejected feedback may close with rationale; adopted feedback cannot close until a different plan digest proves implementation, then re-present |
-| User approves/builds | Approval and build are shown separately; direct CV and cover-letter links appear only after manifest verification | **Finish build** after an interruption, otherwise external upload and exact submission record |
+| User approves | Approval is shown without any sendable-file links | Explicitly select **Finish building documents** |
+| User builds | Direct CV and cover-letter links appear only after manifest verification | External upload and exact submission record |
 | User submits | Exact sent files, date, channel and portal-answer evidence state remain visible | Await or record observed outcome |
 | User records outcome | Employer observation remains separate from hypotheses and learning | Discuss evidence only when a decision is still useful |
 
@@ -156,7 +163,12 @@ is visible in the application ledger but is not a task.
 | Missing outcome date | Update outcome | Existing status, timing and reason prefilled; corrected observation retained |
 | Integrity failure | Inspect artefacts | Exact failed control and artefact are visible; downstream correction remains blocked |
 | Ground-truth integrity failure | Review options | Exact source/digest error and safe choices open instantly; a bounded low-effort, read-only Codex discussion is optional |
-| Progressed/rejected reasoning | Work with Codex | Fact/hypothesis/unknown separation and, only when justified, a retained lesson |
+| Progressed next step | Work with Codex | Prepare for the observed next employer stage |
+
+Rejection analysis is optional in the job's Outcome tab; rejection without a
+retained lesson is not an unfinished Attention task. Waiting, including a long
+wait, does not become a mandatory outcome-recording task. Missing submission
+metadata, response dates and integrity failures still have their direct controls.
 
 Queue generation and action routing are tested together. A new queue kind is
 incomplete until its direct interaction, failure state and refreshed output have
@@ -173,6 +185,11 @@ all been specified and covered by a regression test.
 - Timeline shows immutable lifecycle events.
 - Comments shows both open and resolved review feedback with implementation and
   validation, so chat suggestions do not disappear into conversation history.
+- The first full review offers feedback before the user marks the documents as
+  read. Comments keeps rejection/deferral reasons and before/after proposals;
+  open feedback has a direct resolution control.
+- Delayed review responses cannot overwrite another tab, another job or a newer
+  review request, including the document links published after a successful build.
 - Overview shows each touchpoint's expected output beside the durable output
   actually observed. Only the first incomplete touchpoint is labelled current.
 - Review and Evidence show deterministic output-gate blockers before sign-off;
@@ -239,7 +256,7 @@ that an evidence-support percentage is the employer's rejection probability.
   8 MB.
 - The browser selects artefact IDs; the server resolves exact paths from a
   private registry and the CLI re-verifies the package.
-- The dashboard has no analytics. An explicit Codex turn uses the user's
+- The dashboard has no usage tracking. An explicit Codex turn uses the user's
   configured OpenAI service; this must not be described as offline processing.
 - External portal automation is not enabled.
 

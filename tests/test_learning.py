@@ -1,5 +1,6 @@
 """Outcome reasoning stays versioned, evidence-aware and outside career truth."""
 import contextlib
+import copy
 import io
 import os
 import shutil
@@ -117,6 +118,18 @@ def main():
                        retained[0]['app_id'] == slug
                        and bool(retained[0]['revisions'][-1]['company_context'])
                        and bool(retained[0]['revisions'][-1]['unknowns'])))
+        # A historical "nothing learned" record must not appear as a lesson
+        # in either the portfolio or a future job, even for the same employer.
+        original_apps = store.applications()
+        no_signal_apps = copy.deepcopy(original_apps)
+        for application in no_signal_apps:
+            for hypothesis in application.get('hypotheses') or []:
+                hypothesis['cause'] = 'NO_SIGNAL'
+        store.write_jsonl(store.p('index', 'applications.jsonl'), no_signal_apps)
+        checks.append(('no signal stays out of both learning surfaces',
+                       not learning.confirmed_lessons()
+                       and not learning.relevant_lessons(jd)))
+        store.write_jsonl(store.p('index', 'applications.jsonl'), original_apps)
         future_jd = dict(jd)
         future_jd['_slug'] = 'future-similar-application'
         questions = preflight.questions(

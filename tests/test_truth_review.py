@@ -20,25 +20,48 @@ def main():
         shutil.copytree(os.path.join(ROOT, 'examples', 'starter'), data,
                         dirs_exist_ok=True)
         store.configure(data); vec.reset_caches()
-        checks.append(('fixture starts with digest-bound approval',
-                       truth_review.readiness()['ready']))
-        before = store.truth_approval_subject()['sha256']
+        state = truth_review.readiness()
+        checks.append(('fixture starts with digest-bound approval', state['ready']))
+        legacy_before = truth_review.approval_subject()['sha256']
         store.log_change('audit note', 'Recorded a test audit event.',
                          'No generation input changed.')
         checks.append(('audit-only changelog does not stale truth approval',
-                       store.truth_approval_subject()['sha256'] == before
+                       truth_review.approval_subject()['sha256'] == legacy_before
                        and truth_review.readiness()['ready']))
+
+        # The starter intentionally carries a v1 approval to exercise migration.
+        # Renew it to v2 before testing the new split so subsequent section-policy
+        # mutations are judged against the candidate-only approval surface.
+        with contextlib.redirect_stdout(io.StringIO()):
+            jl.cmd_onboard(SimpleNamespace(
+                action='finalize', confirm_reviewed=True, reviewer='fixture-migration'))
+        migrated = truth_review.readiness()
+        checks.append(('explicit migration writes a v2 candidate-only approval',
+                       migrated['ready']
+                       and migrated['approval'].get('_schema') == 'joblooper.truth-approval.v2'
+                       and migrated['approval']['subject_sha256']
+                       == truth_review.approval_subject()['sha256']))
+        before = truth_review.approval_subject()['sha256']
 
         sections_path = store.p('truth', 'sections.json')
         sections = store.read_json(sections_path)
+        before_generation = store.generation_fingerprint()['sha256']
         sections['default_pages'] = 3
         store.write_json(sections_path, sections); store.reset_context_cache()
-        checks.append(('section-rule change invalidates candidate approval',
-                       not truth_review.readiness()['ready']))
-        with contextlib.redirect_stdout(io.StringIO()):
-            jl.cmd_onboard(SimpleNamespace(
-                action='finalize', confirm_reviewed=True, reviewer='truth-test'))
-        checks.append(('explicit renewed review restores exact readiness',
+        after_generation = store.generation_fingerprint()['sha256']
+        checks.append(('section policy changes generation without invalidating candidate facts',
+                       truth_review.readiness()['ready']
+                       and truth_review.approval_subject()['sha256'] == before
+                       and after_generation != before_generation))
+
+        structure = truth_review.record(
+            'structure', 'Test a document-structure policy change.', 'candidate')
+        sections['default_pages'] = 2
+        store.write_json(sections_path, sections); store.reset_context_cache()
+        truth_review.resolve(structure['id'], 'ADOPTED',
+                             'Updated the governed section policy.',
+                             'Generation fingerprint changed; candidate facts did not.')
+        checks.append(('adopted structure feedback preserves candidate sign-off',
                        truth_review.readiness()['ready']))
 
         item = truth_review.record('fact', 'Check whether a metric is still current.',
@@ -60,19 +83,26 @@ def main():
             unchanged_adoption_refused = False
         except ValueError:
             unchanged_adoption_refused = True
-        checks.append(('adopted truth comment requires an actual digest change',
+        checks.append(('adopted truth comment requires an actual candidate-truth change',
                        unchanged_adoption_refused))
-        sections['default_pages'] = 2
-        store.write_json(sections_path, sections); store.reset_context_cache()
+        profile_path = store.p('truth', 'profile.json')
+        profile = store.read_json(profile_path, {}) or {}
+        profile['test_review_marker'] = 'changed candidate fact for fixture'
+        store.write_json(profile_path, profile); store.reset_context_cache()
         truth_review.resolve(adopted['id'], 'ADOPTED',
-                             'Source was registered and anchors were reviewed.',
+                             'Source was registered and candidate truth changed.',
                              'Integrity review will run before renewed sign-off.')
-        checks.append(('adopted comment forces renewed sign-off',
+        checks.append(('adopted candidate truth change forces renewed sign-off',
                        not truth_review.readiness()['ready']))
-        subject_before_audit = store.truth_approval_subject()['sha256']
+        with contextlib.redirect_stdout(io.StringIO()):
+            jl.cmd_onboard(SimpleNamespace(
+                action='finalize', confirm_reviewed=True, reviewer='truth-test'))
+        checks.append(('explicit renewed review restores exact candidate readiness',
+                       truth_review.readiness()['ready']))
+        subject_before_audit = truth_review.approval_subject()['sha256']
         report = truth_review.audit()
         checks.append(('periodic audit is read-only and inventories protected facts',
-                       store.truth_approval_subject()['sha256'] == subject_before_audit
+                       truth_review.approval_subject()['sha256'] == subject_before_audit
                        and 'professional_credentials' in report['protected_inventory']))
 
     for name, ok in checks:

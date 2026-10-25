@@ -1,3 +1,9 @@
+import {
+  bytesLabel, companyInitials, dateLabel, dateTimeLabel, eventLabel,
+  fileStateLabel, h, icons, latencyLabel, phaseLabel, ratio, safeUrl,
+  titleCase, truthDecisionLabels, decisionLabel, isPreparationRequest, isSubmissionReport, wasApplied,
+} from './foundation.js';
+
 'use strict';
 
 const state = {
@@ -22,89 +28,12 @@ const state = {
   truthWorkspace: null,
   truthOrigin: null,
   feedbackTargets: [],
+  reviewRequest: 0,
   mutatingJobs: new Set(),
 };
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
-
-const icons = {
-  activity: '<svg viewBox="0 0 24 24"><path d="M3 12h4l2.2-6 4 12 2.3-6H21"/></svg>',
-  briefcase: '<svg viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5h8v2M3 12h18M10 12v2h4v-2"/></svg>',
-  arrow: '<svg viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>',
-  check: '<svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg>',
-  close: '<svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>',
-  database: '<svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>',
-  file: '<svg viewBox="0 0 24 24"><path d="M6 2h8l4 4v16H6zM14 2v5h5M9 13h6M9 17h6"/></svg>',
-  flag: '<svg viewBox="0 0 24 24"><path d="M5 21V4M5 5h11l-2 4 2 4H5"/></svg>',
-  layers: '<svg viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5zM3 12l9 5 9-5M3 16l9 5 9-5"/></svg>',
-  link: '<svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.1 0l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1M14 11a5 5 0 0 0-7.1 0l-2 2A5 5 0 0 0 12 20.1l1.1-1.1"/></svg>',
-  target: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 2v3M22 12h-3M12 22v-3M2 12h3"/></svg>',
-  trend: '<svg viewBox="0 0 24 24"><path d="m3 17 6-6 4 4 7-8M15 7h5v5"/></svg>',
-  warning: '<svg viewBox="0 0 24 24"><path d="M12 3 2.5 20h19zM12 9v5M12 17.5v.1"/></svg>',
-  external: '<svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 13v7H4V6h7"/></svg>',
-};
-
-function h(value) {
-  return String(value ?? '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;');
-}
-
-function safeUrl(value) {
-  try {
-    const url = new URL(value);
-    return ['http:', 'https:'].includes(url.protocol) ? url.href : null;
-  } catch { return null; }
-}
-
-function titleCase(value) {
-  return String(value || 'unknown').replaceAll('_', ' ').replace(/\b\w/g, c => c.toUpperCase());
-}
-
-function phaseLabel(value) {
-  return ({captured: 'Captured', review: 'In review', approved: 'Approved', applied: 'Applied',
-    progressed: 'Progressed', rejected: 'Rejected', closed: 'Closed'})[value] || titleCase(value);
-}
-
-function ratio(value, denominator) {
-  return denominator ? `${Math.round((value / denominator) * 100)}%` : '—';
-}
-
-function dateLabel(value) {
-  if (!value) return 'Not recorded';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value);
-  return new Intl.DateTimeFormat(undefined, {day: '2-digit', month: 'short', year: 'numeric'}).format(date);
-}
-
-function dateTimeLabel(value) {
-  if (!value) return 'Not recorded';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value);
-  return new Intl.DateTimeFormat(undefined, {
-    day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
-  }).format(date);
-}
-
-function bytesLabel(value) {
-  if (value === null || value === undefined) return '';
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 * 1024) return `${Math.round(value / 1024)} KB`;
-  return `${(value / 1024 / 1024).toFixed(1)} MB`;
-}
-
-function companyInitials(company) {
-  return String(company || '?').split(/\s+/).filter(Boolean).slice(0, 2).map(x => x[0]).join('').toUpperCase();
-}
-
-function latencyLabel(value) {
-  return ({under_24h: 'Under 24 hours', '1_3d': '1–3 days', '4_7d': '4–7 days',
-    '8_30d': '8–30 days', over_30d: 'Over 30 days', unknown: 'Unknown'})[value] || titleCase(value);
-}
 
 function toast(message) {
   const node = $('#toast');
@@ -189,7 +118,7 @@ async function loadData(showToast = false) {
       renderAgentQuickActions();
       renderAgentArtifacts();
     }
-    if (showToast) toast('Dashboard refreshed from governed files.');
+    if (showToast) toast('Dashboard refreshed from saved records.');
   } catch (error) {
     $('#job-ledger').innerHTML = `<div class="empty-state">${icons.warning}<strong>Dashboard data could not be loaded</strong><span>${h(error.message)}</span></div>`;
     toast(error.message);
@@ -200,6 +129,25 @@ async function loadData(showToast = false) {
 
 function jobById(id) {
   return state.data?.jobs.find(job => job.id === id) || null;
+}
+
+function recordStatusLabel(value) {
+  const reasonLabels = {
+    OPEN: 'Keep thinking about it',
+    RETAINED_PLAUSIBLE: 'Keep it — it still looks likely',
+    CONFIRMED: 'The employer actually said this',
+    DISMISSED: 'Rule it out',
+  };
+  if (reasonLabels[value]) return reasonLabels[value];
+  const phase = String(value || '').toLowerCase();
+  return state.data?.phases?.[phase]?.label || phaseLabel(phase) || 'Status updated';
+}
+
+function readingConfidenceLabel(value) {
+  const numeric = Number(value || 0);
+  if (numeric >= .8) return 'Clear text match';
+  if (numeric >= .55) return 'Possible text match';
+  return 'Needs a careful check';
 }
 
 function render() {
@@ -220,7 +168,7 @@ function render() {
 // fallback for a snapshot served by an older instance.
 function activePhases() {
   return state.data.lifecycle?.active_phases
-    || ['captured', 'review', 'approved', 'applied'];
+    || ['captured', 'review', 'approved'];
 }
 
 function isActivePhase(phase) {
@@ -233,7 +181,7 @@ function activeJobs() {
 
 function workflowProgress(job) {
   const labels = {
-    capture: 'Captured', preflight: 'Preflight', prepare: 'Drafted',
+    capture: 'Captured', advert: 'Confirmed', preflight: 'Application check', prepare: 'Drafted',
     review: 'Reviewed', approve: 'Approved', build: 'Built',
     submit: 'Submitted', outcome: 'Outcome',
   };
@@ -253,14 +201,15 @@ function activePrimary(job) {
   if (job.integrity_state === 'attention') return ['Inspect integrity', 'artifacts'];
   if (!workflow.analysis_current) return ['Review application cautions', 'cautions'];
   if (workflow.open_feedback) return ['Resolve application feedback', 'feedback'];
+  if (!workflow.advert_confirmed) return ['Review captured advert', 'advert-review'];
   if (!workflow.preflight) {
-    return ['Review preflight decisions', 'preflight'];
+    return ['Review application decisions', 'preflight'];
   }
-  if (!workflow.plan) return [workflow.plan_available ? 'Refresh CV & letter' : 'Generate CV & letter', 'prepare'];
+  if (!workflow.plan) return [workflow.plan_available ? 'Refresh review drafts' : 'Create review drafts', 'prepare'];
   if (workflow.gate_blockers?.length) return ['Resolve blocking gate', 'evidence'];
   if (workflow.can_build) return ['Finish building documents', 'build'];
   if (job.phase === 'review') return ['Review CV & letter', 'review'];
-  if (workflow.can_submit) return ['Open submission desk', 'submit'];
+  if (workflow.can_submit) return ['I applied · record sent files', 'submit'];
   return ['Open application record', 'overview'];
 }
 
@@ -271,15 +220,14 @@ function renderActiveWorkspace() {
   // A job advert is only useful once the system knows which candidate facts it
   // may use, so capture is gated on a signed truth digest rather than being the
   // first thing a new user is asked to do.
-  if (entry && entry.can_capture === false) {
-    $('#active-job-list').innerHTML = `<div class="active-empty entry-gate"><div><strong>Set up your career truth first.</strong><span>${h(entry.reason || '')} Joblooper will not tailor an application against facts you have not reviewed and signed.</span></div><button class="primary-button" type="button" data-active-action="truth">${h(entry.next_action || 'Set up career truth')}</button></div>`;
-    return;
-  }
+  const entryNotice = entry?.can_capture === false
+    ? `<div class="active-empty entry-gate"><div><strong>Your career record needs review.</strong><span>${h(entry.reason || '')} Your existing applications remain available below.</span></div><button class="primary-button" type="button" data-active-action="truth">Review career record</button></div>`
+    : '';
   if (!jobs.length) {
-    $('#active-job-list').innerHTML = '<div class="active-empty"><div><strong>No active applications.</strong><span>Paste an official job link to create one governed workspace.</span></div><button class="primary-button" type="button" data-active-action="new">+ New application</button></div>';
+    $('#active-job-list').innerHTML = entryNotice || '<div class="active-empty"><div><strong>No applications to prepare.</strong><span>Already sent applications are in Applied below. Start a new one with an official job link.</span></div><button class="primary-button" type="button" data-active-action="new">+ New application</button></div>';
     return;
   }
-  $('#active-job-list').innerHTML = jobs.map(job => {
+  $('#active-job-list').innerHTML = entryNotice + jobs.map(job => {
     const task = state.activeTask?.job_id === job.id ? state.activeTask : null;
     const taskRunning = task && ['starting', 'running', 'waiting'].includes(task.status);
     const taskFailed = task?.status === 'failed';
@@ -289,7 +237,7 @@ function renderActiveWorkspace() {
     const gaps = assessed
       ? `${job.spread.gap} gaps · ${job.hard_gaps.length} hard-gate gaps`
       : 'Gaps not assessed';
-    const documents = job.workflow?.plan_errors?.length
+    const documents = job.workflow?.plan_available && job.workflow?.plan_errors?.length
       ? 'CV and letter need refresh'
       : job.outputs.cv || job.outputs.letter
       ? `${job.outputs.cv ? 'CV ready' : 'CV missing'} · ${job.outputs.letter ? 'letter ready' : 'letter missing'}`
@@ -320,9 +268,9 @@ function renderActiveWorkspace() {
       <div class="active-job-body">
         <div class="active-next"><span class="micro-label">${taskRunning ? 'Work in progress' : taskFailed ? 'Interruption detected' : 'Next required action'}</span><strong>${h(nextAction)}</strong></div>
         <div class="active-facts">
-          <button type="button" class="caution-fact" data-active-action="cautions" data-job="${h(job.id)}"><span>Cautions ${icons.warning}</span><strong>${h(cautionState)}</strong><small>${h(cautions.decision || 'PENDING_REVIEW')} / internal only</small></button>
+          <button type="button" class="caution-fact" data-active-action="cautions" data-job="${h(job.id)}"><span>Cautions ${icons.warning}</span><strong>${h(cautionState)}</strong><small>${h(decisionLabel(cautions.decision))} · internal only</small></button>
           <button type="button" data-active-action="evidence" data-job="${h(job.id)}"><span>Evidence & gaps</span><strong>${h(coverage)}</strong><small>${h(gaps)} · not an ATS score</small></button>
-          <button type="button" data-active-action="artifacts" data-job="${h(job.id)}"><span>Documents</span><strong>${h(documents)}</strong><small>${job.artifacts.length} accessible artefacts</small></button>
+          <button type="button" data-active-action="artifacts" data-job="${h(job.id)}"><span>Documents</span><strong>${h(documents)}</strong><small>${job.artifacts.length} accessible files</small></button>
           <button type="button" data-active-action="feedback" data-job="${h(job.id)}"><span>Comments</span><strong>${feedbackCount ? `${feedbackCount} recorded` : 'No comments yet'}</strong><small>${openFeedback ? `${openFeedback} awaiting resolution` : 'Add or review feedback'}</small></button>
         </div>
       </div>
@@ -330,7 +278,7 @@ function renderActiveWorkspace() {
         <button class="primary-button" type="button" data-active-action="${primaryAction}" data-job="${h(job.id)}">${h(primaryLabel)}</button>
         <button class="secondary-button" type="button" data-active-action="overview" data-job="${h(job.id)}">Manage application</button>
         ${source ? `<a class="secondary-button" href="${h(source.href)}" target="_blank">Open captured JD</a>` : ''}
-        <span>${taskRunning ? 'Live turn · durable gates shown above' : taskFailed ? 'No completion assumed' : `${completed}/${steps.length} gates complete`}</span>
+        <span>${taskRunning ? 'Live turn · required steps shown above' : taskFailed ? 'No completion assumed' : `${completed}/${steps.length} steps complete`}</span>
       </footer>
     </article>`;
   }).join('');
@@ -339,8 +287,8 @@ function renderActiveWorkspace() {
 function renderHeader() {
   const {truth, generated_at: generatedAt} = state.data;
   const pill = $('#truth-pill');
-  pill.textContent = truth.errors ? 'TRUTH BLOCKED' : truth.ready ? 'TRUTH READY' : 'TRUTH NEEDS REVIEW';
-  pill.style.color = truth.errors ? 'var(--red)' : truth.ready ? 'var(--green)' : 'var(--amber)';
+  pill.textContent = truth.errors ? 'CAREER RECORD BLOCKED' : truth.ready ? 'CAREER RECORD READY' : 'CAREER RECORD REVIEW';
+  pill.dataset.state = truth.errors ? 'blocked' : truth.ready ? 'ready' : 'review';
   const version = state.session?.dashboard_version;
   $('#last-refresh').textContent = `Refreshed ${dateTimeLabel(generatedAt)}${version ? ` · v${version}` : ''}`;
 }
@@ -362,7 +310,7 @@ function renderKpis() {
     ['Submitted', k.submitted, 'Exact application records', 'briefcase', 'violet'],
     ['Progressed', k.progressed, 'Interview, progression or offer', 'trend', 'success'],
     ['Rejected', k.rejected, 'Observed outcomes', 'flag', 'danger'],
-    ['Exact correlation', ratio(k.exact_submissions, k.application_denominator), `${k.exact_submissions}/${k.application_denominator} submitted bundles`, 'target', 'success'],
+    ['Verified submissions', ratio(k.exact_submissions, k.application_denominator), `${k.exact_submissions}/${k.application_denominator} submitted file sets`, 'target', 'success'],
     ['Portal answers', ratio(k.screening_captured, k.application_denominator), `${k.screening_captured} exact · ${k.screening_unavailable} unavailable`, 'database', k.screening_captured + k.screening_unavailable < k.application_denominator ? 'warning' : 'success'],
   ];
   $('#kpi-grid').innerHTML = cards.map(([label, value, meta, icon, tone]) => `
@@ -376,7 +324,7 @@ function renderPipeline() {
   const m = state.data.milestones;
   const steps = [
     ['Captured', m.captured, 'Exact JD'],
-    ['Reviewed', m.reviewed, 'Chat bundle'],
+    ['Reviewed', m.reviewed, 'Complete documents'],
     ['Approved', m.approved, 'Signed off'],
     ['Applied', m.applied, 'Exact receipt'],
     ['Progressed', m.progressed, 'Observed'],
@@ -400,13 +348,13 @@ function renderControls() {
   const dates = ratio(k.response_dates, k.outcome_denominator);
   const timing = ratio(k.timing_bands, k.outcome_denominator);
   $('#control-list').innerHTML = [
-    controlRow('Ground-truth readiness', truth.problems?.[0] || 'Generation authority and user sign-off', truth.errors ? `${truth.errors} ERROR` : truth.ready ? 'READY' : 'REVIEW', truth.errors ? 'bad' : truth.ready ? 'good' : 'warn'),
+    controlRow('Career-record readiness', truth.problems?.[0] || 'Approved facts and user sign-off', truth.errors ? `${truth.errors} ERROR` : truth.ready ? 'READY' : 'REVIEW', truth.errors ? 'bad' : truth.ready ? 'good' : 'warn'),
     controlRow('Exact submission binding', 'JD + sent files + manifest', exact, k.exact_submissions === k.application_denominator ? 'good' : 'warn'),
     controlRow('Portal-answer evidence', 'Knockout and eligibility questions', screening, screeningAccounted === k.application_denominator ? 'good' : 'warn'),
     controlRow('Response dates', 'Exact date, never inferred', dates, k.response_dates === k.outcome_denominator ? 'good' : 'warn'),
     controlRow('Timing evidence', 'User-reported or exact timing band', timing, k.timing_bands === k.outcome_denominator ? 'good' : 'warn'),
   ].join('');
-  $('#truth-foot').innerHTML = `<strong>${truth.active_records} active facts</strong> · ${truth.sources} registered sources · ${truth.decisions} governed decisions${k.small_sample ? '<br><span style="color:var(--amber)">Small or employer-concentrated sample: do not infer causes.</span>' : ''}`;
+  $('#truth-foot').innerHTML = `<strong>${truth.active_records} active facts</strong> · ${truth.sources} registered sources · ${truth.decisions} governed decisions${k.small_sample ? '<br><span class="truth-caveat">Small or employer-concentrated sample: do not infer causes.</span>' : ''}`;
   const orb = $('#health-orb');
   orb.className = `health-orb${truth.errors ? ' danger' : (!truth.ready || truth.warnings ? ' warning' : '')}`;
 }
@@ -416,7 +364,7 @@ function filterCounts() {
   return {
     all: jobs.length,
     in_progress: jobs.filter(x => isActivePhase(x.phase)).length,
-    applied: jobs.filter(x => x.phase === 'applied').length,
+    applied: jobs.filter(wasApplied).length,
     progressed: jobs.filter(x => x.phase === 'progressed').length,
     rejected: jobs.filter(x => x.phase === 'rejected').length,
   };
@@ -435,6 +383,7 @@ function filteredJobs() {
   return state.data.jobs.filter(job => {
     const filterMatch = state.filter === 'all'
       || (state.filter === 'in_progress' && isActivePhase(job.phase))
+      || (state.filter === 'applied' && wasApplied(job))
       || job.phase === state.filter;
     const haystack = `${job.company} ${job.role} ${job.reference} ${job.id}`.toLowerCase();
     return filterMatch && (!query || haystack.includes(query));
@@ -460,7 +409,7 @@ function jobRow(job) {
   return `<button class="job-row" type="button" data-job="${h(job.id)}" aria-label="Open ${h(job.company)} ${h(job.role)}">
     <span class="job-primary"><span class="company-avatar">${h(companyInitials(job.company))}</span><span><strong>${h(job.company)}</strong><small>${h(job.role)} · Ref ${h(job.reference)}</small></span></span>
     <span class="status-cell"><span class="cell-label">State</span><span class="status-badge" data-phase="${h(job.phase)}">${h(phaseLabel(job.phase))}</span></span>
-    <span class="coverage-cell"><span class="mini-track"><span style="width:${coverage ?? 0}%"></span></span><b>${coverage === null ? '—' : `${coverage}%`}</b></span>
+    <span class="coverage-cell"><progress class="mini-track" max="100" value="${coverage ?? 0}" aria-label="${coverage === null ? 'Evidence coverage not assessed' : `Evidence coverage ${coverage}%`}"></progress><b>${coverage === null ? '—' : `${coverage}%`}</b></span>
     <span class="artifact-cell">${job.output_count}/4<small>key outputs</small></span>
     <span class="action-cell">${h(job.next_action)}</span>
     <span class="row-arrow">${icons.arrow}</span>
@@ -531,19 +480,19 @@ function renderLearning() {
   const preferences = state.data.preferences || [];
   const preferenceCards = preferences.map(item => `
     <article class="learning-item" data-preference="${h(item.id)}">
-      <div class="learning-head"><strong>${h(titleCase(item.type))}</strong><span class="evidence-support">${h(item.status)}</span></div>
+      <div class="learning-head"><strong>${h(item.type === 'TARGET_PAGES' ? 'Target CV pages' : 'Wording length')}</strong><span class="evidence-support">${item.status === 'ACTIVE' ? 'Used for future drafts' : 'No longer used'}</span></div>
       <p>${h(item.value)} · ${h(item.note)}</p>
-      <div class="learning-source"><span>Candidate preference · ${h(item.source_feedback_id || 'direct')}</span><span>${h(item.id)}</span></div>
-      ${item.status === 'ACTIVE' ? `<button class="secondary-button preference-retire" type="button" data-preference-retire="${h(item.id)}">Retire</button>` : ''}
+      <div class="learning-source"><span>Your saved preference</span><span>${h(item.id)}</span></div>
+      ${item.status === 'ACTIVE' ? `<button class="secondary-button preference-retire" type="button" data-preference-retire="${h(item.id)}">Stop using this preference</button>` : ''}
     </article>`).join('');
   const lessonCards = lessons.map(item => `
     <article class="learning-item">
-      <div class="learning-head"><strong>${h(item.cause_label)}</strong><span class="evidence-support">${Math.round((item.confidence || 0) * 100)}%</span></div>
-      <p>${h(item.summary)}</p><div class="learning-bar"><span style="width:${Math.round((item.confidence || 0) * 100)}%"></span></div>
-      <div class="learning-source"><span>${h(item.company)} · ${h(item.role)}</span><span>${h(item.id)}</span></div>
+      <div class="learning-head"><strong>${h(item.cause_label)}</strong><span class="evidence-support">${h(item.confidence_label)}</span></div>
+      <p>${h(item.summary_display)}</p>
+      <div class="learning-source"><span>${h(item.company)} · ${h(item.role)}</span><span>${h(item.status_label)}</span></div>
     </article>`).join('');
   $('#learning-list').innerHTML = preferenceCards + lessonCards
-    || '<div class="empty-state"><strong>No retained lessons or preferences yet.</strong><span>Observed outcomes never become causal claims automatically.</span></div>';
+    || '<div class="empty-state"><strong>No lessons or preferences saved yet.</strong><span>An outcome does not prove why it happened.</span></div>';
 }
 
 function openDrawer(job, source) {
@@ -554,7 +503,7 @@ function openDrawer(job, source) {
   const drawer = $('#job-drawer');
   $('#drawer-backdrop').hidden = false;
   drawer.hidden = false;
-  document.body.style.overflow = 'hidden';
+  document.body.classList.add('modal-open');
   renderDrawer();
   requestAnimationFrame(() => { drawer.classList.add('open'); $('#drawer-close').focus(); });
 }
@@ -562,7 +511,7 @@ function openDrawer(job, source) {
 function closeDrawer() {
   const drawer = $('#job-drawer');
   drawer.classList.remove('open');
-  document.body.style.overflow = '';
+  document.body.classList.remove('modal-open');
   setTimeout(() => { drawer.hidden = true; $('#drawer-backdrop').hidden = true; }, 280);
   state.selectedJob = null;
   state.lastFocus?.focus?.();
@@ -578,7 +527,7 @@ async function refreshJobAnalysis(job, source = null) {
     state.selectedJob = jobById(job.id);
     state.tab = 'cautions';
     renderDrawer();
-    toast('Job analysis refreshed. Review the complete caution set and preflight decisions.');
+    toast('Job analysis refreshed. Review the complete cautions and application decisions.');
   } catch (error) {
     toast(error.message);
     if (source) source.disabled = false;
@@ -608,14 +557,14 @@ function renderDrawer() {
     official ? `<a class="action-link primary" href="${h(official)}" target="_blank" rel="noreferrer">Official advert ${icons.external}</a>` : '',
     !job.workflow?.advert_confirmed ? '<button class="action-link primary" type="button" data-drawer-action="advert-review">Confirm captured advert</button>' : '',
     `<button class="action-link caution-link" type="button" data-drawer-action="cautions">${icons.warning} Cautions / ${job.cautions?.risk_count || 0}</button>`,
-    job.phase === 'captured' && job.workflow?.advert_confirmed && !job.workflow?.preflight ? `<button class="action-link primary" type="button" data-drawer-action="preflight">Review preflight decisions</button>` : '',
-    job.workflow?.preflight && !job.workflow?.plan ? `<button class="action-link primary" type="button" data-drawer-action="prepare">${job.workflow?.plan_available ? 'Refresh CV & letter' : 'Generate CV & letter'}</button>` : '',
+    job.phase === 'captured' && job.workflow?.advert_confirmed && !job.workflow?.preflight ? `<button class="action-link primary" type="button" data-drawer-action="preflight">Review application decisions</button>` : '',
+    job.workflow?.preflight && !job.workflow?.plan ? `<button class="action-link primary" type="button" data-drawer-action="prepare">${job.workflow?.plan_available ? 'Refresh review drafts' : 'Create review drafts'}</button>` : '',
     `<button class="action-link" type="button" data-drawer-action="codex"><span class="agent-orb"></span>Work with Codex</button>`,
-    job.workflow?.can_review ? `<button class="action-link" type="button" data-drawer-action="review">Review complete bundle</button>` : '',
+    job.workflow?.can_review ? `<button class="action-link" type="button" data-drawer-action="review">Review exact drafts</button>` : '',
     `<button class="action-link" type="button" data-drawer-action="feedback">Add feedback</button>`,
-    job.workflow?.can_approve ? `<button class="action-link" type="button" data-drawer-action="approve">Approve & build</button>` : '',
+    job.workflow?.can_approve ? `<button class="action-link" type="button" data-drawer-action="approve">Approve exact drafts</button>` : '',
     job.workflow?.can_build ? `<button class="action-link primary" type="button" data-drawer-action="build">Finish building documents</button>` : '',
-    job.workflow?.can_submit ? `<button class="action-link" type="button" data-drawer-action="submit">Submission desk</button>` : '',
+    job.workflow?.can_submit ? `<button class="action-link" type="button" data-drawer-action="submit">I applied · record sent files</button>` : '',
     job.exact_submission ? `<button class="action-link" type="button" data-drawer-action="update-submission">Update dates & portal evidence</button>` : '',
     job.workflow?.can_record_outcome ? `<button class="action-link" type="button" data-drawer-action="outcome">Record / update outcome</button>` : '',
     sentCv?.href ? `<a class="action-link" href="${h(sentCv.href)}" target="_blank">Exact sent CV ${icons.file}</a>` : '',
@@ -632,9 +581,10 @@ function fact(label, value, tone = '') {
 
 function renderDrawerContent() {
   const job = state.selectedJob;
+  const request = ++state.reviewRequest;
   if (state.tab === 'review') {
-    $('#drawer-content').innerHTML = '<div class="empty-state"><span class="loader"></span><strong>Loading the exact current bundle…</strong></div>';
-    loadReview(job);
+    $('#drawer-content').innerHTML = '<div class="empty-state"><span class="loader"></span><strong>Loading the exact current documents…</strong></div>';
+    loadReview(job, request);
     return;
   }
   const renderers = {overview: drawerOverview, cautions: drawerCautions, artifacts: drawerArtifacts, evidence: drawerEvidence, feedback: drawerFeedback, reasoning: drawerReasoning, timeline: drawerTimeline};
@@ -658,13 +608,13 @@ function drawerOverview(job) {
       ${fact('Applied', dateLabel(job.applied_date), job.applied_date ? '' : 'warn')}
       ${fact('Responded', dateLabel(job.responded_date), job.responded_date ? '' : 'warn')}
       ${fact('Response timing', `${latencyLabel(job.response_latency?.band)} · ${titleCase(job.response_latency?.basis)}`)}
-      ${fact('Submission correlation', job.exact_submission ? 'Exact bundle recorded' : 'Not established', job.exact_submission ? 'good' : 'warn')}
+      ${fact('Verified submission', job.exact_submission ? 'Exact files recorded' : 'Not established', job.exact_submission ? 'good' : 'warn')}
       ${fact('Portal answers', job.screening_status === 'captured' ? 'Captured' : job.screening_status === 'unavailable' ? 'Unavailable · recorded' : 'Not captured', job.screening_status === 'captured' ? 'good' : 'warn')}
     </div>
-    <div class="disclaimer">Employer-stated reason: <strong>${h(job.employer_stated_reason || 'None provided')}</strong>. Hypotheses are shown separately and never relabelled as facts.</div>
+    <div class="disclaimer">Employer-stated reason: <strong>${h(job.employer_stated_reason || 'None provided')}</strong>. Possible explanations are shown separately from facts.</div>
   </section>
   <section class="drawer-section"><div class="drawer-section-title"><h3>Output coverage</h3><span class="subtle">${job.output_count}/4 key groups</span></div>
-    <div class="truth-foot" style="margin:0">${h(outputNames)}</div>
+    <div class="truth-foot compact">${h(outputNames)}</div>
   </section>
   <section class="drawer-section"><div class="drawer-section-title"><h3>Package integrity</h3></div>
     <div class="fact-grid">${fact('State', titleCase(job.integrity_state), job.integrity_state === 'attention' ? 'bad' : 'good')}${fact('Package', job.package_id || 'Not built')}</div>
@@ -698,7 +648,7 @@ function drawerCautions(job) {
   const caution = job.cautions || {};
   const risks = caution.risks || [];
   const refresh = !caution.analysis_current
-    ? `<div class="caution-alert critical"><span class="caution-icon">${icons.warning}</span><div><strong>Previous CV decision withdrawn pending complete analysis</strong><p>${h(caution.analysis_message)}</p><small>The exact captured advert is retained. Refreshing reparses that source and returns this application to preflight; it does not add facts to your career record.</small></div><button class="primary-button" type="button" data-caution-action="refresh">Refresh job analysis</button></div>`
+    ? `<div class="caution-alert critical"><span class="caution-icon">${icons.warning}</span><div><strong>Previous CV decision withdrawn pending complete analysis</strong><p>${h(caution.analysis_message)}</p><small>The exact captured advert is still saved. Refreshing reads that source again and returns this application to its fit check; it does not add facts to your career record.</small></div><button class="primary-button" type="button" data-caution-action="refresh">Refresh job analysis</button></div>`
     : `<div class="caution-alert"><span class="caution-icon">${icons.check}</span><div><strong>Captured advert analysis is current</strong><p>${h(caution.analysis_message)}</p></div></div>`;
   const riskCards = risks.length ? risks.map(item => {
     const closest = (item.closest_evidence_ids || []).length
@@ -717,12 +667,12 @@ function drawerCautions(job) {
   }).join('') : '<div class="empty-state"><strong>No adverse JD-to-evidence classifications are visible.</strong><span>This does not predict an employer decision.</span></div>';
   const omissions = caution.reviewable_omissions || [];
   const nextControl = caution.analysis_current && !caution.report_current && !job.exact_submission
-    ? '<button class="secondary-button caution-next" type="button" data-caution-action="preflight">Review preflight decisions</button>'
+    ? '<button class="secondary-button caution-next" type="button" data-caution-action="preflight">Review application decisions</button>'
     : '';
   return `${refresh}
   <section class="drawer-section">
     <div class="drawer-section-title"><h3>Pre-application decision</h3><span class="caution-status" data-status="${h(caution.status)}">${h(titleCase(caution.status))}</span></div>
-    <div class="decision-panel"><span>CV decision</span><strong>${h(caution.decision || 'PENDING_REVIEW')}</strong><p>${h(caution.decision_reason || '')}</p></div>
+    <div class="decision-panel"><span>CV decision</span><strong>${h(decisionLabel(caution.decision))}</strong><p>${h(caution.decision_reason || '')}</p></div>
     ${nextControl}
     <div class="disclaimer">${h(caution.nonprediction || 'This is internal decision support, not a prediction of rejection.')} It is never included in the employer-facing CV or cover letter.</div>
   </section>
@@ -737,36 +687,40 @@ function drawerCautions(job) {
   </section>`;
 }
 
-async function loadReview(job) {
+async function loadReview(job, request) {
+  const current = () => request === state.reviewRequest
+    && state.tab === 'review' && state.selectedJob?.id === job.id;
   try {
     const response = await fetch(`/api/review?job=${encodeURIComponent(job.id)}`, {cache: 'no-store'});
     const review = await response.json();
+    if (!current()) return;
     if (!review.available) {
-      $('#drawer-content').innerHTML = `<div class="empty-state"><strong>No complete bundle is available yet.</strong><span>${h((review.errors || []).join(' · ') || 'Generate the governed review bundle first.')}</span><button class="primary-button" type="button" data-review-action="prepare">Generate CV & letter</button></div>`;
+      $('#drawer-content').innerHTML = `<div class="empty-state"><strong>No review drafts are available yet.</strong><span>${h((review.errors || []).join(' · ') || 'Create the CV and cover-letter review drafts first.')}</span><button class="primary-button" type="button" data-review-action="prepare">Create review drafts</button></div>`;
       return;
     }
     const blockers = job.workflow?.gate_blockers || [];
     const gateNotice = blockers.length
-      ? `<div class="gate-block-notice"><strong>Approval blocked by ${blockers.length} deterministic gate failure${blockers.length === 1 ? '' : 's'}.</strong><span>${blockers.map(item => `${h(item.id)} ${h(item.name)}: ${h(item.summary)}`).join('<br>')}</span></div>`
+      ? `<div class="gate-block-notice"><strong>Approval blocked by ${blockers.length} document check${blockers.length === 1 ? '' : 's'}.</strong><span>${blockers.map(item => `${h(item.name)}: ${h(item.summary)}`).join('<br>')}</span></div>`
       : '';
-    $('#drawer-content').innerHTML = `<div class="review-toolbar"><span>${review.valid ? 'Documents are current and review-bound' : 'Read both employer-facing documents, then mark them presented'}</span><button class="secondary-button" type="button" data-review-action="cautions">${icons.warning} Cautions</button>${review.valid ? '<button class="secondary-button" type="button" data-review-action="feedback">Add feedback</button>' : '<button class="primary-button" type="button" data-review-action="present">Mark documents presented</button>'}</div>${gateNotice}<div class="review-sheet"><pre>${h(review.content)}</pre></div>`;
+    $('#drawer-content').innerHTML = `<div class="review-toolbar"><span>${review.valid ? 'Both documents are ready for your sign-off' : 'Read the complete CV and cover letter'}</span><button class="secondary-button" type="button" data-review-action="cautions">${icons.warning} Cautions</button><button class="secondary-button" type="button" data-review-action="feedback">Add feedback</button>${review.valid ? '' : '<button class="primary-button" type="button" data-review-action="present">I have read both documents</button>'}</div>${gateNotice}<div class="review-sheet"><pre>${h(review.content)}</pre></div>`;
   } catch (error) {
+    if (!current()) return;
     $('#drawer-content').innerHTML = `<div class="empty-state"><strong>Review could not be loaded.</strong><span>${h(error.message)}</span></div>`;
   }
 }
 
 function drawerArtifacts(job) {
-  if (!job.artifacts.length) return '<div class="empty-state"><strong>No generated artefacts yet.</strong><span>The exact JD remains in the working record when captured.</span></div>';
+  if (!job.artifacts.length) return '<div class="empty-state"><strong>No generated files yet.</strong><span>The exact job advert remains in the working record when captured.</span></div>';
   const groups = [...new Set(job.artifacts.map(x => x.group))];
   const reviewControl = job.workflow?.can_review
     ? `<section class="drawer-section"><div class="drawer-section-title"><h3>Current CV and cover letter</h3><button class="secondary-button" type="button" data-artifact-action="review">Open complete review</button></div><div class="disclaimer">Review both documents here before employer-facing DOCX/PDF files are built.</div></section>`
-    : job.workflow?.plan_errors?.length
+    : job.workflow?.plan_available && job.workflow?.plan_errors?.length
       ? `<section class="drawer-section"><div class="gate-block-notice"><strong>Existing review records are stale.</strong><span>${job.workflow.plan_errors.map(h).join('<br>')}</span><button class="secondary-button" type="button" data-artifact-action="prepare">Refresh CV & letter</button></div></section>`
       : '';
   return reviewControl + groups.map(group => `<section class="artifact-group"><h3>${h(group)}</h3><div class="artifact-list">
     ${job.artifacts.filter(x => x.group === group).map(item => `<a class="artifact-row" href="${h(item.href || '#')}" ${item.href ? 'target="_blank"' : 'aria-disabled="true"'}>
       <span class="file-icon">${icons.file}</span><span><strong>${h(item.label)}${item.sent ? '<span class="sent-tag">SENT</span>' : ''}</strong><small>${h(item.filename)}${item.bytes ? ` · ${bytesLabel(item.bytes)}` : ''}</small></span>
-      <span class="file-state ${item.state === 'digest_mismatch' ? 'mismatch' : ''}">${h(item.state.replaceAll('_', ' '))}</span>
+      <span class="file-state ${item.state === 'digest_mismatch' ? 'mismatch' : ''}">${h(fileStateLabel(item.state))}</span>
     </a>`).join('')}
   </div></section>`).join('');
 }
@@ -783,8 +737,8 @@ function drawerEvidence(job) {
   const assessed = job.requirements.length > 0;
   const blockers = job.workflow?.gate_blockers || [];
   return `${blockers.length ? `<section class="drawer-section"><div class="drawer-section-title"><h3>Release blockers</h3><span class="subtle">Approval remains unavailable</span></div><div class="gate-block-list">${blockers.map(item => `<article><strong>${h(item.id)} · ${h(item.name)}</strong><span>${h(item.summary)}</span>${item.details?.length ? `<small>${item.details.map(h).join('<br>')}</small>` : ''}</article>`).join('')}</div><div class="disclaimer">A blocker completes only after a verified evidence or content change and a clean regenerated plan. If no truthful fix exists, leave this application blocked.</div><button class="secondary-button" type="button" data-evidence-action="codex">Discuss a verified resolution</button></section>` : ''}<section class="drawer-section"><div class="drawer-section-title"><h3>Requirement coverage</h3></div>
-    <div class="coverage-hero"><div class="coverage-ring" style="--value:${coverage}"><strong>${job.coverage === null || job.coverage === undefined ? '—' : `${coverage}%`}</strong></div>
-      <div class="coverage-bars">${bars.map(([kind, value]) => `<div class="coverage-bar" data-kind="${kind}"><span>${titleCase(kind)}</span><span class="bar"><span style="width:${(value / total) * 100}%"></span></span><b>${value}</b></div>`).join('')}</div></div>
+    <div class="coverage-hero"><div class="coverage-ring"><svg viewBox="0 0 42 42" aria-hidden="true"><circle class="coverage-ring-track" cx="21" cy="21" r="16" pathLength="100"></circle><circle class="coverage-ring-value" cx="21" cy="21" r="16" pathLength="100" stroke-dasharray="${coverage} ${100 - coverage}"></circle></svg><strong>${job.coverage === null || job.coverage === undefined ? '—' : `${coverage}%`}</strong></div>
+      <div class="coverage-bars">${bars.map(([kind, value]) => `<div class="coverage-bar" data-kind="${kind}"><span>${titleCase(kind)}</span><progress class="bar" max="${total}" value="${value}" aria-label="${titleCase(kind)}: ${value} of ${total}"></progress><b>${value}</b></div>`).join('')}</div></div>
     <div class="disclaimer">${h(job.coverage_note)}</div>
   </section>
   <section class="drawer-section"><div class="drawer-section-title"><h3>Gaps and mandatory risks</h3><span class="subtle">${assessed ? 'From the current evidence map' : 'Assessment has not run'}</span></div>
@@ -804,12 +758,13 @@ function drawerEvidence(job) {
 function drawerFeedback(job) {
   const items = job.feedback_items || [];
   return `<section class="drawer-section">
-    <div class="drawer-section-title"><h3>Application comments</h3><button class="secondary-button" type="button" data-review-action="feedback">Add comment</button></div>
-    <div class="disclaimer">Comments are governed review items. Open comments block approval; adopted or rejected decisions remain visible.</div>
+    <div class="drawer-section-title"><h3>Application comments</h3><button class="secondary-button" type="button" data-review-action="feedback">Add comment</button>${job.workflow?.open_feedback ? '<button class="primary-button" type="button" data-review-action="resolve-feedback">Review open feedback</button>' : ''}</div>
+    <div class="disclaimer">A disagreement starts an evidence review. Accepted wording is checked and rebuilt before you review both documents again. New facts need career-record sign-off. Only an accepted reusable preference carries to future jobs; ordinary comments stay here.</div>
     <div class="feedback-history">${items.length ? items.map(item => `<article class="feedback-card">
       <header><strong>${h(item.id)} · ${h(titleCase(item.scope))}</strong><span class="reason-status ${String(item.status || '').toLowerCase()}">${h(titleCase(item.status))}</span></header>
       <p>${h(item.note)}</p><small>Opened ${h(dateTimeLabel(item.opened_at))}${item.author ? ` · ${h(item.author)}` : ''}</small>
-      ${item.implementation ? `<div class="feedback-resolution"><strong>Decision</strong><span>${h(item.implementation)}</span><strong>Validation</strong><span>${h(item.validation || 'Not recorded')}</span></div>` : ''}
+      ${item.before_text && item.after_text ? `<div class="feedback-resolution"><strong>Before</strong><span>${h(item.before_text)}</span><strong>Proposed wording</strong><span>${h(item.after_text)}</span></div>` : ''}
+      ${item.implementation || item.decision_note ? `<div class="feedback-resolution"><strong>Decision and reason</strong><span>${h(item.implementation || item.decision_note)}</span>${item.validation ? `<strong>Checked</strong><span>${h(item.validation)}</span>` : ''}</div>` : ''}
     </article>`).join('') : '<div class="empty-state"><strong>No comments recorded.</strong><span>Add feedback here; it will remain attached to this exact application.</span></div>'}</div>
   </section>`;
 }
@@ -825,20 +780,20 @@ function drawerReasoning(job) {
   return `<section class="drawer-section"><div class="drawer-section-title"><h3>Observed outcome</h3></div>
     <div class="outcome-observation"><strong>${h(observation)}</strong><p>Employer-stated reason: ${h(job.employer_stated_reason || 'none provided')}. This observation is separate from every explanation below.</p></div>
   </section>
-  <section class="drawer-section"><div class="drawer-section-title"><h3>Reasoning record</h3>${['rejected', 'ghosted'].includes(job.status) ? '<button class="secondary-button" type="button" data-review-action="hypothesis">Add or revise</button>' : '<span class="subtle">Available after a rejected or ghosted outcome</span>'}</div>
-    <div class="disclaimer">Support is evidential, not predictive. A retained lesson appears in a future preflight only when its recorded trigger applies there.</div>
+  <section class="drawer-section"><div class="drawer-section-title"><h3>What might have happened</h3>${['rejected', 'ghosted'].includes(job.status) ? '<button class="secondary-button" type="button" data-review-action="hypothesis">Add or revise</button>' : '<span class="subtle">Available after a rejected or ghosted outcome</span>'}</div>
+    <div class="disclaimer">Learning is optional. If the evidence says nothing useful, no lesson is needed. A saved concern appears in a future application only when relevant, with its source and a choice to say it does not apply. It never changes career facts or sent documents.</div>
     ${job.hypotheses.length ? job.hypotheses.map(item => `<article class="reason-card">
-      <div class="reason-card-head"><div><strong>${h(item.id)} · ${h(item.cause_label)}</strong><div class="reason-meta">${item.revision_count} reasoning ${item.revision_count === 1 ? 'pass' : 'passes'} · ${Math.round((item.confidence || 0) * 100)}% evidence support</div></div><span class="reason-status ${String(item.status || '').toLowerCase()}">${h(titleCase(item.status))}</span></div>
-      <p class="reason-summary">${h(item.summary)}</p>
-      <div class="reason-evidence"><div><h4>Evidence for</h4>${evidenceList(item.evidence_for, 'None recorded')}</div><div><h4>Counterevidence</h4>${evidenceList(item.evidence_against, 'None recorded')}</div></div>
+      <div class="reason-card-head"><div><strong>${h(item.cause_label)}</strong><div class="reason-meta">Reviewed ${item.revision_count} ${item.revision_count === 1 ? 'time' : 'times'} · ${h(item.confidence_label)}</div></div><span class="reason-status ${String(item.status || '').toLowerCase()}">${h(item.status_label)}</span></div>
+      <p class="reason-summary">${h(item.summary_display)}</p>
+      <div class="reason-evidence"><div><h4>What supports this</h4>${evidenceList(item.evidence_for, 'Nothing recorded')}</div><div><h4>What argues against this</h4>${evidenceList(item.evidence_against, 'Nothing recorded')}</div></div>
       ${item.unknowns.length ? `<div class="unknown-box"><strong>Still unknown:</strong> ${item.unknowns.map(h).join(' · ')}</div>` : ''}
-    </article>`).join('') : '<div class="empty-state"><strong>No hypotheses recorded.</strong><span>No cause has been invented.</span></div>'}
+    </article>`).join('') : '<div class="empty-state"><strong>No guesses saved.</strong><span>No cause has been invented.</span></div>'}
   </section>`;
 }
 
 function drawerTimeline(job) {
-  return `<section class="drawer-section"><div class="drawer-section-title"><h3>Immutable event trail</h3><span class="subtle">Newest first</span></div>
-    <div class="timeline">${job.timeline.length ? job.timeline.map(event => `<article class="timeline-event"><strong>${h(titleCase(event.event))}${event.hypothesis_id ? ` · ${h(event.hypothesis_id)}` : ''}</strong><small>${h(dateTimeLabel(event.at))}${event.status ? ` · ${h(titleCase(event.status))}` : ''}${event.corrected ? ' · superseded' : ''}${event.active && ['OUTCOME', 'OUTCOME_CORRECTED'].includes(event.event) ? ' · active observation' : ''}</small></article>`).join('') : '<div class="empty-state"><strong>No lifecycle events yet.</strong></div>'}</div>
+  return `<section class="drawer-section"><div class="drawer-section-title"><h3>Application history</h3><span class="subtle">Newest first</span></div>
+    <div class="timeline">${job.timeline.length ? job.timeline.map(event => `<article class="timeline-event"><strong>${h(eventLabel(event.event))}</strong><small>${h(dateTimeLabel(event.at))}${event.status ? ` · ${h(recordStatusLabel(event.status))}` : ''}${event.corrected ? ' · replaced by a correction' : ''}${event.active && ['OUTCOME', 'OUTCOME_CORRECTED'].includes(event.event) ? ' · current observation' : ''}</small></article>`).join('') : '<div class="empty-state"><strong>No application events yet.</strong></div>'}</div>
   </section>`;
 }
 
@@ -894,7 +849,7 @@ async function openPreflight(job) {
   if (!job) return;
   state.actionJob = jobById(job.id) || job;
   state.preflightState = null;
-  $('#preflight-summary').innerHTML = '<span class="loader"></span> Checking the exact JD against approved ground truth…';
+  $('#preflight-summary').innerHTML = '<span class="loader"></span> Checking the exact advert against your approved career record…';
   $('#preflight-decisions').innerHTML = '';
   $('#preflight-status').textContent = '';
   $('#preflight-status').className = 'dialog-status';
@@ -906,11 +861,11 @@ async function openPreflight(job) {
   try {
     const response = await fetch(`/api/preflight?job=${encodeURIComponent(job.id)}`, {cache: 'no-store'});
     const value = await response.json();
-    if (!response.ok) throw new Error(value.error || `Preflight returned ${response.status}`);
+    if (!response.ok) throw new Error(value.error || `Application check returned ${response.status}`);
     state.preflightState = value;
     renderPreflight(value);
   } catch (error) {
-    $('#preflight-summary').textContent = 'Preflight could not be loaded.';
+    $('#preflight-summary').textContent = 'The application check could not be loaded.';
     $('#preflight-status').textContent = error.message;
     $('#preflight-save').hidden = true;
   }
@@ -923,13 +878,16 @@ function renderPreflight(value) {
     : `${value.decision_count} decisions remain`;
   $('#preflight-summary').innerHTML = `<strong>${h(value.company)} · ${h(value.role)}</strong><br>${h(value.resolved_count)} mandatory facts or behaviours already resolved · ${h(decisionState)}`;
   if (!decisions.length) {
-    $('#preflight-decisions').innerHTML = '<div class="empty-state"><strong>No material decisions remain.</strong><span>Complete the deterministic check, then prepare the application.</span></div>';
+    $('#preflight-decisions').innerHTML = '<div class="empty-state"><strong>No important decisions remain.</strong><span>Finish this application check, then create the CV and cover-letter review drafts.</span></div>';
   } else {
     $('#preflight-decisions').innerHTML = decisions.map(row => {
       const saved = value.answers?.[row.id]?.decision || '';
       const savedNote = value.answers?.[row.id]?.note || '';
       const options = (row.options || []).map(option => `<option value="${h(option.value)}" ${saved === option.value ? 'selected' : ''}>${h(option.label)}</option>`).join('');
-      const needsNote = (row.options || []).some(option => option.requires_note);
+      const needsNote = row.allow_note || (row.options || []).some(option => option.requires_note);
+      const evidence = (row.evidence_candidates || []).length
+        ? `<details class="preflight-evidence"><summary>Evidence the app considered</summary>${row.evidence_candidates.map(item => `<div><code>${h(item.id)}</code><span>${h(item.fact)}</span></div>`).join('')}</details>`
+        : '<div class="preflight-evidence empty"><strong>No approved evidence candidate was retrieved.</strong></div>';
       // Three parts, kept apart: what is true of this job, where the concern
       // came from, and the one thing being asked.
       const lead = row.finding || row.requirement || row.question;
@@ -938,24 +896,25 @@ function renderPreflight(value) {
         <header><span>${h(row.id)}</span><strong>${h(row.title || titleCase(row.kind))}</strong></header>
         <p>${h(lead)}</p>
         ${row.reason ? `<small>${h(row.reason)}</small>` : ''}
+        ${row.kind === 'KNOWN_GAP' ? evidence : ''}
         <label>${showQuestionAsLabel ? h(row.question) : 'Your decision'}<select name="${h(row.id)}" required ${value.complete ? 'disabled' : ''}><option value="">Choose…</option>${options}</select></label>
-        ${needsNote ? `<label>Reason when requested<textarea name="${h(row.id)}__note" rows="2" maxlength="2000" ${value.complete ? 'disabled' : ''} placeholder="Explain why this concern does not apply, or identify the evidence you will add.">${h(savedNote)}</textarea></label>` : ''}
+        ${needsNote ? `<label>${h(row.note_label || 'Reason when requested')}<textarea name="${h(row.id)}__note" rows="3" maxlength="2000" ${value.complete ? 'disabled' : ''} placeholder="Name the existing evidence the app missed, describe new evidence, or leave an application-only note.">${h(savedNote)}</textarea>${row.note_help ? `<small>${h(row.note_help)}</small>` : ''}</label>` : ''}
         <div class="preflight-effects">${(row.options || []).map(option => `<span><strong>${h(option.label)}:</strong> ${h(option.consequence)}</span>`).join('')}</div>
       </article>`;
     }).join('');
   }
   if (value.complete) {
-    $('#preflight-status').textContent = 'Preflight decisions are saved and bound to the current JD and approved truth.';
+    $('#preflight-status').textContent = 'Application decisions are saved and bound to the current advert and approved career record.';
     $('#preflight-status').classList.add('good');
     $('#preflight-save').hidden = true;
     $('#preflight-prepare').hidden = false;
     $('#preflight-prepare').textContent = state.actionJob?.workflow?.plan
-      ? 'Open current CV & letter' : state.actionJob?.workflow?.plan_available
-        ? 'Refresh CV & letter' : 'Generate CV & letter';
+      ? 'Open current review drafts' : state.actionJob?.workflow?.plan_available
+        ? 'Refresh review drafts' : 'Create review drafts';
   } else {
     $('#preflight-prepare').hidden = true;
     $('#preflight-save').textContent = decisions.length
-      ? 'Save & generate CV + letter' : 'Complete preflight & generate';
+      ? 'Save & create review drafts' : 'Complete check & create drafts';
   }
 }
 
@@ -969,23 +928,37 @@ async function submitPreflight(event) {
     row.id, {decision: fields[row.id] || '', note: fields[`${row.id}__note`] || ''},
   ]));
   const blocking = Object.entries(answers).find(([, value]) =>
-    ['ADD_NEW_EVIDENCE', 'ADD_NEW_CONTEXT'].includes(value.decision));
-  if (blocking) {
-    status.textContent = `${blocking[0]} is paused for new evidence or context. Opening the governed career-truth workbench; generation remains blocked.`;
-    state.truthOrigin = {job_id: state.actionJob.id, question_id: blocking[0]};
-    $('#preflight-dialog').close();
-    await openTruthSetup();
+    ['CHALLENGE_EVIDENCE_MAP', 'ADD_NEW_EVIDENCE', 'ADD_NEW_CONTEXT'].includes(value.decision));
+  if (blocking && blocking[1].note.trim().length < 8) {
+    status.textContent = `${blocking[0]} needs a brief evidence or context comment before it can be paused.`;
     return;
   }
   setFormBusy(form, true);
-  status.textContent = 'Binding your decisions to this exact JD and approved truth…';
+  status.textContent = 'Binding your decisions and comments to this exact advert and approved career record…';
   try {
     const result = await apiPost('/api/actions/preflight', {
       job_id: state.actionJob.id, answers, reviewer: 'dashboard-user',
     });
     state.preflightState = result.result.preflight;
     renderPreflight(state.preflightState);
-    status.textContent = 'Preflight complete. Generating the CV and cover-letter review bundle…';
+    if (blocking) {
+      const issueType = blocking[1].decision === 'CHALLENGE_EVIDENCE_MAP'
+        ? 'EXISTING_EVIDENCE_MISSED' : 'NEW_EVIDENCE';
+      await apiPost('/api/actions/preflight-issue', {
+        job_id: state.actionJob.id, question_id: blocking[0],
+        note: blocking[1].note, issue_type: issueType,
+      });
+      status.textContent = `${blocking[0]} and your comment are saved in the internal application record. Review drafts remain blocked while the evidence is reviewed.`;
+      status.classList.add('good');
+      state.truthOrigin = {job_id: state.actionJob.id, question_id: blocking[0]};
+      await loadData();
+      setTimeout(async () => {
+        $('#preflight-dialog').close();
+        await openTruthSetup();
+      }, 650);
+      return;
+    }
+    status.textContent = 'Application check complete. Creating internal CV and cover-letter review drafts…';
     status.classList.add('good');
     await prepareApplication(state.actionJob, $('#preflight-save'));
   } catch (error) {
@@ -1009,7 +982,7 @@ async function prepareApplication(job, source = null) {
     openDrawer(job, source);
     state.tab = 'review';
     renderDrawer();
-    toast('The current CV and cover letter are already available; no files were regenerated.');
+    toast('The current review drafts are already available; no records were regenerated.');
     return true;
   }
   if (state.mutatingJobs.has(job.id)) {
@@ -1020,13 +993,13 @@ async function prepareApplication(job, source = null) {
   const control = source?.closest?.('button') || source;
   if (control) control.disabled = true;
   const preflightStatus = $('#preflight-dialog').open ? $('#preflight-status') : null;
-  if (preflightStatus) preflightStatus.textContent = 'Generating the governed review bundle…';
+  if (preflightStatus) preflightStatus.textContent = 'Creating internal CV and cover-letter review drafts…';
   try {
     await apiPost('/api/actions/prepare', {job_id: job.id});
     await loadData();
     const refreshed = jobById(job.id);
     if (!refreshed?.workflow?.plan || !refreshed.outputs?.cv || !refreshed.outputs?.letter) {
-      throw new Error('Generation returned without both durable CV and cover-letter records.');
+      throw new Error('Draft creation returned without both durable CV and cover-letter records.');
     }
     if ($('#preflight-dialog').open) $('#preflight-dialog').close();
     if (!$('#agent-workspace').hidden) closeAgent();
@@ -1039,7 +1012,7 @@ async function prepareApplication(job, source = null) {
       state.tab = 'review';
       renderDrawer();
     }
-    toast('CV and cover letter created. Review the complete bundle now.');
+    toast('Internal CV and cover-letter drafts created. Review them before approval.');
     return true;
   } catch (error) {
     await loadData();
@@ -1049,7 +1022,7 @@ async function prepareApplication(job, source = null) {
       renderDrawer();
     }
     if (preflightStatus) {
-      preflightStatus.textContent = `Preflight is saved. Generation stopped: ${error.message}`;
+      preflightStatus.textContent = `Application check is saved. Draft creation stopped: ${error.message}`;
       preflightStatus.classList.remove('good');
       $('#preflight-prepare').hidden = false;
     }
@@ -1145,7 +1118,7 @@ function openAgent(job = null, prefill = '', intent = 'ask') {
   const panel = $('#agent-workspace');
   $('#agent-backdrop').hidden = false;
   panel.hidden = false;
-  document.body.style.overflow = 'hidden';
+  document.body.classList.add('modal-open');
   requestAnimationFrame(() => { panel.classList.add('open'); $('#agent-message').focus(); });
   loadSession().then(renderAgentState).catch(error => toast(error.message));
 }
@@ -1153,7 +1126,7 @@ function openAgent(job = null, prefill = '', intent = 'ask') {
 function closeAgent() {
   const panel = $('#agent-workspace');
   panel.classList.remove('open');
-  document.body.style.overflow = '';
+  document.body.classList.remove('modal-open');
   setTimeout(() => { panel.hidden = true; $('#agent-backdrop').hidden = true; }, 280);
 }
 
@@ -1162,20 +1135,20 @@ function renderAgentState() {
   const label = $('#agent-state');
   if (!agent?.available) {
     label.textContent = 'CODEX UNAVAILABLE';
-    label.style.color = 'var(--amber)';
+    label.dataset.state = 'attention';
   } else if (state.activeTask && ['starting', 'running', 'waiting'].includes(state.activeTask.status)) {
     const elapsed = turnDuration(state.activeTask);
     label.textContent = state.activeTask.status === 'waiting'
       ? 'YOUR APPROVAL NEEDED'
       : `CODEX WORKING${elapsed ? ` · ${elapsed}` : ''}`;
-    label.style.color = state.activeTask.status === 'waiting' ? 'var(--amber)' : 'var(--cyan)';
+    label.dataset.state = state.activeTask.status === 'waiting' ? 'attention' : 'working';
   } else if (state.activeTask?.status === 'failed') {
     label.textContent = 'CODEX TURN INTERRUPTED';
-    label.style.color = 'var(--amber)';
+    label.dataset.state = 'attention';
   } else {
     const last = state.activeTask?.duration_ms ?? agent?.performance?.last_duration_ms;
     label.textContent = `CODEX READY${last !== null && last !== undefined ? ` · last ${durationLabel(last)}` : ''}`;
-    label.style.color = 'var(--green)';
+    label.dataset.state = 'ready';
   }
 }
 
@@ -1197,8 +1170,8 @@ function renderAgentQuickActions() {
     job.workflow?.can_build
       ? ['build', 'Finish building documents']
       : job.workflow?.preflight
-      ? [job.workflow?.plan ? 'review' : 'prepare', job.workflow?.plan ? 'Open current CV & letter' : job.workflow?.plan_available ? 'Refresh CV & letter' : 'Generate CV & letter']
-      : ['preflight', 'Continue pre-generation review'],
+      ? [job.workflow?.plan ? 'review' : 'prepare', job.workflow?.plan ? 'Open current review drafts' : job.workflow?.plan_available ? 'Refresh review drafts' : 'Create review drafts']
+      : ['preflight', 'Continue application check'],
     ['feedback', 'Discuss an improvement'],
     ['submission', 'Submission help'],
     ['outcome', 'Reason about an outcome'],
@@ -1222,8 +1195,8 @@ function renderAgentArtifacts() {
     });
   const shown = (priority.length ? priority : available).slice(0, 6);
   root.hidden = false;
-  root.innerHTML = `<div class="agent-artifact-head"><div><span>Application artefacts</span><strong>${outputsReady ? 'Current outputs are linked below' : 'CV and cover letter have not been created yet'}</strong></div><button type="button" data-agent-artifacts="all">Open all (${available.length})</button></div>
-    <div class="agent-artifact-list">${shown.length ? shown.map(item => `<a href="${h(item.href)}" target="_blank"><span class="file-icon">${icons.file}</span><span><strong>${h(item.label)}</strong><small>${h(item.state.replaceAll('_', ' '))}</small></span></a>`).join('') : '<span>No durable artefact is available yet.</span>'}</div>`;
+  root.innerHTML = `<div class="agent-artifact-head"><div><span>Application files</span><strong>${outputsReady ? 'Current files are linked below' : 'CV and cover letter have not been created yet'}</strong></div><button type="button" data-agent-artifacts="all">Open all (${available.length})</button></div>
+    <div class="agent-artifact-list">${shown.length ? shown.map(item => `<a href="${h(item.href)}" target="_blank"><span class="file-icon">${icons.file}</span><span><strong>${h(item.label)}</strong><small>${h(fileStateLabel(item.state))}</small></span></a>`).join('') : '<span>No saved file is available yet.</span>'}</div>`;
 }
 
 function renderConversation() {
@@ -1234,7 +1207,7 @@ function renderConversation() {
   const interrupted = state.activeTask?.status === 'failed' && taskMatchesJob;
   const recovery = interrupted ? `<div class="turn-recovery" role="alert">
     <strong>Codex stopped before completing this turn.</strong>
-    <span>Joblooper refreshed the governed files. Partial work is preserved only when it appears in this application's gates or artefacts; no approval or document build is assumed.</span>
+    <span>Joblooper refreshed the saved records. Partial work counts only when it appears in this application's checks or files; no approval or document build is assumed.</span>
     <code>${h(turnFailureLabel(state.activeTask.error))}</code>
     <div><button class="primary-button" type="button" data-agent-recovery="resume">Resume safely</button>${state.agentJob ? '<button class="secondary-button" type="button" data-agent-recovery="workspace">Open application</button>' : ''}</div>
   </div>` : '';
@@ -1263,12 +1236,6 @@ function agentMessages() {
 function composerIntent(message) {
   if (state.agentIntent && state.agentIntent !== 'ask') return state.agentIntent;
   return state.agentJob ? 'auto' : 'ask';
-}
-
-function isPreparationRequest(message) {
-  const value = String(message || '').toLowerCase();
-  return /\b(create|generate|make|prepare|draft|tailor|regenerate|update)\b/.test(value)
-    && /\b(cv|resume|résumé|cover letter|application bundle|application)\b/.test(value);
 }
 
 async function startAgentTurn(message, intent = 'ask') {
@@ -1482,13 +1449,13 @@ function agentQuickAction(action) {
   } else if (action === 'build') {
     buildApplication(job);
   } else if (action === 'feedback') {
-    $('#agent-message').value = 'I want to improve this application. Assess this feedback against the JD and ground truth before anything is changed: ';
+    $('#agent-message').value = 'I want to improve this application. Assess this feedback against the advert and approved career record before anything is changed: ';
     $('#agent-message').focus();
   } else if (action === 'submission') {
     if (job?.workflow?.can_submit) openDialog('#submission-dialog', job);
     else startAgentTurn('Check whether this application is ready for submission. Identify the exact sendable CV and cover letter and any missing portal-evidence control. Do not claim that an external portal was submitted.', 'submission_help');
   } else if (action === 'outcome') {
-    startAgentTurn('Review the observed outcome and current reasoning record. Separate employer facts, retained best guesses, alternatives and unknowns. Do not promise that the true cause can be discovered.', 'outcome_review');
+    startAgentTurn('Review the observed outcome and the possible reasons already saved. Separate employer facts, useful best guesses, alternatives and unknowns. Do not promise that the true cause can be discovered.', 'outcome_review');
   }
 }
 
@@ -1519,10 +1486,12 @@ function setTheme(theme) {
 
 function populateSubmission(job) {
   const form = $('#submission-form');
+  form.reset();
+  $('#submission-status').textContent = '';
   const cv = job.artifacts.filter(item => ['manifest-pdf', 'manifest-docx'].includes(item.id) && item.href);
   const letters = job.artifacts.filter(item => ['manifest-letter_pdf', 'manifest-letter_docx'].includes(item.id) && item.href);
-  form.elements.cv_artifact_id.innerHTML = cv.map(item => `<option value="${h(item.id)}">${h(item.label)} · ${h(item.state)}</option>`).join('');
-  form.elements.letter_artifact_id.innerHTML = '<option value="">Not submitted</option>' + letters.map(item => `<option value="${h(item.id)}">${h(item.label)} · ${h(item.state)}</option>`).join('');
+  form.elements.cv_artifact_id.innerHTML = '<option value="" disabled selected>Select the CV you actually sent</option>' + cv.map(item => `<option value="${h(item.id)}">${h(item.label)} · ${h(fileStateLabel(item.state))}</option>`).join('');
+  form.elements.letter_artifact_id.innerHTML = '<option value="">Not submitted</option>' + letters.map(item => `<option value="${h(item.id)}">${h(item.label)} · ${h(fileStateLabel(item.state))}</option>`).join('');
   if (!cv.length) $('#submission-status').textContent = 'No verified approved CV is available.';
 }
 
@@ -1544,7 +1513,7 @@ function populateSubmissionUpdate(job) {
   form.elements.screening_file.disabled = unavailable;
   form.elements.screening_unavailable.disabled = captured;
   form.elements.screening_unavailable.checked = unavailable;
-  $('#update-submission-bundle').innerHTML = `<strong>Immutable sent bundle</strong><br>CV: ${h(job.sent_file || 'not recorded')}<br>Cover letter: ${h(job.sent_cover_letter || 'not submitted')}<br>Portal answers: ${h(captured ? 'exact evidence captured' : unavailable ? 'unavailable — explicitly recorded' : 'not captured')}`;
+  $('#update-submission-bundle').innerHTML = `<strong>Unchanged sent files</strong><br>CV: ${h(job.sent_file || 'not recorded')}<br>Cover letter: ${h(job.sent_cover_letter || 'not submitted')}<br>Portal answers: ${h(captured ? 'exact evidence captured' : unavailable ? 'unavailable — explicitly recorded' : 'not captured')}`;
 }
 
 async function populateFeedback(job) {
@@ -1584,7 +1553,7 @@ async function populateFeedbackResolution(job) {
       : '<strong>No open feedback remains.</strong>';
     const wording = item?.classification === 'APPLICATION_WORDING';
     const governed = Boolean(item?.classification);
-    const directlyDecidable = ['REUSABLE_PREFERENCE', 'FACTUAL_CORRECTION'].includes(item?.classification);
+    const directlyDecidable = ['REUSABLE_PREFERENCE', 'FACTUAL_CORRECTION', 'EVIDENCE_MAPPING'].includes(item?.classification);
     const closeOnly = ['WORKFLOW_REQUEST', 'REJECTION'].includes(item?.classification);
     $('#legacy-feedback-controls').hidden = governed;
     $('#feedback-proposal-controls').hidden = !wording || item.status !== 'OPEN';
@@ -1592,7 +1561,7 @@ async function populateFeedbackResolution(job) {
       && !directlyDecidable && !closeOnly;
     $('#feedback-decision-save').hidden = wording && item.status === 'OPEN';
     form.elements.decision.innerHTML = (closeOnly
-      ? [['DEFER', 'Defer'], ['REJECT', 'Reject']]
+      ? [['DEFER', 'Set aside for now'], ['REJECT', 'Close without changing the CV']]
       : [['ACCEPT', 'Accept'], ['EDIT', 'Use another authorized variant'], ['REJECT', 'Reject'], ['DEFER', 'Defer']])
       .map(([value, label]) => `<option value="${value}">${label}</option>`).join('');
     if (wording) {
@@ -1611,6 +1580,12 @@ async function populateFeedbackResolution(job) {
 
 function syncFeedbackClass(form = $('#feedback-form')) {
   const reusable = form.elements.classification.value === 'REUSABLE_PREFERENCE';
+  const factual = form.elements.classification.value === 'FACTUAL_CORRECTION';
+  // Scope follows the governed feedback type: ordinary wording is job-specific.
+  form.elements.requested_scope.innerHTML = reusable
+    ? '<option value="FUTURE_APPLICATIONS">Future drafts, after you accept this preference</option>'
+    : factual ? '<option value="CAREER_TRUTH">Career record, after evidence review and sign-off</option>'
+      : '<option value="THIS_APPLICATION">This application only</option>';
   $('#feedback-preference-fields').hidden = !reusable;
   form.elements.target_id.closest('label').hidden =
     form.elements.classification.value !== 'APPLICATION_WORDING';
@@ -1659,7 +1634,7 @@ function populateHypothesis(job) {
   const form = $('#hypothesis-form');
   form.reset();
   form.elements.hypothesis_id.innerHTML = '<option value="">Start a new one</option>'
-    + (job.hypotheses || []).map(item => `<option value="${h(item.id)}">${h(item.id)} - ${h(item.cause_label)} - ${h(titleCase(item.status))}</option>`).join('');
+    + (job.hypotheses || []).map(item => `<option value="${h(item.id)}">${h(item.cause_label)} — ${h(item.status_label)}</option>`).join('');
   form.elements.confidence.value = nearestConfidence(form.elements.confidence, 0.6);
   syncHypothesis(form, job);
 }
@@ -1753,7 +1728,7 @@ async function submitFeedback(event) {
     return;
   }
   setFormBusy(form, true);
-  status.textContent = 'Recording typed feedback against the exact bundle…';
+  status.textContent = 'Recording this comment against the exact documents…';
   try {
     const response = await apiPost('/api/actions/feedback', {
       job_id: state.actionJob.id, scope: scopes[data.classification], note: data.note,
@@ -1773,7 +1748,7 @@ async function submitFeedback(event) {
       await populateFeedbackResolution(job);
       openDialog('#resolve-feedback-dialog', job);
     }
-    toast('Typed feedback recorded against the exact current bundle.');
+    toast('Comment recorded against the exact current documents.');
   } catch (error) { status.textContent = error.message; }
   finally { setFormBusy(form, false); }
 }
@@ -1844,12 +1819,11 @@ async function submitApproval(event) {
   const status = $('#approval-status');
   const data = Object.fromEntries(new FormData(form));
   setFormBusy(form, true);
-  status.textContent = 'Running approval, document and package gates…';
+  status.textContent = 'Binding approval to the exact review drafts and internal decisions…';
   try {
-    const result = await apiPost('/api/actions/approve-build', {
+    const result = await apiPost('/api/actions/approve', {
       job_id: state.actionJob.id, reviewer: data.reviewer,
       confirmation: data.confirmed ? 'I reviewed the complete CV and cover letter' : '',
-      no_pdf: Boolean(data.no_pdf),
     });
     status.textContent = result.result.output;
     status.classList.add('good');
@@ -1857,10 +1831,7 @@ async function submitApproval(event) {
     setTimeout(() => { form.reset(); $('#approval-dialog').close(); }, 900);
   } catch (error) {
     await loadData();
-    const refreshed = state.actionJob && jobById(state.actionJob.id);
-    status.textContent = refreshed?.workflow?.can_build
-      ? `Approval is saved, but build stopped: ${error.message}. Close this dialog and use Finish building documents.`
-      : error.message;
+    status.textContent = error.message;
   }
   finally { setFormBusy(form, false); }
 }
@@ -1872,7 +1843,7 @@ async function submitSubmission(event) {
   const data = Object.fromEntries(new FormData(form));
   if (!data.confirmed) { status.textContent = 'Confirm that these exact files were uploaded.'; return; }
   setFormBusy(form, true);
-  status.textContent = 'Binding the exact submitted bundle…';
+  status.textContent = 'Binding the exact submitted files…';
   try {
     const screening = await filePayloads(form.elements.screening_file.files);
     const result = await apiPost('/api/actions/submit', {
@@ -1992,11 +1963,11 @@ async function submitTruthReview(event) {
   const decisions = truthDecisions();
   const unanswered = decisions.find(row => !row.disposition);
   if (unanswered) {
-    status.textContent = `${unanswered.candidate_id} still needs a disposition.`;
+    status.textContent = `${unanswered.candidate_id} still needs a decision.`;
     return;
   }
   setFormBusy(form, true);
-  status.textContent = 'Validating the proposed authority as one transaction…';
+  status.textContent = 'Checking the complete career record…';
   try {
     await apiPost('/api/actions/truth-review', {
       profile: {
@@ -2008,7 +1979,7 @@ async function submitTruthReview(event) {
     });
     await refreshTruthWorkspace();
     await loadData();
-    status.textContent = 'Review saved. No generation is allowed until the exact digest below is signed.';
+    status.textContent = 'Review saved. No CV can be created until you sign the exact saved version below.';
     status.classList.add('good');
   } catch (error) { status.textContent = error.message; }
   finally { setFormBusy(form, false); }
@@ -2021,7 +1992,7 @@ async function submitTruthSign(event) {
   const data = Object.fromEntries(new FormData(form));
   if (!data.confirmed) { status.textContent = 'Confirm the complete review before signing.'; return; }
   setFormBusy(form, true);
-  status.textContent = 'Running integrity checks and binding the exact truth digest…';
+  status.textContent = 'Checking the record and saving your sign-off…';
   try {
     await apiPost('/api/actions/truth-sign', {
       reviewer: data.reviewer,
@@ -2163,7 +2134,7 @@ function renderTruthWorkspace() {
   if ([...sourceSelect.options].some(option => option.value === priorSource)) sourceSelect.value = priorSource;
   const step = pending.length ? 2 : (workspace.registered_sources && workspace.facts?.length ? 3 : 1);
   $('#truth-steps').innerHTML = [
-    ['Source evidence', 1], ['Claim review', 2], ['Digest sign-off', 3],
+    ['Add evidence', 1], ['Review facts', 2], ['Sign your record', 3],
   ].map(([label, number]) => `<span class="${number < step ? 'complete' : number === step ? 'active' : ''}">${number}. ${h(label)}</span>`).join('');
   const form = $('#truth-review-form');
   form.hidden = !pending.length;
@@ -2189,12 +2160,12 @@ function renderTruthWorkspace() {
     const saved = row.draft_decision || {};
     const type = saved.type || row.suggested_type || 'anchor';
     return `<article class="truth-candidate" data-candidate="${h(row.id)}">
-      <header><strong>${h(row.id)} · ${h(sourceNames[row.source_id] || row.source_id)}</strong><span>${h(row.locator)} · proposal confidence ${Math.round((row.confidence || 0) * 100)}%</span></header>
+      <header><strong>${h(row.id)} · ${h(sourceNames[row.source_id] || row.source_id)}</strong><span>${h(row.locator)} · ${h(readingConfidenceLabel(row.confidence))}</span></header>
       <p class="source-proposal">${h(row.text)}</p>
       <div class="truth-candidate-fields">
-        <label>Disposition<select data-field="disposition" required><option value="">Choose…</option>${['ADOPTED', 'DUPLICATE', 'REJECTED', 'UNRESOLVED'].map(value => `<option value="${value}" ${saved.disposition === value ? 'selected' : ''}>${titleCase(value)}</option>`).join('')}</select></label>
+        <label>What should happen?<select data-field="disposition" required><option value="">Choose…</option>${Object.entries(truthDecisionLabels).map(([value, label]) => `<option value="${value}" ${saved.disposition === value ? 'selected' : ''}>${h(label)}</option>`).join('')}</select></label>
         <label>Fact type<select data-field="type">${['anchor', 'role', 'skill', 'education', 'credential', 'publication', 'recognition'].map(value => `<option value="${value}" ${type === value ? 'selected' : ''}>${titleCase(value)}</option>`).join('')}</select></label>
-        <label class="wide">Candidate-approved wording<textarea data-field="fact" rows="2" maxlength="500">${h(saved.fact || row.text)}</textarea></label>
+        <label class="wide">Wording for your record<textarea data-field="fact" rows="2" maxlength="500">${h(saved.fact || row.text)}</textarea></label>
         <label>Ownership<select data-field="ownership">${['exposed_to', 'supported', 'coordinated', 'managed', 'led', 'owned', 'accountable_for'].map(value => `<option value="${value}" ${value === (saved.ownership || 'supported') ? 'selected' : ''}>${titleCase(value)}</option>`).join('')}</select></label>
         <label>Employment link<select data-field="role_id"><option value="">Not employment evidence</option>${roleOptions.map(option => `<option value="${h(option.id)}" ${saved.role_id === option.id ? 'selected' : ''}>${h(option.label)}</option>`).join('')}</select></label>
         <label>Organisation (for Role)<input data-field="org" maxlength="200" value="${h(saved.org || '')}"></label>
@@ -2202,23 +2173,23 @@ function renderTruthWorkspace() {
         <label>Role start (YYYY or YYYY-MM)<input data-field="start" maxlength="7" value="${h(saved.start || '')}"></label>
         <label>Role end / blank if current<input data-field="end" maxlength="7" value="${h(saved.end || '')}"></label>
         <label>Duplicate of<select data-field="duplicate_of"><option value="">Select existing fact</option>${duplicateOptions.map(option => `<option value="${h(option.id)}" ${saved.duplicate_of === option.id ? 'selected' : ''}>${h(option.id)} · ${h(option.fact)}</option>`).join('')}</select></label>
-        <label>Decision reason<input data-field="reason" maxlength="500" value="${h(saved.reason || '')}" placeholder="Required for rejected or unresolved claims"></label>
+        <label>Reason for your decision<input data-field="reason" maxlength="500" value="${h(saved.reason || '')}" placeholder="Required when leaving a fact out or deciding later"></label>
       </div>
     </article>`;
   }).join('');
   if (!pending.length) $('#truth-candidate-list').innerHTML = '';
   $('#truth-summary').innerHTML = `
     <span><strong>Identity:</strong> ${h(identity || 'review required')}</span>
-    <span><strong>Registered sources:</strong> ${h(workspace.registered_sources || 0)} · <strong>active facts:</strong> ${h(workspace.facts?.length || 0)}</span>
-    <span><strong>Conflicts:</strong> ${h(workspace.conflicts?.length || 0)} · <strong>boundary:</strong> ${h(workspace.boundary_summary?.rule || '')}</span>
-    <span><strong>Exact subject digest:</strong> <code>${h(workspace.subject_sha256 || 'not available')}</code></span>`;
+    <span><strong>Saved evidence sources:</strong> ${h(workspace.registered_sources || 0)} · <strong>active facts:</strong> ${h(workspace.facts?.length || 0)}</span>
+    <span><strong>Conflicts:</strong> ${h(workspace.conflicts?.length || 0)} · <strong>privacy rule:</strong> ${h(workspace.boundary_summary?.rule || '')}</span>
+    <span><strong>Saved record version:</strong> <code>${h(workspace.subject_sha256 || 'not available')}</code></span>`;
   if (profile.name) $('#truth-sign-form').elements.reviewer.value = profile.name;
   if (profile.name && !$('#truth-comment-form').elements.author.value) {
     $('#truth-comment-form').elements.author.value = profile.name;
   }
   $('#truth-comment-list').innerHTML = truthComments.length
     ? truthComments.map(item => `<article class="feedback-card"><header><strong>${h(item.id)} · ${h(titleCase(item.scope))}</strong><span class="reason-status ${String(item.status || '').toLowerCase()}">${h(titleCase(item.status))}</span></header><p>${h(item.note)}</p><small>${h(item.author || '')} · ${h(dateTimeLabel(item.created_at))}</small>${item.implementation ? `<div class="feedback-resolution"><strong>Decision</strong><span>${h(item.implementation)}</span><strong>Validation</strong><span>${h(item.validation)}</span></div>` : ''}</article>`).join('')
-    : '<div class="empty-state"><strong>No career-truth comments.</strong></div>';
+    : '<div class="empty-state"><strong>No career-record comments.</strong></div>';
   const resolveForm = $('#truth-comment-resolve-form');
   resolveForm.hidden = !openTruthComments.length;
   resolveForm.elements.item_id.innerHTML = openTruthComments
@@ -2236,7 +2207,7 @@ async function submitTruthComment(event) {
     form.elements.evidence.value = '';
     await refreshTruthWorkspace();
     await loadData();
-    toast('Career-truth comment recorded; sign-off remains blocked until resolution.');
+    toast('Career-record comment saved; sign-off remains blocked until it is resolved.');
   } catch (error) { toast(error.message); }
   finally { setFormBusy(form, false); }
 }
@@ -2252,7 +2223,7 @@ async function submitTruthCommentResolution(event) {
     form.reset();
     await refreshTruthWorkspace();
     await loadData();
-    status.textContent = 'Truth decision saved against the current exact digest.';
+    status.textContent = 'Career-record decision saved for this exact version.';
     status.classList.add('good');
   } catch (error) { status.textContent = error.message; }
   finally { setFormBusy(form, false); }
@@ -2278,7 +2249,7 @@ async function openTruthSetup(forceWorkbench = false) {
     return;
   }
   $('#truth-workbench-dialog').showModal();
-  $('#truth-upload-status').textContent = 'Loading private source ledger…';
+  $('#truth-upload-status').textContent = 'Loading your private career sources…';
   try {
     await refreshTruthWorkspace();
     $('#truth-upload-status').textContent = '';
@@ -2294,6 +2265,7 @@ function handleActiveAction(event) {
   const job = jobById(control.dataset.job);
   if (!job) return;
   if (action === 'active-turn') { openAgent(job); return; }
+  if (action === 'advert-review') { openAdvertReview(job); return; }
   if (action === 'preflight') { openPreflight(job); return; }
   if (action === 'prepare' || action === 'codex') {
     prepareApplication(job, control);
@@ -2310,6 +2282,7 @@ function wireEvents() {
   $('#refresh-button').addEventListener('click', () => loadData(true));
   $('#theme-button').addEventListener('click', () => setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'));
   $('#truth-pill').addEventListener('click', () => openTruthSetup());
+  $('#mobile-truth-button').addEventListener('click', () => openTruthSetup());
   $('#new-job-button').addEventListener('click', () => openIntake());
   $('#active-job-list').addEventListener('click', handleActiveAction);
   $('#primary-action').addEventListener('click', event => {
@@ -2374,7 +2347,7 @@ function wireEvents() {
       prepareApplication(state.selectedJob, event.target); return;
     }
     if (evidenceAction === 'codex' && state.selectedJob) {
-      openAgent(state.selectedJob, 'Assess the visible deterministic gate blocker. Identify only a verified, non-redundant evidence or content change that would clear it; if none exists, say the application must remain blocked.', 'improvement');
+      openAgent(state.selectedJob, 'Assess the visible document-check problem. Identify only a verified, non-redundant evidence or content change that would clear it; if none exists, say the application must remain blocked.', 'improvement');
       return;
     }
     const action = reviewAction;
@@ -2383,12 +2356,13 @@ function wireEvents() {
     if (action === 'codex') openAgent(state.selectedJob);
     if (action === 'prepare') prepareApplication(state.selectedJob, event.target);
     if (action === 'feedback') { populateFeedback(state.selectedJob); openDialog('#feedback-dialog', state.selectedJob); }
+    if (action === 'resolve-feedback') { populateFeedbackResolution(state.selectedJob); openDialog('#resolve-feedback-dialog', state.selectedJob); }
     if (action === 'hypothesis') { populateHypothesis(state.selectedJob); openDialog('#hypothesis-dialog', state.selectedJob); }
     if (action === 'present') {
       const button = event.target.closest('button');
       button.disabled = true;
       apiPost('/api/actions/present', {job_id: state.selectedJob.id})
-        .then(async () => { await loadData(); state.tab = 'review'; renderDrawer(); toast('Complete bundle is now bound to this review.'); })
+        .then(async () => { await loadData(); state.tab = 'review'; renderDrawer(); toast('Both documents marked as read. You can now sign off the exact text.'); })
         .catch(error => { toast(error.message); button.disabled = false; });
     }
   });
@@ -2397,6 +2371,20 @@ function wireEvents() {
   $('#agent-form').addEventListener('submit', event => {
     event.preventDefault();
     const message = $('#agent-message').value;
+    if (state.agentJob && isSubmissionReport(message)) {
+      const job = jobById(state.agentJob.id);
+      if (job?.workflow?.can_submit) {
+        $('#agent-message').value = '';
+        closeAgent(); populateSubmission(job); openDialog('#submission-dialog', job);
+        return;
+      }
+      if (job?.exact_submission) {
+        $('#agent-message').value = '';
+        closeAgent(); openDrawer(job);
+        toast('This application is already recorded. Its exact sent files are saved here.');
+        return;
+      }
+    }
     if (state.agentJob && isPreparationRequest(message)) {
       $('#agent-message').value = '';
       prepareApplication(state.agentJob);
@@ -2413,7 +2401,7 @@ function wireEvents() {
     $('#truth-integrity-dialog').close();
     openAgent(
       null,
-      `Explain this exact deterministic ground-truth integrity failure and the safe user choices: ${state.truthIntegrityDetail}`,
+      `Explain this exact career-record safety failure and the safe user choices: ${state.truthIntegrityDetail}`,
       'integrity_review');
   });
   $('#truth-integrity-replace').addEventListener('click', () => {
@@ -2458,7 +2446,7 @@ function wireEvents() {
     const decisions = state.preflightState?.questions || [];
     $('#preflight-dialog').close();
     openAgent(job,
-      `Clarify one of these recorded preflight gaps without inventing evidence: ${decisions.map(row => `${row.id}: ${row.requirement || row.question}`).join(' | ')}. Any final proceed/stop decision will be saved in the dashboard Preflight review.`,
+      `Clarify one of these recorded application gaps without inventing evidence: ${decisions.map(row => `${row.id}: ${row.requirement || row.question}`).join(' | ')}. Any final proceed/stop decision will be saved in the dashboard application check.`,
       'ask');
   });
   $('#feedback-form').addEventListener('submit', submitFeedback);
@@ -2514,7 +2502,10 @@ const preferredTheme = localStorage.getItem('joblooper-theme')
 setTheme(preferredTheme);
 wireEvents();
 async function bootstrap() {
-  await Promise.all([loadSession(), loadData()]);
+  // The session response establishes the HttpOnly same-origin read boundary.
+  // Private dashboard data must not race ahead of that cookie on first load.
+  await loadSession();
+  await loadData();
   const restoredRaw = sessionStorage.getItem('joblooper-dashboard-context');
   sessionStorage.removeItem('joblooper-dashboard-context');
   let restored = null;
