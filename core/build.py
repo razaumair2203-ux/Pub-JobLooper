@@ -20,6 +20,13 @@ import re
 
 from . import disclosure, language, store, vec
 
+
+# A publication-profile link earns its header space only where research is the
+# job being bought; on an engineering CV it lengthens the contact line until
+# the phone number wraps, which reviewers flagged.
+_RESEARCH_LINKS = {'google_scholar'}
+_RESEARCH_LANES = {'rd_technical_lead', 'applied_ai', 'research_computing'}
+
 # Above this cosine, a candidate repeats evidence already on the page.
 DIVERSITY_MAX = 0.62
 # Outside mandatory coverage reservations, richer wording must improve
@@ -235,7 +242,9 @@ def assemble(jd, m, target_pages=None):
         rank_label = (prof.get('career') or {}).get('rank')
         if rank_label:
             _head.insert(0, rank_label)
-    contact = _head + [prof['contact']['phone_primary'], prof['contact']['email']]
+    # Non-breaking spaces keep a phone number on one line in the rendered page.
+    phone = str(prof['contact'].get('phone_primary') or '').replace(' ', '\u00a0')
+    contact = _head + [phone, prof['contact']['email']]
     pos_for_headline = next((a for a in recs if a.get('type') == 'positioning'
                              and primary in a.get('identity', [])), None)
     headline_cites = ([pos_for_headline['id']] + list(pos_for_headline.get('supports', []))) \
@@ -252,7 +261,8 @@ def assemble(jd, m, target_pages=None):
               'anchors': [a for a in headline_cites if a in by_id],
               'contact': [c for c in contact if c],
               'links': {k: v for k, v in (prof.get('links') or {}).items()
-                        if v and not k.startswith('_')}}
+                        if v and not k.startswith('_')
+                        and (k not in _RESEARCH_LINKS or primary in _RESEARCH_LANES)}}
 
     # ---- section builders --------------------------------------------
     built = {}
@@ -471,8 +481,10 @@ def assemble(jd, m, target_pages=None):
                         add = add[0].lower() + add[1:]
                     relation = rider.get('merge_relation', 'causal')
                     if relation == 'chronological':
-                        txt = (txt.rstrip('.') + '; recognition during this period: '
-                               + add)
+                        # A plain dash reads as one achievement; the old
+                        # "recognition during this period:" joiner repeated
+                        # three times on a CV and read as filler.
+                        txt = txt.rstrip('.') + ' — ' + add
                     else:
                         txt = txt.rstrip('.') + '; ' + add
                     cites.append(rider['id'])
