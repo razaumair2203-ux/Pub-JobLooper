@@ -177,6 +177,14 @@ def main():
         gate_ok = False
     check('review map renders a BEHAVIOURAL hard gate', gate_ok)
 
+    letter = cover_letter._summary_first_person(
+        'Systems engineer with 18+ years in aircraft systems. Served two years as '
+        'customer-side lead. PMP, PMI-ACP and Professional Engineer.')
+    check('cover letter converts "Served" and bare credential sentences',
+          'I served two years' in letter
+          and 'I hold PMP, PMI-ACP and Professional Engineer credentials.' in letter,
+          letter)
+
     check('external output replaces governed platform aliases',
           'Falcon-R' not in text and 'Orion-X' not in text)
 

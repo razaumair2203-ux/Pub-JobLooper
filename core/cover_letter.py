@@ -23,7 +23,7 @@ _FIRST_PERSON_VERBS = {
     'Led': 'led', 'Managed': 'managed', 'Mentors': 'mentor', 'Oversaw': 'oversaw',
     'Produced': 'produced', 'Reviewed': 'reviewed', 'Selected': 'was selected',
     'Supervised': 'supervised', 'Teaches': 'teach', 'Validated': 'validated',
-    'Leads': 'lead', 'Manages': 'manage',
+    'Leads': 'lead', 'Manages': 'manage', 'Served': 'served',
 }
 
 
@@ -65,6 +65,11 @@ def _summary_first_person(text):
             rendered.append(
                 f'I hold {credential.group(1)} credentials and was selected by '
                 f'{credential.group(2)}.')
+            continue
+        bare = re.match(r'^((?:PMP|PMI-ACP|Professional Engineer)\b.*)$',
+                        sentence.rstrip('.'), re.I)
+        if bare:
+            rendered.append(f'I hold {bare.group(1)} credentials.')
             continue
         raise ValueError(
             f'professional summary needs supported cover-letter grammar: {sentence!r}')
