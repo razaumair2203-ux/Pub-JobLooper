@@ -24,6 +24,10 @@ _FIRST_PERSON_VERBS = {
     'Produced': 'produced', 'Reviewed': 'reviewed', 'Selected': 'was selected',
     'Supervised': 'supervised', 'Teaches': 'teach', 'Validated': 'validated',
     'Leads': 'lead', 'Manages': 'manage', 'Served': 'served',
+    'Accepted': 'accepted', 'Built': 'built', 'Controlled': 'controlled',
+    'Finalised': 'finalised', 'Integrated': 'integrated', 'Investigated': 'investigated',
+    'Ran': 'ran', 'Represented': 'represented', 'Supervises': 'supervise',
+    'Used': 'used', 'Uses': 'use',
 }
 
 
